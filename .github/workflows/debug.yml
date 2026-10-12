@@ -18,7 +18,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Download Scrcpy binaries from private repo
+      - name: Download Scrcpy binaries and keystore from private repo
         env:
           GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
         run: |
@@ -26,6 +26,7 @@ jobs:
           gh release download binaries-v041 \
             --repo mood-ahmad/curbox-scrcpy-binaries \
             --pattern "cloudphone-binaries-v041.zip" \
+            --pattern "curbox-release.jks" \
             --dir /tmp/
           unzip -o /tmp/cloudphone-binaries-v041.zip -d /tmp/extracted/
 
@@ -33,22 +34,19 @@ jobs:
           mkdir -p app/src/main/assets/cloudphone/certs
           mkdir -p app/src/main/assets/cloudphone/assets
 
-          # Copy binaries and libs
           cp /tmp/extracted/cloudphone-v0.4.1/android/cloudphone-agent app/src/main/assets/cloudphone/
           cp /tmp/extracted/cloudphone-v0.4.1/android/webrtc-signaling app/src/main/assets/cloudphone/
           cp /tmp/extracted/cloudphone-v0.4.1/android/libsys_core.so app/src/main/assets/cloudphone/
-
-          # Copy certs
           cp /tmp/extracted/cloudphone-v0.4.1/android/certs/* app/src/main/assets/cloudphone/certs/
-
-          # Copy web assets (everything inside the root assets folder)
           cp -r /tmp/extracted/cloudphone-v0.4.1/assets/* app/src/main/assets/cloudphone/assets/
 
-          echo "--- Contents of assets/cloudphone: ---"
-          find app/src/main/assets/cloudphone -maxdepth 2 -type d
-          echo "--- Files: ---"
+          # Copy keystore to expected location for signing
+          cp /tmp/curbox-release.jks app/curbox-release.jks
+
+          echo "--- Keystore: ---"
+          ls -la app/curbox-release.jks
+          echo "--- Assets/cloudphone: ---"
           ls -la app/src/main/assets/cloudphone/
-          ls -la app/src/main/assets/cloudphone/certs/
 
       - name: Give permission to executable
         run: chmod +x gradlew
