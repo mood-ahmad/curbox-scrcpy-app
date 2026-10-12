@@ -18,6 +18,19 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Download Scrcpy binaries from private repo
+        env:
+          GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
+        run: |
+          mkdir -p app/src/main/assets/cloudphone
+          gh release download binaries-v041 \
+            --repo mood-ahmad/curbox-scrcpy-binaries \
+            --pattern "cloudphone-binaries-v041.zip" \
+            --dir /tmp/
+          unzip -o /tmp/cloudphone-binaries-v041.zip -d app/src/main/assets/cloudphone/
+          echo "--- Contents of assets/cloudphone: ---"
+          ls -la app/src/main/assets/cloudphone/
+
       - name: Give permission to executable
         run: chmod +x gradlew
 
