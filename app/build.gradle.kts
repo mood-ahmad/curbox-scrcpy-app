@@ -164,6 +164,15 @@ android {
         jniLibs {
             useLegacyPackaging = true
         }
+        resources {
+            excludes += setOf(
+                "META-INF/NOTICE.md",
+                "META-INF/LICENSE.md",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE.txt"
+            )
+        }
     }
 }
 
