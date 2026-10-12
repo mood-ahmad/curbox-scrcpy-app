@@ -11,16 +11,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
-/**
- * High level orchestrator for the Scrcpy remote control feature.
- *
- * Responsibilities:
- * - Extract bundled assets into a staging directory accessible by the shell user
- *   (external files dir) so Shizuku can copy them.
- * - Delegate start/stop to [RemoteControlServiceBridge].
- * - Send the connection link by email automatically on success.
- * - Expose the current state as a [StateFlow] for the UI.
- */
 object RemoteControlManager {
 
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -31,22 +21,12 @@ object RemoteControlManager {
     private var bridge: RemoteControlServiceBridge? = null
     private var currentLink: String? = null
 
-    /**
-     * Initializes the manager with an application context.
-     * Safe to call multiple times.
-     */
     fun init(context: Context) {
         if (bridge == null) {
             bridge = RemoteControlServiceBridge(context.applicationContext)
         }
     }
 
-    /**
-     * Starts the remote control service:
-     * 1. Copy assets to staging dir (external, so Shizuku can read).
-     * 2. Launch signaling + agent via Shizuku.
-     * 3. Send the link by email.
-     */
     fun start(context: Context) {
         init(context)
         val appContext = context.applicationContext
@@ -61,20 +41,17 @@ object RemoteControlManager {
 
         scope.launch {
             try {
-                // 1. Extract assets to staging
                 val staged = copyAssetsToStaging(appContext)
                 if (!staged) {
                     _state.value = RemoteControlState.Error("Failed to extract bundled files")
                     return@launch
                 }
 
-                // 2. Start service
                 bridge?.start(object : RemoteControlServiceBridge.StartCallback {
                     override fun onSuccess(link: String) {
                         currentLink = link
                         _state.value = RemoteControlState.Ready(link)
 
-                        // 3. Send email automatically
                         scope.launch {
                             EmailSender.sendLink(link)
                         }
@@ -90,9 +67,6 @@ object RemoteControlManager {
         }
     }
 
-    /**
-     * Stops the running service and clears the link.
-     */
     fun stop() {
         val b = bridge ?: return
         if (_state.value is RemoteControlState.Idle ||
@@ -109,9 +83,6 @@ object RemoteControlManager {
         })
     }
 
-    /**
-     * Refreshes state by checking whether the agent is running.
-     */
     fun refresh() {
         val b = bridge ?: return
         b.isRunning { running ->
@@ -122,7 +93,6 @@ object RemoteControlManager {
                     if (link != null) {
                         _state.value = RemoteControlState.Ready(link)
                     }
-                    // If we don't have a link but service is running, leave state as-is.
                 }
                 !running && current is RemoteControlState.Ready -> {
                     _state.value = RemoteControlState.Idle
@@ -132,24 +102,12 @@ object RemoteControlManager {
         }
     }
 
-    /**
-     * Returns the current active link or null if none.
-     */
     fun getCurrentLink(): String? = currentLink
-
-    // -------------------------------------------------------------------------
-    // Asset extraction
-    // -------------------------------------------------------------------------
 
     private suspend fun copyAssetsToStaging(context: Context): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                // IMPORTANT: use the external files dir so the Shizuku (shell)
-                // user can read the staged files. The internal files dir is
-                // not accessible from the shell process.
-                val staging = context.getExternalFilesDir("cloudphone-staging")
-                    ?: File(context.filesDir, "cloudphone-staging")
-
+                val staging = File(context.filesDir, "cloudphone-staging")
                 if (staging.exists()) staging.deleteRecursively()
                 staging.mkdirs()
 
@@ -192,7 +150,6 @@ object RemoteControlManager {
     ) {
         val children = assetManager.list(assetDir) ?: emptyArray()
         if (children.isEmpty()) {
-            // It's a file
             copyAssetFile(assetManager, assetDir, destDir)
             return
         }
