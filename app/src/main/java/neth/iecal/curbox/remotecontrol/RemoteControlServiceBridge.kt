@@ -7,14 +7,9 @@ import java.io.File
 /**
  * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
  *
- * Responsibilities:
- * - Copy binaries from the external staging dir to /data/local/tmp/android.
- * - Start the signaling server and the agent.
- * - Parse the connection link from setup output.
- * - Stop all running processes cleanly.
- *
- * Note: staging files are read by the shell (Shizuku) user, so they must live
- * in the app's *external* files directory, not the internal one.
+ * Android 11+ blocks the shell user from reading /Android/data, so we use
+ * "run-as" to read files with the app's own uid and pipe them via tar to
+ * /data/local/tmp/android, which the shell user can write to.
  */
 class RemoteControlServiceBridge(private val context: Context) {
 
@@ -27,16 +22,6 @@ class RemoteControlServiceBridge(private val context: Context) {
         fun onComplete(success: Boolean, message: String?)
     }
 
-    /**
-     * Starts the remote control service.
-     *
-     * Steps:
-     * 1. Prepare /data/local/tmp/android with binaries from staging.
-     * 2. Kill any existing processes.
-     * 3. Launch signaling server.
-     * 4. Launch agent.
-     * 5. Detect local IP and build the link.
-     */
     fun start(callback: StartCallback) {
         prepareWorkDir { prepOk, prepError ->
             if (!prepOk) {
@@ -49,18 +34,12 @@ class RemoteControlServiceBridge(private val context: Context) {
         }
     }
 
-    /**
-     * Stops all running Scrcpy/WebRTC processes.
-     */
     fun stop(callback: SimpleCallback) {
         stopInternal { success ->
             callback.onComplete(success, if (success) null else "pkill reported an error")
         }
     }
 
-    /**
-     * Checks whether the agent process is currently running.
-     */
     fun isRunning(callback: (Boolean) -> Unit) {
         ShizukuRunner.executeCommand(
             "pgrep -f cloudphone-agent > /dev/null && echo RUNNING || echo STOPPED",
@@ -81,9 +60,8 @@ class RemoteControlServiceBridge(private val context: Context) {
     // -------------------------------------------------------------------------
 
     private fun prepareWorkDir(callback: (Boolean, String?) -> Unit) {
-        val script = buildCopyScript()
         ShizukuRunner.executeCommand(
-            script,
+            buildCopyScript(),
             object : ShizukuRunner.CommandResultListener {
                 override fun onCommandResult(output: String, done: Boolean) {
                     if (done) callback(true, null)
@@ -97,28 +75,20 @@ class RemoteControlServiceBridge(private val context: Context) {
     }
 
     /**
-     * Builds a shell script that:
-     * - Creates /data/local/tmp/android and subdirs.
-     * - Copies every required item from the external staging dir into that location.
+     * Uses "run-as" to read the app's own files (bypasses the Android 11+
+     * restriction on /Android/data) and pipes them to /data/local/tmp/android
+     * via tar, preserving the full directory structure.
      */
     private fun buildCopyScript(): String {
         val staging = stagingDir().absolutePath
         val target = RemoteControlConfig.WORK_DIR
+        val pkg = context.packageName
 
         return """
             set -e
             rm -rf $target
             mkdir -p $target
-            mkdir -p $target/certs
-            mkdir -p $target/assets
-            cp -f $staging/cloudphone-agent $target/cloudphone-agent
-            cp -f $staging/webrtc-signaling $target/webrtc-signaling
-            cp -f $staging/libsys_core.so $target/libsys_core.so
-            cp -f $staging/certs/server.crt $target/certs/server.crt
-            cp -f $staging/certs/server.key $target/certs/server.key
-            cp -f $staging/certs/server.p12 $target/certs/server.p12
-            cp -f $staging/certs/trusted.pem $target/certs/trusted.pem
-            cp -rf $staging/assets/. $target/assets/
+            run-as $pkg sh -c "cd $staging && tar cf - ." | (cd $target && tar xf -)
             chmod +x $target/cloudphone-agent
             chmod +x $target/webrtc-signaling
             echo COPY_OK
@@ -126,11 +96,10 @@ class RemoteControlServiceBridge(private val context: Context) {
     }
 
     private fun launchServices(callback: StartCallback) {
-        val script = buildLaunchScript()
         val accumulated = StringBuilder()
 
         ShizukuRunner.executeCommand(
-            script,
+            buildLaunchScript(),
             object : ShizukuRunner.CommandResultListener {
                 override fun onCommandResult(output: String, done: Boolean) {
                     accumulated.append(output)
@@ -187,7 +156,6 @@ class RemoteControlServiceBridge(private val context: Context) {
                     if (done) callback(true)
                 }
                 override fun onCommandError(error: String) {
-                    // pkill returns non-zero if no process matched, which is fine.
                     callback(true)
                 }
             },
