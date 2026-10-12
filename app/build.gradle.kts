@@ -166,6 +166,14 @@ android {
         buildConfig = true
         aidl = true
     }
+
+    // NEW (A4): Keep .so files as real files inside the APK so we can execute
+    // Scrcpy binaries. Without this, Android may compress them and block execution.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 
