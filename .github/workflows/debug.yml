@@ -35,6 +35,10 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Fdroid Debug APK
+        env:
+          CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
         run: ./gradlew assembleFdroidDebug
 
       - name: Upload Fdroid Debug APK
