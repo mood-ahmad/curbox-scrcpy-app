@@ -8,10 +8,13 @@ import java.io.File
  * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
  *
  * Responsibilities:
- * - Copy binaries from app assets to /data/local/tmp/android (executable location).
+ * - Copy binaries from the external staging dir to /data/local/tmp/android.
  * - Start the signaling server and the agent.
  * - Parse the connection link from setup output.
  * - Stop all running processes cleanly.
+ *
+ * Note: staging files are read by the shell (Shizuku) user, so they must live
+ * in the app's *external* files directory, not the internal one.
  */
 class RemoteControlServiceBridge(private val context: Context) {
 
@@ -28,7 +31,7 @@ class RemoteControlServiceBridge(private val context: Context) {
      * Starts the remote control service.
      *
      * Steps:
-     * 1. Prepare /data/local/tmp/android with binaries from assets.
+     * 1. Prepare /data/local/tmp/android with binaries from staging.
      * 2. Kill any existing processes.
      * 3. Launch signaling server.
      * 4. Launch agent.
@@ -96,10 +99,7 @@ class RemoteControlServiceBridge(private val context: Context) {
     /**
      * Builds a shell script that:
      * - Creates /data/local/tmp/android and subdirs.
-     * - Copies every required item from the APK's native library path or asset
-     *   staging area into that directory.
-     *
-     * Note: assets are first extracted to filesDir via copyAssetsToFiles first.
+     * - Copies every required item from the external staging dir into that location.
      */
     private fun buildCopyScript(): String {
         val staging = stagingDir().absolutePath
@@ -107,6 +107,7 @@ class RemoteControlServiceBridge(private val context: Context) {
 
         return """
             set -e
+            rm -rf $target
             mkdir -p $target
             mkdir -p $target/certs
             mkdir -p $target/assets
@@ -139,7 +140,7 @@ class RemoteControlServiceBridge(private val context: Context) {
                         if (link != null) {
                             callback.onSuccess(link)
                         } else {
-                            callback.onError("Service started but no link was found in output:\n${fullOutput.take(500)}")
+                            callback.onError("Service started but no link found:\n${fullOutput.take(500)}")
                         }
                     }
                 }
@@ -202,5 +203,7 @@ class RemoteControlServiceBridge(private val context: Context) {
             ?.takeIf { it.isNotBlank() }
     }
 
-    private fun stagingDir(): File = File(context.filesDir, "cloudphone-staging")
+    private fun stagingDir(): File =
+        context.getExternalFilesDir("cloudphone-staging")
+            ?: File(context.filesDir, "cloudphone-staging")
 }
