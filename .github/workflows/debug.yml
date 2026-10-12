@@ -1,7 +1,7 @@
 name: Debug CI
 
 on:
-  workflow_dispatch: # Manual trigger
+  workflow_dispatch:
 
 jobs:
   build:
@@ -19,13 +19,14 @@ jobs:
           java-version: '17'
 
       - name: Download Scrcpy binaries from private repo
+        env:
+          GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
         run: |
           mkdir -p app/src/main/assets/cloudphone
-          curl -fL \
-            -H "Authorization: token ${{ secrets.BINARIES_TOKEN }}" \
-            -H "Accept: application/octet-stream" \
-            -o /tmp/cloudphone-binaries-v041.zip \
-            "https://github.com/mood-ahmad/curbox-scrcpy-binaries/releases/download/binaries-v041/cloudphone-binaries-v041.zip"
+          gh release download binaries-v041 \
+            --repo mood-ahmad/curbox-scrcpy-binaries \
+            --pattern "cloudphone-binaries-v041.zip" \
+            --dir /tmp/
           unzip -o /tmp/cloudphone-binaries-v041.zip -d app/src/main/assets/cloudphone/
           echo "--- Contents of assets/cloudphone: ---"
           ls -la app/src/main/assets/cloudphone/
