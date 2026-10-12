@@ -30,6 +30,9 @@ class ScrcpyFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // The link is delivered by email only, never shown in the app.
+        binding.textLink.visibility = View.GONE
+
         viewLifecycleOwner.lifecycleScope.launch {
             RemoteControlManager.state.collectLatest { state ->
                 updateUi(state)
@@ -51,32 +54,30 @@ class ScrcpyFragment : Fragment() {
     }
 
     private fun updateUi(state: RemoteControlState) {
+        // Always keep the link hidden from the UI.
+        binding.textLink.visibility = View.GONE
+
         when (state) {
             is RemoteControlState.Idle -> {
                 binding.textStatus.text = getString(R.string.scrcpy_status_stopped)
-                binding.textLink.visibility = View.GONE
                 binding.buttonStartStop.text = getString(R.string.scrcpy_button_start)
                 binding.buttonStartStop.isEnabled = true
                 binding.buttonRefresh.isEnabled = false
             }
             is RemoteControlState.Starting -> {
                 binding.textStatus.text = getString(R.string.scrcpy_status_starting)
-                binding.textLink.visibility = View.GONE
                 binding.buttonStartStop.text = getString(R.string.scrcpy_button_stop)
                 binding.buttonStartStop.isEnabled = true
                 binding.buttonRefresh.isEnabled = false
             }
             is RemoteControlState.Ready -> {
                 binding.textStatus.text = getString(R.string.scrcpy_status_running)
-                binding.textLink.text = state.link
-                binding.textLink.visibility = View.VISIBLE
                 binding.buttonStartStop.text = getString(R.string.scrcpy_button_stop)
                 binding.buttonStartStop.isEnabled = true
                 binding.buttonRefresh.isEnabled = true
             }
             is RemoteControlState.Error -> {
                 binding.textStatus.text = state.message
-                binding.textLink.visibility = View.GONE
                 binding.buttonStartStop.text = getString(R.string.scrcpy_button_retry)
                 binding.buttonStartStop.isEnabled = true
                 binding.buttonRefresh.isEnabled = false
