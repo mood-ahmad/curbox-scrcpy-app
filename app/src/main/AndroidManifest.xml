@@ -17,6 +17,10 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- NEW: Required for ScrcpyOverWebRTC network access -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- NEW: Required for monitoring Wi-Fi and network state changes -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Granted once through Shizuku (pm grant) so grayscale can write secure
          settings directly. -->
     <uses-permission
