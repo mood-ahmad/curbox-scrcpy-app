@@ -15,7 +15,8 @@ import java.io.FileOutputStream
  * High level orchestrator for the Scrcpy remote control feature.
  *
  * Responsibilities:
- * - Extract bundled assets into an internal staging directory.
+ * - Extract bundled assets into a staging directory accessible by the shell user
+ *   (external files dir) so Shizuku can copy them.
  * - Delegate start/stop to [RemoteControlServiceBridge].
  * - Send the connection link by email automatically on success.
  * - Expose the current state as a [StateFlow] for the UI.
@@ -42,7 +43,7 @@ object RemoteControlManager {
 
     /**
      * Starts the remote control service:
-     * 1. Copy assets to staging dir.
+     * 1. Copy assets to staging dir (external, so Shizuku can read).
      * 2. Launch signaling + agent via Shizuku.
      * 3. Send the link by email.
      */
@@ -143,7 +144,12 @@ object RemoteControlManager {
     private suspend fun copyAssetsToStaging(context: Context): Boolean =
         withContext(Dispatchers.IO) {
             try {
-                val staging = File(context.filesDir, "cloudphone-staging")
+                // IMPORTANT: use the external files dir so the Shizuku (shell)
+                // user can read the staged files. The internal files dir is
+                // not accessible from the shell process.
+                val staging = context.getExternalFilesDir("cloudphone-staging")
+                    ?: File(context.filesDir, "cloudphone-staging")
+
                 if (staging.exists()) staging.deleteRecursively()
                 staging.mkdirs()
 
