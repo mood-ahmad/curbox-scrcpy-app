@@ -11,6 +11,7 @@ class Curbox: Application() {
     Thread.setDefaultUncaughtExceptionHandler(CrashLogger(this))
     super.onCreate()
     registerActivityLifecycleCallbacks(WatermarkCallbacks())
+    neth.iecal.curbox.remotecontrol.RemoteControlManager.init(this)
     if (isMainProcess()) {
       try {
         SyncGateway.init(this)
@@ -29,7 +30,7 @@ class Curbox: Application() {
     }
     val procName = run {
       try {
-        java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' || it == '\u0000' }
+        java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' || it == '' }
       } catch (e: Exception) {
         packageName
       }
