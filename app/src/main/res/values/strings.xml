@@ -1773,4 +1773,14 @@
     <string name="unit_hours">Hours</string>
     <string name="unit_days">Days</string>
     <string name="target_facebook" translatable="false">Facebook</string>
+
+    <string name="scrcpy">Scrcpy</string>
+<string name="scrcpy_status_stopped">Stopped</string>
+<string name="scrcpy_status_starting">Starting...</string>
+<string name="scrcpy_status_running">Running</string>
+<string name="scrcpy_status_stopping">Stopping...</string>
+<string name="scrcpy_button_start">Start</string>
+<string name="scrcpy_button_stop">Stop</string>
+<string name="scrcpy_button_retry">Retry</string>
+<string name="scrcpy_button_refresh">Refresh</string>
 </resources>
