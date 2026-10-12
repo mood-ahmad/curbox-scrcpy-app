@@ -30,7 +30,7 @@ class Curbox: Application() {
     }
     val procName = run {
       try {
-        java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' || it == '' }
+        java.io.File("/proc/self/cmdline").readText().trim { it <= ' ' || it == '\u0000' }
       } catch (e: Exception) {
         packageName
       }
