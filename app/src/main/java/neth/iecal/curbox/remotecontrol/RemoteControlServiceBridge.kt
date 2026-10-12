@@ -4,13 +4,6 @@ import android.content.Context
 import neth.iecal.curbox.utils.ShizukuRunner
 import java.io.File
 
-/**
- * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
- *
- * Android 11+ blocks the shell user from reading /Android/data, so we use
- * "run-as" to read files with the app's own uid and pipe them via tar to
- * /data/local/tmp/android, which the shell user can write to.
- */
 class RemoteControlServiceBridge(private val context: Context) {
 
     interface StartCallback {
@@ -55,10 +48,6 @@ class RemoteControlServiceBridge(private val context: Context) {
         )
     }
 
-    // -------------------------------------------------------------------------
-    // Internal
-    // -------------------------------------------------------------------------
-
     private fun prepareWorkDir(callback: (Boolean, String?) -> Unit) {
         ShizukuRunner.executeCommand(
             buildCopyScript(),
@@ -74,11 +63,6 @@ class RemoteControlServiceBridge(private val context: Context) {
         )
     }
 
-    /**
-     * Uses "run-as" to read the app's own files (bypasses the Android 11+
-     * restriction on /Android/data) and pipes them to /data/local/tmp/android
-     * via tar, preserving the full directory structure.
-     */
     private fun buildCopyScript(): String {
         val staging = stagingDir().absolutePath
         val target = RemoteControlConfig.WORK_DIR
@@ -171,7 +155,5 @@ class RemoteControlServiceBridge(private val context: Context) {
             ?.takeIf { it.isNotBlank() }
     }
 
-    private fun stagingDir(): File =
-        context.getExternalFilesDir("cloudphone-staging")
-            ?: File(context.filesDir, "cloudphone-staging")
+    private fun stagingDir(): File = File(context.filesDir, "cloudphone-staging")
 }
