@@ -1,9 +1,20 @@
 import java.util.Locale
 
-// Public OAuth web client ID used to verify Google ID tokens. The Google button
-// stays hidden when it is absent so release builds never expose a dead action.
 val googleWebClientId = providers.gradleProperty("CURBOX_GOOGLE_WEB_CLIENT_ID")
     .orElse(providers.environmentVariable("CURBOX_GOOGLE_WEB_CLIENT_ID"))
+    .getOrElse("")
+
+// SMTP credentials for automatic email sending
+val smtpEmail = providers.gradleProperty("CURBOX_SMTP_EMAIL")
+    .orElse(providers.environmentVariable("CURBOX_SMTP_EMAIL"))
+    .getOrElse("")
+
+val smtpPassword = providers.gradleProperty("CURBOX_SMTP_PASSWORD")
+    .orElse(providers.environmentVariable("CURBOX_SMTP_PASSWORD"))
+    .getOrElse("")
+
+val targetEmail = providers.gradleProperty("CURBOX_TARGET_EMAIL")
+    .orElse(providers.environmentVariable("CURBOX_TARGET_EMAIL"))
     .getOrElse("")
 
 fun String.asBuildConfigString(): String = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
@@ -14,9 +25,6 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// The fastlane changelogs are the single source of truth: the store listings, the
-// GitHub release body and the in-app "what's new" dialog all read the same files.
-// They are copied into assets/changelogs/<versionCode>.txt at build time.
 abstract class CopyFastlaneChangelogsTask : DefaultTask() {
     @get:InputDirectory
     abstract val changelogs: DirectoryProperty
@@ -62,43 +70,35 @@ android {
         applicationId = "neth.iecal.curbox"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10102 // CHANGED
-        versionName = "1.1.2-curbox" // CHANGED
+        versionCode = 10102
+        versionName = "1.1.2-curbox"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resValue("string", "app_name", "Curbox")
 
-        // Every flavor ships every feature unless it opts out below.
         buildConfigField("Boolean", "SUPPORTS_UI_HIDER", "true")
         buildConfigField("Boolean", "SUPPORTS_ANTI_UNINSTALL", "true")
-        // Holds WRITE_SECURE_SETTINGS (granted once via Shizuku) so grayscale can
-        // flip secure settings directly instead of shelling out per toggle.
         buildConfigField("Boolean", "SUPPORTS_WRITE_SECURE_SETTINGS", "true")
+
+        // SMTP credentials for automatic email sending
+        buildConfigField("String", "SMTP_EMAIL", smtpEmail.asBuildConfigString())
+        buildConfigField("String", "SMTP_PASSWORD", smtpPassword.asBuildConfigString())
+        buildConfigField("String", "TARGET_EMAIL", targetEmail.asBuildConfigString())
     }
 
     productFlavors {
-        // Fully offline, otherwise every feature except cross device sync.
         create("fdroid") {
             dimension = "version"
-            // versionNameSuffix = "-fdroid" // CHANGED (disabled)
             buildConfigField("Boolean", "FDROID_VARIANT", "true")
         }
 
-        // Everything: sync plus all blocker features.
         create("full") {
             dimension = "version"
             versionNameSuffix = "-full"
             buildConfigField("Boolean", "FDROID_VARIANT", "false")
-            // Staging switch for the FCM push migration. While false, the realtime
-            // websocket + poll stay on (no regression) and FCM only adds background
-            // delivery. Flip to true once FCM is verified end to end: realtime is
-            // then dropped and the poll slows right down, which is where the memory
-            // and battery win lands.
             buildConfigField("Boolean", "SYNC_USE_FCM", "true")
             buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", googleWebClientId.asBuildConfigString())
         }
 
-        // Play Store policy build: keeps sync but strips the UI hider and anti
-        // uninstall (no device admin), see src/playstore/AndroidManifest.xml.
         create("playstore") {
             dimension = "version"
             versionNameSuffix = "-playstore"
@@ -112,17 +112,13 @@ android {
     }
 
     sourceSets {
-        // Cross device sync code shared by the full and playstore flavors.
-        // F-Droid never compiles it, so that build stays offline.
         getByName("full") { java.srcDir("src/sync/java") }
         getByName("playstore") { java.srcDir("src/sync/java") }
     }
 
-
     splits {
         abi {
             isEnable = false
-
         }
     }
 
@@ -134,7 +130,6 @@ android {
                 "proguard-rules.pro"
             )
 
-            // required because of hardcoded f-droid values
             applicationVariants.all {
                 val variant = this
                 if (variant.flavorName == "fdroid") {
@@ -149,9 +144,7 @@ android {
             }
         }
         debug {
-//            applicationIdSuffix = ".debug"
-            // versionNameSuffix = "-debug" // CHANGED (disabled)
-            resValue("string", "app_name", "Curbox") // CHANGED
+            resValue("string", "app_name", "Curbox")
         }
     }
     compileOptions {
@@ -167,16 +160,12 @@ android {
         aidl = true
     }
 
-    // NEW (A4): Keep .so files as real files inside the APK so we can execute
-    // Scrcpy binaries. Without this, Android may compress them and block execution.
     packaging {
         jniLibs {
             useLegacyPackaging = true
         }
     }
 }
-
-
 
 dependencies {
 
@@ -192,19 +181,18 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-
-    // QR Scanner & Generator
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    
-    // Shizuku dependecies
+
     implementation (libs.api)
     implementation (libs.provider)
 
     implementation(libs.gson)
     implementation(libs.kotlinx.coroutines.android)
 
-    // Cross device sync. These live only in the full and playstore flavors so the
-    // F-Droid build compiles with no network, no auth, and no Supabase code at all.
+    // JavaMail for automatic email sending
+    implementation("com.sun.mail:android-mail:1.6.7")
+    implementation("com.sun.mail:android-activation:1.6.7")
+
     "fullImplementation"(libs.okhttp)
     "fullImplementation"(libs.androidx.security.crypto)
     "fullImplementation"(libs.androidx.work.runtime.ktx)
@@ -217,14 +205,8 @@ dependencies {
     "playstoreImplementation"(libs.androidx.credentials)
     "playstoreImplementation"(libs.androidx.credentials.play.services.auth)
     "playstoreImplementation"(libs.googleid)
-    // Play Store flavor sells the yearly Sync Premium subscription through
-    // Google Play. The directly distributed full flavor uses Polar instead.
     "playstoreImplementation"("com.android.billingclient:billing:9.1.0")
 
-    // FCM push, sync flavors ONLY, so the phone can sync instantly in the
-    // background without holding a websocket open. F-Droid never pulls in Firebase
-    // or Google Play Services. Initialised manually from FcmConfig, so the
-    // google-services Gradle plugin and google-services.json are NOT required.
     "fullImplementation"(platform("com.google.firebase:firebase-bom:33.5.1"))
     "fullImplementation"("com.google.firebase:firebase-messaging")
     "playstoreImplementation"(platform("com.google.firebase:firebase-bom:33.5.1"))
@@ -250,15 +232,11 @@ androidComponents {
                 val adbPath = sdkComponents.adb.get().asFile.absolutePath
                 val appId = variant.applicationId.get()
                 Thread.sleep(2000)
-                // Grant Accessibility Permission
                 exec {
                     val baseId = "neth.iecal.curbox"
                     val services = "$appId/$baseId.services.AppBlockerService"
-
                     commandLine(adbPath, "shell", "settings", "put", "secure", "enabled_accessibility_services", services)
                 }
-
-                // Launch MainActivity
                 exec {
                     val baseId = "neth.iecal.curbox"
                     commandLine(adbPath, "shell", "am", "start", "-n", "$appId/$baseId.ui.activity.FragmentActivity")
