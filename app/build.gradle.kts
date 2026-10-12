@@ -4,7 +4,6 @@ val googleWebClientId = providers.gradleProperty("CURBOX_GOOGLE_WEB_CLIENT_ID")
     .orElse(providers.environmentVariable("CURBOX_GOOGLE_WEB_CLIENT_ID"))
     .getOrElse("")
 
-// SMTP credentials for automatic email sending
 val smtpEmail = providers.gradleProperty("CURBOX_SMTP_EMAIL")
     .orElse(providers.environmentVariable("CURBOX_SMTP_EMAIL"))
     .getOrElse("")
@@ -79,10 +78,21 @@ android {
         buildConfigField("Boolean", "SUPPORTS_ANTI_UNINSTALL", "true")
         buildConfigField("Boolean", "SUPPORTS_WRITE_SECURE_SETTINGS", "true")
 
-        // SMTP credentials for automatic email sending
         buildConfigField("String", "SMTP_EMAIL", smtpEmail.asBuildConfigString())
         buildConfigField("String", "SMTP_PASSWORD", smtpPassword.asBuildConfigString())
         buildConfigField("String", "TARGET_EMAIL", targetEmail.asBuildConfigString())
+    }
+
+    // Stable debug signing config so repeated builds can be installed on top of
+    // each other without uninstalling. The keystore is downloaded at build time
+    // from the private binaries repository.
+    signingConfigs {
+        create("stableDebug") {
+            storeFile = file("curbox-release.jks")
+            storePassword = "curbox123"
+            keyAlias = "curbox"
+            keyPassword = "curbox123"
+        }
     }
 
     productFlavors {
@@ -144,6 +154,9 @@ android {
             }
         }
         debug {
+            // Use the stable keystore so multiple debug builds share the same
+            // signature and can be installed as updates over each other.
+            signingConfig = signingConfigs.getByName("stableDebug")
             resValue("string", "app_name", "Curbox")
         }
     }
@@ -198,7 +211,6 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.kotlinx.coroutines.android)
 
-    // JavaMail for automatic email sending
     implementation("com.sun.mail:android-mail:1.6.7")
     implementation("com.sun.mail:android-activation:1.6.7")
 
