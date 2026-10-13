@@ -13,10 +13,6 @@
         android:icon="@drawable/ic_reducers"
         android:title="@string/reducers" />
     <item
-        android:id="@+id/nav_scrcpy"
-        android:icon="@drawable/ic_scrcpy"
-        android:title="@string/scrcpy" />
-    <item
         android:id="@+id/nav_info"
         android:icon="@drawable/ic_info"
         android:title="@string/info"
