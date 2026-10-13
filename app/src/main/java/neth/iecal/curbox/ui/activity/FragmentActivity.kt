@@ -36,7 +36,6 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import neth.iecal.curbox.utils.BlurFadeAnimator
-import neth.iecal.curbox.ui.fragments.main.scrcpy.ScrcpyFragment
 
 class FragmentActivity : AppCompatActivity() {
 
@@ -240,7 +239,6 @@ class FragmentActivity : AppCompatActivity() {
         R.id.nav_usage to "tab_usage",
         R.id.nav_focus to "tab_focus",
         R.id.nav_reducers to "tab_reducers",
-        R.id.nav_scrcpy to "tab_scrcpy",
         R.id.nav_info to "tab_info",
     )
 
@@ -248,7 +246,6 @@ class FragmentActivity : AppCompatActivity() {
         R.id.nav_usage -> AllAppsUsageFragment()
         R.id.nav_focus -> FocusFragment()
         R.id.nav_reducers -> ReducersFragment()
-        R.id.nav_scrcpy -> ScrcpyFragment()
         R.id.nav_info -> neth.iecal.curbox.ui.fragments.main.InfoFragment()
         else -> AllAppsUsageFragment()
     }
