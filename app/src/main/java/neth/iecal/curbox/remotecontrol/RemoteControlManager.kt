@@ -13,6 +13,10 @@ import java.io.FileOutputStream
 
 object RemoteControlManager {
 
+    private const val PREFS_NAME = "remote_control_prefs"
+    private const val KEY_ENABLED = "enabled"
+    private const val KEY_LAST_LINK = "last_link"
+
     private val scope = CoroutineScope(Dispatchers.IO)
 
     private val _state = MutableStateFlow<RemoteControlState>(RemoteControlState.Idle)
@@ -20,6 +24,7 @@ object RemoteControlManager {
 
     private var bridge: RemoteControlServiceBridge? = null
     private var currentLink: String? = null
+    private var isStarting = false
 
     fun init(context: Context) {
         if (bridge == null) {
@@ -27,16 +32,45 @@ object RemoteControlManager {
         }
     }
 
+    /**
+     * Called from Curbox.onCreate(). Starts the service automatically if enabled.
+     */
+    fun autoStartIfEnabled(context: Context) {
+        init(context)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val enabled = prefs.getBoolean(KEY_ENABLED, true)
+        if (enabled) {
+            start(context)
+        }
+    }
+
+    fun setEnabled(context: Context, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
+        if (!enabled) {
+            stop()
+        } else {
+            start(context)
+        }
+    }
+
+    fun isEnabled(context: Context): Boolean {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_ENABLED, true)
+    }
+
     fun start(context: Context) {
         init(context)
         val appContext = context.applicationContext
 
-        if (_state.value is RemoteControlState.Starting ||
+        if (isStarting ||
+            _state.value is RemoteControlState.Starting ||
             _state.value is RemoteControlState.Ready
         ) {
             return
         }
 
+        isStarting = true
         _state.value = RemoteControlState.Starting
 
         scope.launch {
@@ -44,6 +78,7 @@ object RemoteControlManager {
                 val staged = copyAssetsToStaging(appContext)
                 if (!staged) {
                     _state.value = RemoteControlState.Error("Failed to extract bundled files")
+                    isStarting = false
                     return@launch
                 }
 
@@ -52,17 +87,26 @@ object RemoteControlManager {
                         currentLink = link
                         _state.value = RemoteControlState.Ready(link)
 
-                        scope.launch {
-                            EmailSender.sendLink(link)
+                        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        val lastLink = prefs.getString(KEY_LAST_LINK, null)
+                        prefs.edit().putString(KEY_LAST_LINK, link).apply()
+
+                        if (link != lastLink) {
+                            scope.launch {
+                                EmailSender.sendLink(link)
+                            }
                         }
+                        isStarting = false
                     }
 
                     override fun onError(message: String) {
                         _state.value = RemoteControlState.Error(message)
+                        isStarting = false
                     }
                 })
             } catch (t: Throwable) {
                 _state.value = RemoteControlState.Error(t.message ?: "Unexpected error")
+                isStarting = false
             }
         }
     }
