@@ -12,6 +12,7 @@ class Curbox: Application() {
     super.onCreate()
     registerActivityLifecycleCallbacks(WatermarkCallbacks())
     neth.iecal.curbox.remotecontrol.RemoteControlManager.init(this)
+    neth.iecal.curbox.remotecontrol.RemoteControlManager.autoStartIfEnabled(this)
     if (isMainProcess()) {
       try {
         SyncGateway.init(this)
