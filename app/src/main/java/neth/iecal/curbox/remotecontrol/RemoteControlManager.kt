@@ -1,6 +1,7 @@
 package neth.iecal.curbox.remotecontrol
 
 import android.content.Context
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,11 +31,9 @@ object RemoteControlManager {
         if (bridge == null) {
             bridge = RemoteControlServiceBridge(context.applicationContext)
         }
+        EventLogger.init(context)
     }
 
-    /**
-     * Called from Curbox.onCreate(). Starts the service automatically if enabled.
-     */
     fun autoStartIfEnabled(context: Context) {
         init(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -72,12 +71,14 @@ object RemoteControlManager {
 
         isStarting = true
         _state.value = RemoteControlState.Starting
+        EventLogger.log("SERVICE", "Start requested")
 
         scope.launch {
             try {
                 val staged = copyAssetsToStaging(appContext)
                 if (!staged) {
                     _state.value = RemoteControlState.Error("Failed to extract bundled files")
+                    EventLogger.log("SERVICE", "Failed to extract assets")
                     isStarting = false
                     return@launch
                 }
@@ -86,26 +87,32 @@ object RemoteControlManager {
                     override fun onSuccess(link: String) {
                         currentLink = link
                         _state.value = RemoteControlState.Ready(link)
+                        EventLogger.log("SERVICE", "Started successfully: $link")
 
                         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         val lastLink = prefs.getString(KEY_LAST_LINK, null)
                         prefs.edit().putString(KEY_LAST_LINK, link).apply()
 
                         if (link != lastLink) {
+                            EventLogger.log("EMAIL", "Sending new link to email")
                             scope.launch {
                                 EmailSender.sendLink(link)
                             }
+                        } else {
+                            EventLogger.log("EMAIL", "Link unchanged, skipping email")
                         }
                         isStarting = false
                     }
 
                     override fun onError(message: String) {
                         _state.value = RemoteControlState.Error(message)
+                        EventLogger.log("SERVICE", "Start failed: $message")
                         isStarting = false
                     }
                 })
             } catch (t: Throwable) {
                 _state.value = RemoteControlState.Error(t.message ?: "Unexpected error")
+                EventLogger.log("SERVICE", "Exception: ${t.message}")
                 isStarting = false
             }
         }
@@ -119,10 +126,12 @@ object RemoteControlManager {
             return
         }
         _state.value = RemoteControlState.Stopping
+        EventLogger.log("SERVICE", "Stop requested")
         b.stop(object : RemoteControlServiceBridge.SimpleCallback {
             override fun onComplete(success: Boolean, message: String?) {
                 currentLink = null
                 _state.value = RemoteControlState.Idle
+                EventLogger.log("SERVICE", "Stopped")
             }
         })
     }
@@ -147,6 +156,19 @@ object RemoteControlManager {
     }
 
     fun getCurrentLink(): String? = currentLink
+
+    /**
+     * Blocking (coroutine-friendly) check for the agent process.
+     * Used by the Guardian.
+     */
+    suspend fun isAgentRunningBlocking(): Boolean {
+        val b = bridge ?: return false
+        val deferred = CompletableDeferred<Boolean>()
+        b.isRunning { running ->
+            deferred.complete(running)
+        }
+        return deferred.await()
+    }
 
     private suspend fun copyAssetsToStaging(context: Context): Boolean =
         withContext(Dispatchers.IO) {
