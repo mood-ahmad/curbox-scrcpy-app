@@ -13,10 +13,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Sends the Scrcpy connection link automatically by email.
- *
- * Credentials (SMTP email, password, and target address) are injected at build
- * time from GitHub Secrets and stored in BuildConfig.
+ * Sends CurBox emails (link, alerts) through Gmail SMTP.
+ * Credentials come from BuildConfig (injected at build time from GitHub Secrets).
  */
 object EmailSender {
 
@@ -25,10 +23,41 @@ object EmailSender {
 
     /**
      * Sends the connection link to the configured target email.
-     * Runs on IO dispatcher. Failures are swallowed (logged only) so the link
-     * remains available in the UI even if email sending fails.
      */
     suspend fun sendLink(link: String): Boolean = withContext(Dispatchers.IO) {
+        val device = DeviceIdentity.getName()
+        val subject = "[CurBox] $device - Link"
+        val body = """
+            CurBox remote control is running.
+
+            Device: $device
+            Link: $link
+
+            Open the link in any browser to control this device.
+            Works from any network.
+        """.trimIndent()
+        send(subject, body)
+    }
+
+    /**
+     * Sends an alert email when the guardian fails to repair the service.
+     */
+    suspend fun sendAlert(deviceName: String, reason: String): Boolean = withContext(Dispatchers.IO) {
+        val subject = "[CurBox] $deviceName - ⚠️ Service Down"
+        val body = """
+            CurBox remote control could not be restored.
+
+            Device: $deviceName
+            Reason: $reason
+
+            Open CurBox and tap Retry in Emergency settings.
+        """.trimIndent()
+        send(subject, body)
+    }
+
+    // -------------------------------------------------------------------------
+
+    private suspend fun send(subject: String, body: String): Boolean = withContext(Dispatchers.IO) {
         val fromEmail = BuildConfig.SMTP_EMAIL
         val password = BuildConfig.SMTP_PASSWORD
         val toEmail = BuildConfig.TARGET_EMAIL
@@ -56,28 +85,17 @@ object EmailSender {
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail))
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
-                subject = "CurBox Scrcpy Link"
-                setText(
-                    """
-                    Scrcpy remote control is now running.
-
-                    Open this link in a browser on any device to control your phone:
-
-                    $link
-
-                    Notes:
-                    - The link works from any network (Wi-Fi or mobile data).
-                    - If the link stops working, open CurBox and tap Refresh.
-                    - To stop the service, open CurBox and tap Stop.
-                    """.trimIndent()
-                )
+                this.subject = subject
+                setText(body)
             }
 
             Transport.send(message)
-            android.util.Log.i("EmailSender", "Link sent to $toEmail")
+            android.util.Log.i("EmailSender", "Email sent: $subject")
+            EventLogger.log("EMAIL", "Sent: $subject")
             true
         } catch (t: Throwable) {
-            android.util.Log.e("EmailSender", "Failed to send link email", t)
+            android.util.Log.e("EmailSender", "Failed to send email", t)
+            EventLogger.log("EMAIL", "Failed: ${t.message}")
             false
         }
     }
