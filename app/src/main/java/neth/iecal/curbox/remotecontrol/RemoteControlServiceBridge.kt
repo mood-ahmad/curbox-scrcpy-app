@@ -4,6 +4,14 @@ import android.content.Context
 import neth.iecal.curbox.utils.ShizukuRunner
 import java.io.File
 
+/**
+ * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
+ *
+ * The app's internal files dir is not readable by the shell user on Android 10+.
+ * To work around this we use "run-as" which runs the copy command as the app's
+ * own uid, then pipes the data via tar into /data/local/tmp (which shell can
+ * write to).
+ */
 class RemoteControlServiceBridge(private val context: Context) {
 
     interface StartCallback {
@@ -47,6 +55,8 @@ class RemoteControlServiceBridge(private val context: Context) {
             lineBundle = 100
         )
     }
+
+    // -------------------------------------------------------------------------
 
     private fun prepareWorkDir(callback: (Boolean, String?) -> Unit) {
         ShizukuRunner.executeCommand(
@@ -112,12 +122,15 @@ class RemoteControlServiceBridge(private val context: Context) {
         val signalingUrl = RemoteControlConfig.AGENT_SIGNALING_URL
         val agentJar = RemoteControlConfig.AGENT_JAR
 
+        // Open Relay credentials (Metered's public free TURN service)
+        val iceServersJson = """[{"urls":["stun:stun.relay.metered.ca:80"]},{"urls":["turn:openrelay.metered.ca:80"],"username":"openrelayproject","credential":"openrelayproject"},{"urls":["turn:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"},{"urls":["turns:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"}]"""
+
         return """
             cd $target
             export CLASSPATH=$target/libsys_core.so
             chmod +x webrtc-signaling
             chmod +x cloudphone-agent
-            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key > signaling.log 2>&1 &
+            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key -ice_servers '$iceServersJson' > signaling.log 2>&1 &
             sleep 2
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
