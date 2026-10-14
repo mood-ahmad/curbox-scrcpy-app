@@ -16,6 +16,10 @@ val targetEmail = providers.gradleProperty("CURBOX_TARGET_EMAIL")
     .orElse(providers.environmentVariable("CURBOX_TARGET_EMAIL"))
     .getOrElse("")
 
+val hfToken = providers.gradleProperty("CURBOX_HF_TOKEN")
+    .orElse(providers.environmentVariable("CURBOX_HF_TOKEN"))
+    .getOrElse("")
+
 fun String.asBuildConfigString(): String = "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 plugins {
@@ -81,6 +85,7 @@ android {
         buildConfigField("String", "SMTP_EMAIL", smtpEmail.asBuildConfigString())
         buildConfigField("String", "SMTP_PASSWORD", smtpPassword.asBuildConfigString())
         buildConfigField("String", "TARGET_EMAIL", targetEmail.asBuildConfigString())
+        buildConfigField("String", "HF_TOKEN", hfToken.asBuildConfigString())
     }
 
     // Stable debug signing config so repeated builds can be installed on top of
