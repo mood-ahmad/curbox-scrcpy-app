@@ -7,10 +7,9 @@ import java.io.File
 /**
  * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
  *
- * The app's internal files dir is not readable by the shell user on Android 10+.
- * To work around this we use "run-as" which runs the copy command as the app's
- * own uid, then pipes the data via tar into /data/local/tmp (which shell can
- * write to).
+ * Uses "run-as" to copy files from the app's private dir to /data/local/tmp.
+ * After starting the signaling server, a "bore" tunnel exposes port 8443
+ * publicly through bore.pub, so the link works from any network.
  */
 class RemoteControlServiceBridge(private val context: Context) {
 
@@ -85,6 +84,7 @@ class RemoteControlServiceBridge(private val context: Context) {
             run-as $pkg sh -c "cd $staging && tar cf - ." | (cd $target && tar xf -)
             chmod +x $target/cloudphone-agent
             chmod +x $target/webrtc-signaling
+            chmod +x $target/bore
             echo COPY_OK
         """.trimIndent()
     }
@@ -103,7 +103,7 @@ class RemoteControlServiceBridge(private val context: Context) {
                         if (link != null) {
                             callback.onSuccess(link)
                         } else {
-                            callback.onError("Service started but no link found:\n${fullOutput.take(500)}")
+                            callback.onError("Service started but no bore link found:\n${fullOutput.take(500)}")
                         }
                     }
                 }
@@ -122,32 +122,43 @@ class RemoteControlServiceBridge(private val context: Context) {
         val signalingUrl = RemoteControlConfig.AGENT_SIGNALING_URL
         val agentJar = RemoteControlConfig.AGENT_JAR
 
-        // Open Relay credentials (Metered's public free TURN service)
-        val iceServersJson = """[{"urls":["stun:stun.relay.metered.ca:80"]},{"urls":["turn:openrelay.metered.ca:80"],"username":"openrelayproject","credential":"openrelayproject"},{"urls":["turn:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"},{"urls":["turns:openrelay.metered.ca:443"],"username":"openrelayproject","credential":"openrelayproject"}]"""
-
         return """
             cd $target
             export CLASSPATH=$target/libsys_core.so
+
+            # Start signaling server (HTTPS on port 8443)
             chmod +x webrtc-signaling
-            chmod +x cloudphone-agent
-            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key -ice_servers '$iceServersJson' > signaling.log 2>&1 &
+            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key > signaling.log 2>&1 &
             sleep 2
+
+            # Start agent
+            chmod +x cloudphone-agent
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
             setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent > agent.log 2>&1 &
-            sleep 3
-            IP=${'$'}(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(${'$'}i=="src") print ${'$'}(i+1)}')
-            if [ -z "${'$'}IP" ]; then
-                IP=${'$'}(ifconfig wlan0 2>/dev/null | grep 'inet ' | awk '{print ${'$'}2}' | sed 's/addr://')
+            sleep 2
+
+            # Start bore tunnel to expose port 8443 publicly
+            chmod +x bore
+            nohup ./bore local $port --to bore.pub > bore.log 2>&1 &
+            sleep 5
+
+            # Extract the public URL from bore.log
+            BORE_URL=${'$'}(grep -oE 'bore\.pub:[0-9]+' bore.log | head -n1)
+            if [ -z "${'$'}BORE_URL" ]; then
+                echo "LINK_ERROR=Could not read bore.pub URL from log"
+                echo "--- bore.log ---"
+                cat bore.log
+            else
+                echo "LINK=https://${'$'}BORE_URL"
             fi
-            echo "LINK=https://${'$'}IP:$port"
         """.trimIndent()
     }
 
     private fun stopInternal(callback: (Boolean) -> Unit) {
         ShizukuRunner.executeCommand(
-            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; echo DONE",
+            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; pkill -f bore; echo DONE",
             object : ShizukuRunner.CommandResultListener {
                 override fun onCommandResult(output: String, done: Boolean) {
                     if (done) callback(true)
