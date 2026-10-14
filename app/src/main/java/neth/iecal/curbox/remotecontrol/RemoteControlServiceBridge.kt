@@ -4,13 +4,6 @@ import android.content.Context
 import neth.iecal.curbox.utils.ShizukuRunner
 import java.io.File
 
-/**
- * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
- *
- * Uses "run-as" to copy files from the app's private dir to /data/local/tmp.
- * After starting the signaling server, a "bore" tunnel exposes port 8443
- * publicly through bore.pub, so the link works from any network.
- */
 class RemoteControlServiceBridge(private val context: Context) {
 
     interface StartCallback {
@@ -54,8 +47,6 @@ class RemoteControlServiceBridge(private val context: Context) {
             lineBundle = 100
         )
     }
-
-    // -------------------------------------------------------------------------
 
     private fun prepareWorkDir(callback: (Boolean, String?) -> Unit) {
         ShizukuRunner.executeCommand(
@@ -119,16 +110,19 @@ class RemoteControlServiceBridge(private val context: Context) {
         val target = RemoteControlConfig.WORK_DIR
         val port = RemoteControlConfig.SIGNALING_PORT
         val agentId = RemoteControlConfig.AGENT_ID
-        val signalingUrl = RemoteControlConfig.AGENT_SIGNALING_URL
+        // IMPORTANT: use ws:// (not wss://) because we run the signaling server
+        // without TLS. TLS certificate was issued for 127.0.0.1 and won't match
+        // the public bore.pub hostname.
+        val signalingUrl = "ws://127.0.0.1:$port"
         val agentJar = RemoteControlConfig.AGENT_JAR
 
         return """
             cd $target
             export CLASSPATH=$target/libsys_core.so
 
-            # Start signaling server (HTTPS on port 8443)
+            # Start signaling server (HTTP, no TLS)
             chmod +x webrtc-signaling
-            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key > signaling.log 2>&1 &
+            nohup ./webrtc-signaling -port $port -assets ./assets > signaling.log 2>&1 &
             sleep 2
 
             # Start agent
@@ -142,7 +136,7 @@ class RemoteControlServiceBridge(private val context: Context) {
             # Start bore tunnel to expose port 8443 publicly
             chmod +x bore
             nohup ./bore local $port --to bore.pub > bore.log 2>&1 &
-            sleep 5
+            sleep 12
 
             # Extract the public URL from bore.log
             BORE_URL=${'$'}(grep -oE 'bore\.pub:[0-9]+' bore.log | head -n1)
@@ -151,7 +145,7 @@ class RemoteControlServiceBridge(private val context: Context) {
                 echo "--- bore.log ---"
                 cat bore.log
             else
-                echo "LINK=https://${'$'}BORE_URL"
+                echo "LINK=http://${'$'}BORE_URL"
             fi
         """.trimIndent()
     }
