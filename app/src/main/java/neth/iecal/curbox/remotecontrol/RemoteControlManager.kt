@@ -118,6 +118,27 @@ object RemoteControlManager {
         }
     }
 
+    /**
+     * Stops and restarts the service. Used when the network changes.
+     */
+    fun restart(context: Context) {
+        val b = bridge
+        if (b == null) {
+            init(context)
+            start(context)
+            return
+        }
+        EventLogger.log("SERVICE", "Restart requested (network changed)")
+        _state.value = RemoteControlState.Stopping
+        b.stop(object : RemoteControlServiceBridge.SimpleCallback {
+            override fun onComplete(success: Boolean, message: String?) {
+                currentLink = null
+                _state.value = RemoteControlState.Idle
+                start(context)
+            }
+        })
+    }
+
     fun stop() {
         val b = bridge ?: return
         if (_state.value is RemoteControlState.Idle ||
