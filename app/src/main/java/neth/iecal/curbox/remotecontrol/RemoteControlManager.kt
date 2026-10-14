@@ -157,10 +157,6 @@ object RemoteControlManager {
 
     fun getCurrentLink(): String? = currentLink
 
-    /**
-     * Blocking (coroutine-friendly) check for the agent process.
-     * Used by the Guardian.
-     */
     suspend fun isAgentRunningBlocking(): Boolean {
         val b = bridge ?: return false
         val deferred = CompletableDeferred<Boolean>()
@@ -183,6 +179,7 @@ object RemoteControlManager {
                 copyAssetFile(assetManager, "$root/cloudphone-agent", File(staging, "cloudphone-agent"))
                 copyAssetFile(assetManager, "$root/webrtc-signaling", File(staging, "webrtc-signaling"))
                 copyAssetFile(assetManager, "$root/libsys_core.so", File(staging, "libsys_core.so"))
+                copyAssetFile(assetManager, "$root/bore", File(staging, "bore"))
 
                 val certsDir = File(staging, "certs").apply { mkdirs() }
                 copyAssetDir(assetManager, "$root/certs", certsDir)
