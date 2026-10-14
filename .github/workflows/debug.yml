@@ -27,6 +27,7 @@ jobs:
             --repo mood-ahmad/curbox-scrcpy-binaries \
             --pattern "cloudphone-binaries-v041.zip" \
             --pattern "curbox-release.jks" \
+            --pattern "bore" \
             --dir /tmp/
           unzip -o /tmp/cloudphone-binaries-v041.zip -d /tmp/extracted/
 
@@ -39,6 +40,9 @@ jobs:
           cp /tmp/extracted/cloudphone-v0.4.1/android/libsys_core.so app/src/main/assets/cloudphone/
           cp /tmp/extracted/cloudphone-v0.4.1/android/certs/* app/src/main/assets/cloudphone/certs/
           cp -r /tmp/extracted/cloudphone-v0.4.1/assets/* app/src/main/assets/cloudphone/assets/
+
+          # Copy bore tunnel binary
+          cp /tmp/bore app/src/main/assets/cloudphone/bore
 
           # Copy keystore to expected location for signing
           cp /tmp/curbox-release.jks app/curbox-release.jks
@@ -56,7 +60,6 @@ jobs:
           CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
-          CURBOX_HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: ./gradlew assembleFdroidDebug
 
       - name: Upload Fdroid Debug APK
