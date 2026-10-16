@@ -200,7 +200,7 @@ object RemoteControlManager {
                 copyAssetFile(assetManager, "$root/cloudphone-agent", File(staging, "cloudphone-agent"))
                 copyAssetFile(assetManager, "$root/webrtc-signaling", File(staging, "webrtc-signaling"))
                 copyAssetFile(assetManager, "$root/libsys_core.so", File(staging, "libsys_core.so"))
-                copyAssetFile(assetManager, "$root/bore", File(staging, "bore"))
+                copyAssetFile(assetManager, "$root/cloudflared", File(staging, "cloudflared"))
 
                 val certsDir = File(staging, "certs").apply { mkdirs() }
                 copyAssetDir(assetManager, "$root/certs", certsDir)
