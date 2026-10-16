@@ -24,19 +24,20 @@ object EmailSender {
     /**
      * Sends the connection link to the configured target email.
      */
-    suspend fun sendLink(link: String): Boolean = withContext(Dispatchers.IO) {
-        val device = DeviceIdentity.getName()
-        val subject = "[CurBox] $device - Link"
-        val body = """
-            CurBox remote control is running.
+    suspend fun sendLink(link: String, networkType: String = "Unknown"): Boolean = withContext(Dispatchers.IO) {
+    val device = DeviceIdentity.getName()
+    val subject = "[CurBox] $device - Link"
+    val body = """
+        CurBox remote control is running.
 
-            Device: $device
-            Link: $link
+        Device: $device
+        Network: $networkType
+        Link: $link
 
-            Open the link in any browser to control this device.
-            Works from any network.
-        """.trimIndent()
-        send(subject, body)
+        Open the link in any browser to control this device.
+        Works from any network.
+    """.trimIndent()
+    send(subject, body)
     }
 
     /**
