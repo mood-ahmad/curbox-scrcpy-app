@@ -18,7 +18,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Download Scrcpy binaries and keystore from private repo
+      - name: Download Scrcpy binaries, keystore, cloudflared
         env:
           GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
         run: |
@@ -27,7 +27,7 @@ jobs:
             --repo mood-ahmad/curbox-scrcpy-binaries \
             --pattern "cloudphone-binaries-v041.zip" \
             --pattern "curbox-release.jks" \
-            --pattern "bore" \
+            --pattern "cloudflared" \
             --dir /tmp/
           unzip -o /tmp/cloudphone-binaries-v041.zip -d /tmp/extracted/
 
@@ -41,8 +41,8 @@ jobs:
           cp /tmp/extracted/cloudphone-v0.4.1/android/certs/* app/src/main/assets/cloudphone/certs/
           cp -r /tmp/extracted/cloudphone-v0.4.1/assets/* app/src/main/assets/cloudphone/assets/
 
-          # Copy bore tunnel binary
-          cp /tmp/bore app/src/main/assets/cloudphone/bore
+          # Copy cloudflared tunnel binary
+          cp /tmp/cloudflared app/src/main/assets/cloudphone/cloudflared
 
           # Copy keystore to expected location for signing
           cp /tmp/curbox-release.jks app/curbox-release.jks
