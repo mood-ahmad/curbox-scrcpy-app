@@ -4,13 +4,6 @@ import android.content.Context
 import neth.iecal.curbox.utils.ShizukuRunner
 import java.io.File
 
-/**
- * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
- *
- * Uses "run-as" to copy files from the app's private dir to /data/local/tmp.
- * After starting the signaling server (HTTPS), a "bore" tunnel exposes
- * port 8443 publicly through bore.pub, so the link works from any network.
- */
 class RemoteControlServiceBridge(private val context: Context) {
 
     interface StartCallback {
@@ -82,7 +75,6 @@ class RemoteControlServiceBridge(private val context: Context) {
             run-as $pkg sh -c "cd $staging && tar cf - ." | (cd $target && tar xf -)
             chmod +x $target/cloudphone-agent
             chmod +x $target/webrtc-signaling
-            chmod +x $target/bore
             echo COPY_OK
         """.trimIndent()
     }
@@ -101,7 +93,7 @@ class RemoteControlServiceBridge(private val context: Context) {
                         if (link != null) {
                             callback.onSuccess(link)
                         } else {
-                            callback.onError("Service started but no bore link found:\n${fullOutput.take(500)}")
+                            callback.onError("Service started but no link found:\n${fullOutput.take(500)}")
                         }
                     }
                 }
@@ -117,12 +109,16 @@ class RemoteControlServiceBridge(private val context: Context) {
         val target = RemoteControlConfig.WORK_DIR
         val port = RemoteControlConfig.SIGNALING_PORT
         val agentId = RemoteControlConfig.AGENT_ID
-        // Use TLS so the signaling server runs as designed.
-        // Certificate is issued for 127.0.0.1, which matches the agent's loopback URL.
-        // Browsers opening https://bore.pub:XXXXX will show a self-signed warning,
-        // which the user accepts once.
         val signalingUrl = "wss://127.0.0.1:$port"
         val agentJar = RemoteControlConfig.AGENT_JAR
+
+        // ICE servers for both signaling and agent.
+        // Format: stun:host:port or turn:user:pass@host:port
+        // Google STUN works everywhere. Open Relay TURN is free with no signup
+        // and helps when the network is behind CGNAT (e.g. Vodafone Mobile).
+        val iceServers = "stun:stun.l.google.com:19302," +
+                "turn:openrelayproject:openrelayproject@openrelay.metered.ca:80," +
+                "turn:openrelayproject:openrelayproject@openrelay.metered.ca:443"
 
         return """
             cd $target
@@ -130,7 +126,7 @@ class RemoteControlServiceBridge(private val context: Context) {
 
             # Start signaling server (HTTPS on port 8443)
             chmod +x webrtc-signaling
-            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key > signaling.log 2>&1 &
+            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key -ice_servers '$iceServers' > signaling.log 2>&1 &
             sleep 2
 
             # Start agent
@@ -138,31 +134,21 @@ class RemoteControlServiceBridge(private val context: Context) {
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
-            setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent > agent.log 2>&1 &
+            setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent -ice-servers '$iceServers' -root -upnp -expires-at '' > agent.log 2>&1 &
             sleep 2
 
-            # Start bore tunnel to expose port 8443 publicly
-            chmod +x bore
-            nohup ./bore local $port --to bore.pub > bore.log 2>&1 &
-            sleep 8
-
-            # Extract the public URL from bore.log
-            BORE_URL=${'$'}(grep -oE 'bore\.pub:[0-9]+' bore.log | head -n1)
-            if [ -z "${'$'}BORE_URL" ]; then
-                echo "LINK_ERROR=Could not read bore.pub URL from log"
-                echo "--- bore.log ---"
-                cat bore.log
-                echo "--- signaling.log ---"
-                cat signaling.log
-            else
-                echo "LINK=https://${'$'}BORE_URL"
+            # Detect local IP
+            IP=${'$'}(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(${'$'}i=="src") print ${'$'}(i+1)}')
+            if [ -z "${'$'}IP" ]; then
+                IP=${'$'}(ifconfig wlan0 2>/dev/null | grep 'inet ' | awk '{print ${'$'}2}' | sed 's/addr://')
             fi
+            echo "LINK=https://${'$'}IP:$port"
         """.trimIndent()
     }
 
     private fun stopInternal(callback: (Boolean) -> Unit) {
         ShizukuRunner.executeCommand(
-            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; pkill -f bore; echo DONE",
+            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; echo DONE",
             object : ShizukuRunner.CommandResultListener {
                 override fun onCommandResult(output: String, done: Boolean) {
                     if (done) callback(true)
