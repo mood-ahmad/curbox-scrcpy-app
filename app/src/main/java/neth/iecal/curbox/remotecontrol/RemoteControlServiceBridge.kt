@@ -31,15 +31,18 @@ class RemoteControlServiceBridge(private val context: Context) {
                 callback.onError(prepError ?: "Failed to prepare working directory")
                 return@prepareWorkDir
             }
-            stopInternal {
+            // IMPORTANT: kill any leftover processes FIRST, then wait for the
+            // OS to release the ports, then start fresh. This prevents the
+            // "address already in use" loop and duplicate registrations.
+            killAllProcesses {
                 launchServices(callback)
             }
         }
     }
 
     fun stop(callback: SimpleCallback) {
-        stopInternal { success ->
-            callback.onComplete(success, if (success) null else "pkill reported an error")
+        killAllProcesses {
+            callback.onComplete(true, null)
         }
     }
 
@@ -90,6 +93,36 @@ class RemoteControlServiceBridge(private val context: Context) {
         """.trimIndent()
     }
 
+    /**
+     * Force-kills every process we started, waits for the OS to release the
+     * ports, then calls the callback. This is critical to prevent the
+     * "port already in use" loop and duplicate agent registrations.
+     */
+    private fun killAllProcesses(callback: () -> Unit) {
+        val script = """
+            pkill -9 -f webrtc-signaling 2>/dev/null
+            pkill -9 -f cloudphone-agent 2>/dev/null
+            pkill -9 -f cloudflared 2>/dev/null
+            pkill -9 -f libsys_core.so 2>/dev/null
+            sleep 3
+            echo KILLED
+        """.trimIndent()
+
+        ShizukuRunner.executeCommand(
+            script,
+            object : ShizukuRunner.CommandResultListener {
+                override fun onCommandResult(output: String, done: Boolean) {
+                    if (done) callback()
+                }
+                override fun onCommandError(error: String) {
+                    // pkill returns non-zero when no process matched, which is fine.
+                    callback()
+                }
+            },
+            lineBundle = 100
+        )
+    }
+
     private fun launchServices(callback: StartCallback) {
         val accumulated = StringBuilder()
 
@@ -131,7 +164,7 @@ class RemoteControlServiceBridge(private val context: Context) {
             # --- 1) Start signaling server (HTTPS on port 8443)
             chmod +x webrtc-signaling
             nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key > signaling.log 2>&1 &
-            sleep 3
+            sleep 5
 
             # --- 2) Start agent
             chmod +x cloudphone-agent
@@ -139,7 +172,7 @@ class RemoteControlServiceBridge(private val context: Context) {
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
             setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent -expires-at "" > agent.log 2>&1 &
-            sleep 6
+            sleep 8
 
             # --- 3) Detect WiFi (multiple methods for Samsung + Android)
             WIFI_IF=""
@@ -192,7 +225,6 @@ class RemoteControlServiceBridge(private val context: Context) {
                     fi
                     sleep 1
                 done
-                # Extract URL: must have at least 2 dashes in subdomain, exclude api.*
                 URL=${'$'}(grep -oE 'https://[a-z0-9-]+-[a-z0-9-]+-[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | head -n1)
                 if [ -z "${'$'}URL" ]; then
                     echo "NETWORK=Mobile"
@@ -205,21 +237,6 @@ class RemoteControlServiceBridge(private val context: Context) {
                 fi
             fi
         """.trimIndent()
-    }
-
-    private fun stopInternal(callback: (Boolean) -> Unit) {
-        ShizukuRunner.executeCommand(
-            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; pkill -f cloudflared; echo DONE",
-            object : ShizukuRunner.CommandResultListener {
-                override fun onCommandResult(output: String, done: Boolean) {
-                    if (done) callback(true)
-                }
-                override fun onCommandError(error: String) {
-                    callback(true)
-                }
-            },
-            lineBundle = 100
-        )
     }
 
     private fun extractLink(output: String): String? {
