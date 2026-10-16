@@ -16,6 +16,10 @@
         android:title="@string/export_data_as_csv" />
 
     <item
+        android:id="@+id/engine_diagnostics"
+        android:title="@string/engine_diagnostics_menu" />
+
+    <item
         android:id="@+id/action_help"
         android:title="@string/help"
         android:icon="@drawable/baseline_question_mark_24" />
