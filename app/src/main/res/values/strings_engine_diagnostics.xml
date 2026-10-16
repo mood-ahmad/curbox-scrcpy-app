@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="engine_diagnostics_title">Engine Diagnostics</string>
+    <string name="engine_diagnostics_menu">Engine Diagnostics</string>
+    <string name="engine_btn_check_shizuku">Check Shizuku &amp; Files</string>
+    <string name="engine_btn_list_files">List Files</string>
+    <string name="engine_btn_signaling_help">Signaling --help</string>
+    <string name="engine_btn_agent_help">Agent --help</string>
+    <string name="engine_output_label">Output</string>
+    <string name="engine_btn_copy">Copy</string>
+    <string name="engine_btn_clear">Clear</string>
+    <string name="engine_copied">Copied to clipboard</string>
+    <string name="engine_running">Running…</string>
+    <string name="engine_done">Done</string>
+</resources>
