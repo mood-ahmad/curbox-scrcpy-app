@@ -84,7 +84,25 @@ object RemoteControlManager {
                 }
 
                 bridge?.start(object : RemoteControlServiceBridge.StartCallback {
-                    override fun onSuccess(link: String) {
+    override fun onSuccess(link: String, networkType: String) {
+        currentLink = link
+        _state.value = RemoteControlState.Ready(link)
+        EventLogger.log("SERVICE", "Started successfully on $networkType: $link")
+
+        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastLink = prefs.getString(KEY_LAST_LINK, null)
+        prefs.edit().putString(KEY_LAST_LINK, link).apply()
+
+        if (link != lastLink) {
+            EventLogger.log("EMAIL", "Sending new link to email")
+            scope.launch {
+                EmailSender.sendLink(link, networkType)
+            }
+        } else {
+            EventLogger.log("EMAIL", "Link unchanged, skipping email")
+        }
+        isStarting = false
+    }
                         currentLink = link
                         _state.value = RemoteControlState.Ready(link)
                         EventLogger.log("SERVICE", "Started successfully: $link")
