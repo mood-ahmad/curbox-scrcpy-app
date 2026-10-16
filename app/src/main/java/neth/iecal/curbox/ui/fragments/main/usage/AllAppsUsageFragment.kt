@@ -305,6 +305,18 @@ class AllAppsUsageFragment : Fragment() {
                             true
                         }
 
+                        R.id.engine_diagnostics -> {
+                            activity?.supportFragmentManager?.beginTransaction()
+                                ?.setCustomAnimations(R.anim.fade_in, R.anim.fade_out)
+                                ?.replace(
+                                    R.id.fragment_holder,
+                                    neth.iecal.curbox.ui.fragments.main.scrcpy.EngineDiagnosticsFragment()
+                                )
+                                ?.addToBackStack(null)
+                                ?.commit()
+                            true
+                        }
+
                         R.id.action_help -> {
                             ViewUtils.showHelpPopup(
                                 binding.openMenu,
@@ -827,4 +839,4 @@ class AllAppsUsageFragment : Fragment() {
             super.onDestroyView()
             _binding = null
         }
-    }
+}
