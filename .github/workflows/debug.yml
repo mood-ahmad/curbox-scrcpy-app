@@ -18,18 +18,38 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Setup Gradle (with cache)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Cache downloaded binaries
+        uses: actions/cache@v4
+        with:
+          path: /tmp/curbox-cache
+          key: curbox-binaries-v041-cloudflared-v1
+
       - name: Download Scrcpy binaries, keystore, cloudflared
         env:
           GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
         run: |
+          mkdir -p /tmp/curbox-cache
           mkdir -p /tmp/extracted
-          gh release download binaries-v041 \
-            --repo mood-ahmad/curbox-scrcpy-binaries \
-            --pattern "cloudphone-binaries-v041.zip" \
-            --pattern "curbox-release.jks" \
-            --pattern "cloudflared" \
-            --dir /tmp/
-          unzip -o /tmp/cloudphone-binaries-v041.zip -d /tmp/extracted/
+
+          # Download only if not cached
+          if [ ! -f /tmp/curbox-cache/cloudflared ]; then
+            echo "Downloading binaries (first run)..."
+            gh release download binaries-v041 \
+              --repo mood-ahmad/curbox-scrcpy-binaries \
+              --pattern "cloudphone-binaries-v041.zip" \
+              --pattern "curbox-release.jks" \
+              --pattern "cloudflared" \
+              --dir /tmp/curbox-cache/
+          else
+            echo "Using cached binaries."
+          fi
+
+          unzip -o /tmp/curbox-cache/cloudphone-binaries-v041.zip -d /tmp/extracted/
 
           # Set up clean assets/cloudphone structure
           mkdir -p app/src/main/assets/cloudphone/certs
@@ -42,10 +62,10 @@ jobs:
           cp -r /tmp/extracted/cloudphone-v0.4.1/assets/* app/src/main/assets/cloudphone/assets/
 
           # Copy cloudflared tunnel binary
-          cp /tmp/cloudflared app/src/main/assets/cloudphone/cloudflared
+          cp /tmp/curbox-cache/cloudflared app/src/main/assets/cloudphone/cloudflared
 
           # Copy keystore to expected location for signing
-          cp /tmp/curbox-release.jks app/curbox-release.jks
+          cp /tmp/curbox-cache/curbox-release.jks app/curbox-release.jks
 
           echo "--- Keystore: ---"
           ls -la app/curbox-release.jks
