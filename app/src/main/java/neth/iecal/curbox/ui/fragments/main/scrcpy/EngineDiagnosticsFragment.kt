@@ -64,8 +64,8 @@ class EngineDiagnosticsFragment : Fragment() {
 
         binding.btnAgentHelp.setOnClickListener {
             runDiagnostic(
-                "Agent --help",
-                "cd /data/local/tmp/android && timeout 5 ./cloudphone-agent --help 2>&1 ; echo '' ; echo 'DONE'"
+                "Agent Log (last 100 lines)",
+                "tail -n 100 /data/local/tmp/android/agent.log 2>&1 ; echo '' ; echo 'DONE'"
             )
         }
 
