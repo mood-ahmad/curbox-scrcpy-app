@@ -4,6 +4,16 @@ import android.content.Context
 import neth.iecal.curbox.utils.ShizukuRunner
 import java.io.File
 
+/**
+ * Bridge between CurBox and the Scrcpy/WebRTC agent running via Shizuku.
+ *
+ * Uses "run-as" to copy files from the app's private dir to /data/local/tmp.
+ *
+ * Network strategy:
+ *  - WiFi:   the link is the local IP (https://192.168.x.x:8443) — same as original Scrcpy.
+ *  - Mobile: the local IP is behind CGNAT and unreachable, so we start a
+ *            cloudflared Quick Tunnel to expose the signaling server publicly.
+ */
 class RemoteControlServiceBridge(private val context: Context) {
 
     interface StartCallback {
@@ -75,6 +85,7 @@ class RemoteControlServiceBridge(private val context: Context) {
             run-as $pkg sh -c "cd $staging && tar cf - ." | (cd $target && tar xf -)
             chmod +x $target/cloudphone-agent
             chmod +x $target/webrtc-signaling
+            chmod +x $target/cloudflared
             echo COPY_OK
         """.trimIndent()
     }
@@ -93,7 +104,7 @@ class RemoteControlServiceBridge(private val context: Context) {
                         if (link != null) {
                             callback.onSuccess(link)
                         } else {
-                            callback.onError("Service started but no link found:\n${fullOutput.take(500)}")
+                            callback.onError("Service started but no link found:\n${fullOutput.take(800)}")
                         }
                     }
                 }
@@ -112,43 +123,64 @@ class RemoteControlServiceBridge(private val context: Context) {
         val signalingUrl = "wss://127.0.0.1:$port"
         val agentJar = RemoteControlConfig.AGENT_JAR
 
-        // ICE servers for both signaling and agent.
-        // Format: stun:host:port or turn:user:pass@host:port
-        // Google STUN works everywhere. Open Relay TURN is free with no signup
-        // and helps when the network is behind CGNAT (e.g. Vodafone Mobile).
-        val iceServers = "stun:stun.l.google.com:19302," +
-                "turn:openrelayproject:openrelayproject@openrelay.metered.ca:80," +
-                "turn:openrelayproject:openrelayproject@openrelay.metered.ca:443"
-
         return """
             cd $target
             export CLASSPATH=$target/libsys_core.so
 
-            # Start signaling server (HTTPS on port 8443)
+            # --- 1) Start signaling server (HTTPS on port 8443)
             chmod +x webrtc-signaling
-            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key -ice_servers '$iceServers' > signaling.log 2>&1 &
-            sleep 2
+            nohup ./webrtc-signaling -port $port -assets ./assets -cert ./certs/server.crt -key ./certs/server.key > signaling.log 2>&1 &
+            sleep 3
 
-            # Start agent
+            # --- 2) Start agent
             chmod +x cloudphone-agent
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
-            setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent -ice-servers '$iceServers' -root -upnp -expires-at '' > agent.log 2>&1 &
-            sleep 2
+            setsid nohup env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent -expires-at "" > agent.log 2>&1 &
+            sleep 6
 
-            # Detect local IP
-            IP=${'$'}(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(${'$'}i=="src") print ${'$'}(i+1)}')
-            if [ -z "${'$'}IP" ]; then
-                IP=${'$'}(ifconfig wlan0 2>/dev/null | grep 'inet ' | awk '{print ${'$'}2}' | sed 's/addr://')
+            # --- 3) Detect network type.
+            # WiFi interface starts with "wlan". Mobile data uses "rmnet".
+            WIFI_IF=${'$'}(ip -o link show 2>/dev/null | grep -oE 'wlan[0-9]+' | head -n1)
+
+            if [ -n "${'$'}WIFI_IF" ]; then
+                # --- WiFi: use local IP, no tunnel needed.
+                IP=${'$'}(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(${'$'}i=="src") print ${'$'}(i+1)}')
+                if [ -z "${'$'}IP" ]; then
+                    IP=${'$'}(ifconfig ${'$'}WIFI_IF 2>/dev/null | grep 'inet ' | awk '{print ${'$'}2}' | sed 's/addr://')
+                fi
+                echo "NETWORK=WIFI"
+                echo "LINK=https://${'$'}IP:$port"
+            else
+                # --- Mobile data: start cloudflared Quick Tunnel.
+                chmod +x cloudflared
+                rm -f cloudflared.log
+                nohup ./cloudflared tunnel --url https://127.0.0.1:$port --no-tls-verify > cloudflared.log 2>&1 &
+                # Wait for the tunnel URL to appear in the log.
+                for i in ${'$'}(seq 1 20); do
+                    if grep -qE 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log 2>/dev/null; then
+                        break
+                    fi
+                    sleep 1
+                done
+                URL=${'$'}(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' cloudflared.log | head -n1)
+                if [ -z "${'$'}URL" ]; then
+                    echo "NETWORK=MOBILE"
+                    echo "LINK_ERROR=cloudflared URL not found"
+                    echo "--- cloudflared.log (tail) ---"
+                    tail -n 30 cloudflared.log 2>/dev/null
+                else
+                    echo "NETWORK=MOBILE"
+                    echo "LINK=${'$'}URL"
+                fi
             fi
-            echo "LINK=https://${'$'}IP:$port"
         """.trimIndent()
     }
 
     private fun stopInternal(callback: (Boolean) -> Unit) {
         ShizukuRunner.executeCommand(
-            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; echo DONE",
+            "pkill -f webrtc-signaling; pkill -f cloudphone-agent; pkill -f cloudflared; echo DONE",
             object : ShizukuRunner.CommandResultListener {
                 override fun onCommandResult(output: String, done: Boolean) {
                     if (done) callback(true)
