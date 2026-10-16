@@ -118,9 +118,6 @@ object RemoteControlManager {
         }
     }
 
-    /**
-     * Stops and restarts the service. Used when the network changes.
-     */
     fun restart(context: Context) {
         val b = bridge
         if (b == null) {
