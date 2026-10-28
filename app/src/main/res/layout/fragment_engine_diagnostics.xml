@@ -39,6 +39,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/engine_btn_agent_help"
+        android:layout_marginBottom="6dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_cloudflared_log"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/engine_btn_cloudflared_log"
+        android:layout_marginBottom="6dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_signaling_log"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/engine_btn_signaling_log"
         android:layout_marginBottom="12dp" />
 
     <TextView
