@@ -16,11 +16,7 @@ import neth.iecal.curbox.utils.ShizukuRunner
 /**
  * Read-only diagnostics for the Scrcpy engine.
  *
- * Runs a handful of safe shell commands through Shizuku and shows the output.
- * All commands are wrapped so they can never hang or deadlock:
- *  - "2>&1" merges stderr into stdout (avoids the stderr/stdout deadlock in ShizukuRunner).
- *  - "timeout 5" kills the command if it hangs.
- *  - The engine binaries are only queried with "--help", never started.
+ * Runs safe shell commands through Shizuku and shows the output.
  */
 class EngineDiagnosticsFragment : Fragment() {
 
@@ -69,15 +65,34 @@ class EngineDiagnosticsFragment : Fragment() {
             )
         }
 
+        binding.btnCloudflaredLog.setOnClickListener {
+            runDiagnostic(
+                "Cloudflared Log",
+                "cat /data/local/tmp/android/cloudflared.log 2>&1 ; echo '' ; echo 'DONE'"
+            )
+        }
+
+        binding.btnSignalingLog.setOnClickListener {
+            runDiagnostic(
+                "Signaling Log (last 150 lines)",
+                "tail -n 150 /data/local/tmp/android/signaling.log 2>&1 ; echo '' ; echo 'DONE'"
+            )
+        }
+
         binding.btnCopy.setOnClickListener { copyOutput() }
         binding.btnClear.setOnClickListener { binding.outputText.text = "" }
     }
 
     private fun runDiagnostic(label: String, command: String) {
         if (isRunning) {
-            Toast.makeText(requireContext(), "A test is already running", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                requireContext(),
+                "A test is already running",
+                Toast.LENGTH_SHORT
+            ).show()
             return
         }
+
         isRunning = true
         setButtonsEnabled(false)
 
@@ -90,6 +105,7 @@ class EngineDiagnosticsFragment : Fragment() {
                     if (output.isNotEmpty()) {
                         appendOutput(output)
                     }
+
                     if (done) {
                         appendOutput("\n[${getString(R.string.engine_done)}]\n")
                         finishRun()
@@ -107,32 +123,46 @@ class EngineDiagnosticsFragment : Fragment() {
 
     private fun finishRun() {
         isRunning = false
-        view?.post { setButtonsEnabled(true) }
+        view?.post {
+            setButtonsEnabled(true)
+        }
     }
 
     private fun setButtonsEnabled(enabled: Boolean) {
         val b = _binding ?: return
+
         b.btnCheckShizuku.isEnabled = enabled
         b.btnListFiles.isEnabled = enabled
         b.btnSignalingHelp.isEnabled = enabled
         b.btnAgentHelp.isEnabled = enabled
+        b.btnCloudflaredLog.isEnabled = enabled
+        b.btnSignalingLog.isEnabled = enabled
     }
 
     private fun appendOutput(text: String) {
         view?.post {
             val b = _binding ?: return@post
+
             b.outputText.append(text)
-            b.outputScroll.post { b.outputScroll.fullScroll(View.FOCUS_DOWN) }
+            b.outputScroll.post {
+                b.outputScroll.fullScroll(View.FOCUS_DOWN)
+            }
         }
     }
 
     private fun copyOutput() {
         val b = _binding ?: return
+
         val clipboard = requireContext()
             .getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
         clipboard.setPrimaryClip(
-            ClipData.newPlainText("CurBox Engine Diagnostics", b.outputText.text)
+            ClipData.newPlainText(
+                "CurBox Engine Diagnostics",
+                b.outputText.text
+            )
         )
+
         Toast.makeText(
             requireContext(),
             getString(R.string.engine_copied),
