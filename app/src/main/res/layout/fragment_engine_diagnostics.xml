@@ -34,6 +34,8 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_list_files"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
                 android:layout_marginEnd="6dp"
                 android:text="@string/engine_btn_list_files" />
 
@@ -68,7 +70,7 @@
 
     </HorizontalScrollView>
 
-    <!-- Kadb isolated proof of concept -->
+    <!-- Isolated Kadb proof of concept -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -136,12 +138,12 @@
 
     </HorizontalScrollView>
 
-    <!-- Combined output -->
+    <!-- Combined diagnostic output -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingBottom="4dp"
         android:paddingTop="10dp"
+        android:paddingBottom="4dp"
         android:text="@string/engine_output_label"
         android:textStyle="bold" />
 
@@ -189,3 +191,4 @@
     </LinearLayout>
 
 </LinearLayout>
+
