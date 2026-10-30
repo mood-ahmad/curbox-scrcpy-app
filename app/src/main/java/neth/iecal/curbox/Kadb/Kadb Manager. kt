@@ -26,7 +26,7 @@ import java.io.Closeable
  * 2. Discover Wireless Debugging endpoints through mDNS.
  * 3. Pair using the Android six-digit pairing code.
  * 4. Connect to adbd.
- * 5. execute shell("id").
+ * 5. Execute shell("id").
  */
 class KadbManager(
     context: Context
@@ -61,10 +61,12 @@ class KadbManager(
             val identityDirectory =
                 appContext.noBackupFilesDir.resolve("kadb")
 
-            if (!identityDirectory.exists()) {
-                check(identityDirectory.mkdirs()) {
-                    "Unable to create Kadb identity directory"
-                }
+            if (
+                !identityDirectory.exists() &&
+                !identityDirectory.mkdirs() &&
+                !identityDirectory.exists()
+            ) {
+                error("Unable to create Kadb identity directory")
             }
 
             val privateKeyPath =
@@ -278,3 +280,4 @@ class KadbManager(
             Regex("^[0-9]{6}$")
     }
 }
+
