@@ -9,26 +9,20 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 import neth.iecal.curbox.R
 import neth.iecal.curbox.databinding.FragmentEngineDiagnosticsBinding
-import neth.iecal.curbox.kadb.KadbManager
 import neth.iecal.curbox.utils.ShizukuRunner
 
 /**
- * Diagnostics for the Scrcpy engine and the isolated Kadb proof of concept.
+ * Read-only diagnostics for the Scrcpy engine.
  *
- * Shizuku remains the active execution backend.
- * Kadb is tested independently and does not control the engine yet.
+ * Runs safe shell commands through Shizuku and shows the output.
  */
 class EngineDiagnosticsFragment : Fragment() {
 
     private var _binding: FragmentEngineDiagnosticsBinding? = null
     private val binding get() = _binding!!
 
-    private var kadbManager: KadbManager? = null
     private var isRunning = false
 
     override fun onCreateView(
@@ -50,8 +44,6 @@ class EngineDiagnosticsFragment : Fragment() {
         savedInstanceState: Bundle?
     ) {
         super.onViewCreated(view, savedInstanceState)
-
-        kadbManager = KadbManager(requireContext())
 
         binding.btnCheckShizuku.setOnClickListener {
             runDiagnostic(
@@ -95,185 +87,12 @@ class EngineDiagnosticsFragment : Fragment() {
             )
         }
 
-        binding.btnKadbDiscover.setOnClickListener {
-            runKadbOperation(
-                "Kadb: Discover Pairing Endpoint"
-            ) { manager ->
-
-                val endpoint =
-                    manager.awaitPairingEndpoint()
-
-                buildString {
-                    appendLine("Pairing endpoint discovered")
-                    appendLine("Name: ${endpoint.name}")
-                    appendLine("Host: ${endpoint.host}")
-                    appendLine("Port: ${endpoint.port}")
-                    appendLine("Service: ${endpoint.serviceType}")
-                }
-            }
-        }
-
-        binding.btnKadbPairTest.setOnClickListener {
-            val pairingCode =
-                binding.kadbPairingCode.text
-                    ?.toString()
-                    ?.trim()
-                    .orEmpty()
-
-            if (!pairingCode.matches(Regex("^[0-9]{6}$"))) {
-                binding.kadbPairingCode.error =
-                    getString(
-                        R.string.engine_kadb_invalid_code
-                    )
-
-                return@setOnClickListener
-            }
-
-            binding.kadbPairingCode.error = null
-
-            runKadbOperation(
-                "Kadb: Pair & Run ID"
-            ) { manager ->
-
-                val result =
-                    manager.pairAndRunId(pairingCode)
-
-                buildString {
-                    appendLine("Pairing completed")
-                    appendLine()
-
-                    appendLine("Pairing endpoint:")
-                    appendLine(
-                        "${result.pairingEndpoint.host}:${result.pairingEndpoint.port}"
-                    )
-
-                    appendLine()
-
-                    appendLine("Connection endpoint:")
-                    appendLine(
-                        "${result.connectEndpoint.host}:${result.connectEndpoint.port}"
-                    )
-
-                    appendLine()
-
-                    appendLine("Shell output:")
-                    appendLine(
-                        result.commandResult.allOutput.trim()
-                    )
-
-                    appendLine()
-
-                    appendLine(
-                        "Exit code: ${result.commandResult.exitCode}"
-                    )
-
-                    appendLine(
-                        if (result.shellAccessConfirmed) {
-                            "RESULT: uid=2000(shell) confirmed"
-                        } else {
-                            "RESULT: shell UID was not confirmed"
-                        }
-                    )
-                }
-            }
-        }
-
-        binding.btnKadbConnectId.setOnClickListener {
-            runKadbOperation(
-                "Kadb: Connect & Run ID"
-            ) { manager ->
-
-                val result =
-                    manager.connectAndRunId()
-
-                buildString {
-                    appendLine("Connection endpoint:")
-                    appendLine(
-                        "${result.endpoint.host}:${result.endpoint.port}"
-                    )
-
-                    appendLine()
-
-                    appendLine("Shell output:")
-                    appendLine(
-                        result.allOutput.trim()
-                    )
-
-                    appendLine()
-
-                    appendLine(
-                        "Exit code: ${result.exitCode}"
-                    )
-
-                    appendLine(
-                        if (
-                            result.output.contains(
-                                "uid=2000(shell)",
-                                ignoreCase = true
-                            )
-                        ) {
-                            "RESULT: uid=2000(shell) confirmed"
-                        } else {
-                            "RESULT: shell UID was not confirmed"
-                        }
-                    )
-                }
-            }
-        }
-
         binding.btnCopy.setOnClickListener {
             copyOutput()
         }
 
         binding.btnClear.setOnClickListener {
             binding.outputText.text = ""
-        }
-    }
-
-    private fun runKadbOperation(
-        label: String,
-        operation: suspend (KadbManager) -> String
-    ) {
-        if (isRunning) {
-            showAlreadyRunningToast()
-            return
-        }
-
-        val manager = kadbManager ?: run {
-            appendOutput(
-                "\n[ERROR]\nKadb manager is unavailable\n"
-            )
-            return
-        }
-
-        isRunning = true
-        setButtonsEnabled(false)
-
-        appendOutput(
-            "\n══════ $label ══════\n"
-        )
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            try {
-                val output =
-                    operation(manager)
-
-                appendOutput(output)
-
-                appendOutput(
-                    "\n[${getString(R.string.engine_done)}]\n"
-                )
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Throwable) {
-                appendOutput(
-                    "\n[ERROR]\n" +
-                        (error.message ?: error.javaClass.simpleName) +
-                        "\n"
-                )
-            } finally {
-                finishRun()
-            }
         }
     }
 
@@ -331,9 +150,7 @@ class EngineDiagnosticsFragment : Fragment() {
     private fun showAlreadyRunningToast() {
         Toast.makeText(
             requireContext(),
-            getString(
-                R.string.engine_test_running
-            ),
+            getString(R.string.engine_test_running),
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -357,11 +174,6 @@ class EngineDiagnosticsFragment : Fragment() {
         b.btnAgentHelp.isEnabled = enabled
         b.btnCloudflaredLog.isEnabled = enabled
         b.btnSignalingLog.isEnabled = enabled
-
-        b.btnKadbDiscover.isEnabled = enabled
-        b.btnKadbPairTest.isEnabled = enabled
-        b.btnKadbConnectId.isEnabled = enabled
-        b.kadbPairingCode.isEnabled = enabled
     }
 
     private fun appendOutput(
@@ -397,19 +209,13 @@ class EngineDiagnosticsFragment : Fragment() {
 
         Toast.makeText(
             requireContext(),
-            getString(
-                R.string.engine_copied
-            ),
+            getString(R.string.engine_copied),
             Toast.LENGTH_SHORT
         ).show()
     }
 
     override fun onDestroyView() {
-        kadbManager?.close()
-        kadbManager = null
-
         _binding = null
-
         super.onDestroyView()
     }
 }
