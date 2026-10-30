@@ -8,59 +8,141 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:paddingBottom="12dp"
         android:text="@string/engine_diagnostics_title"
         android:textSize="20sp"
-        android:textStyle="bold"
-        android:paddingBottom="12dp" />
+        android:textStyle="bold" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_check_shizuku"
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/engine_btn_check_shizuku"
-        android:layout_marginBottom="6dp" />
+        android:fillViewport="true"
+        android:scrollbars="none">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_list_files"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/engine_btn_list_files"
-        android:layout_marginBottom="6dp" />
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_signaling_help"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/engine_btn_signaling_help"
-        android:layout_marginBottom="6dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_check_shizuku"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_btn_check_shizuku" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_agent_help"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/engine_btn_agent_help"
-        android:layout_marginBottom="6dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_list_files"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_btn_list_files" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_cloudflared_log"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/engine_btn_cloudflared_log"
-        android:layout_marginBottom="6dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_signaling_help"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_btn_signaling_help" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_signaling_log"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/engine_btn_signaling_log"
-        android:layout_marginBottom="12dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_agent_help"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_btn_agent_help" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_cloudflared_log"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_btn_cloudflared_log" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_signaling_log"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/engine_btn_signaling_log" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/engine_kadb_title"
+        android:textSize="17sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="@string/engine_kadb_description"
+        android:textSize="12sp" />
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:hint="@string/engine_kadb_pairing_code">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/kadb_pairing_code"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:digits="0123456789"
+            android:inputType="number"
+            android:maxLength="6"
+            android:maxLines="1" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="true"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_kadb_discover"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_kadb_discover" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_kadb_pair_test"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_kadb_pair_test" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_kadb_connect_id"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/engine_kadb_connect_id" />
+
+        </LinearLayout>
+
+    </HorizontalScrollView>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="4dp"
+        android:paddingTop="8dp"
         android:text="@string/engine_output_label"
-        android:textStyle="bold"
-        android:paddingBottom="4dp" />
+        android:textStyle="bold" />
 
     <ScrollView
         android:id="@+id/output_scroll"
@@ -75,8 +157,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:fontFamily="monospace"
-            android:textSize="11sp"
-            android:textIsSelectable="true" />
+            android:textIsSelectable="true"
+            android:textSize="11sp" />
+
     </ScrollView>
 
     <LinearLayout
@@ -89,17 +172,17 @@
             android:id="@+id/btn_copy"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
             android:layout_weight="1"
-            android:text="@string/engine_btn_copy"
-            android:layout_marginEnd="4dp" />
+            android:text="@string/engine_btn_copy" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btn_clear"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
             android:layout_weight="1"
-            android:text="@string/engine_btn_clear"
-            android:layout_marginStart="4dp" />
+            android:text="@string/engine_btn_clear" />
 
     </LinearLayout>
 
