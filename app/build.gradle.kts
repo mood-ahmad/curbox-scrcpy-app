@@ -356,11 +356,12 @@ dependencies {
     // Kadb is being evaluated as CurBox's future built-in ADB
     // execution backend.
     //
-    // Shizuku remains fully enabled and untouched during this POC.
+    // Keep core and mDNS on the same published version during POC.
+    // Shizuku remains fully enabled and untouched.
     // ------------------------------------------------------------
 
-    implementation("com.flyfishxu:kadb:2.1.5")
-    implementation("com.flyfishxu:kadb-mdns:2.1.5")
+    implementation("com.flyfishxu:kadb:2.1.4")
+    implementation("com.flyfishxu:kadb-mdns:2.1.4")
 
     implementation(
         "com.journeyapps:zxing-android-embedded:4.3.0"
