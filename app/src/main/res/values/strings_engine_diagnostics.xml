@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+
     <string name="engine_diagnostics_title">Engine Diagnostics</string>
     <string name="engine_diagnostics_menu">Engine Diagnostics</string>
 
@@ -7,9 +8,16 @@
     <string name="engine_btn_list_files">List Files</string>
     <string name="engine_btn_signaling_help">Signaling --help</string>
     <string name="engine_btn_agent_help">Agent Log</string>
-
     <string name="engine_btn_cloudflared_log">Cloudflared Log</string>
     <string name="engine_btn_signaling_log">Signaling Log</string>
+
+    <string name="engine_kadb_title">Kadb Proof of Concept</string>
+    <string name="engine_kadb_description">Wireless Debugging test only. Shizuku remains the active engine backend.</string>
+    <string name="engine_kadb_pairing_code">Six-digit pairing code</string>
+    <string name="engine_kadb_discover">Discover Pairing</string>
+    <string name="engine_kadb_pair_test">Pair &amp; Run ID</string>
+    <string name="engine_kadb_connect_id">Connect &amp; Run ID</string>
+    <string name="engine_kadb_invalid_code">Enter the six-digit Android pairing code</string>
 
     <string name="engine_output_label">Output</string>
     <string name="engine_btn_copy">Copy</string>
@@ -17,4 +25,6 @@
     <string name="engine_copied">Copied to clipboard</string>
     <string name="engine_running">Running…</string>
     <string name="engine_done">Done</string>
+    <string name="engine_test_running">A test is already running</string>
+
 </resources>
