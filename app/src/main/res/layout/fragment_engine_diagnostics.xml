@@ -63,7 +63,21 @@
                 android:id="@+id/btn_signaling_log"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
                 android:text="@string/engine_btn_signaling_log" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_launch_log"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:text="@string/engine_btn_launch_log" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_email_log"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/engine_btn_email_log" />
 
         </LinearLayout>
 
