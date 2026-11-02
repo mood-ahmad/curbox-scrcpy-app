@@ -147,6 +147,8 @@ object EventLogger {
                     t
                 )
             }
+
+            Unit
         }
     }
 
@@ -195,12 +197,16 @@ object EventLogger {
                 if (file.exists()) {
                     file.delete()
                 }
+
+                Unit
             } catch (t: Throwable) {
                 Log.e(
                     TAG,
                     "Failed to clear email diagnostics",
                     t
                 )
+
+                Unit
             }
         }
     }
@@ -253,6 +259,8 @@ object EventLogger {
                 ?.edit()
                 ?.remove(KEY_EVENTS)
                 ?.apply()
+
+            Unit
         }
     }
 
