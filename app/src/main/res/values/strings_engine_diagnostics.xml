@@ -4,6 +4,7 @@
     <string name="engine_diagnostics_title">Engine Diagnostics</string>
     <string name="engine_diagnostics_menu">Engine Diagnostics</string>
 
+    <string name="engine_btn_engine_status">Engine Status</string>
     <string name="engine_btn_check_shizuku">Check Shizuku &amp; Files</string>
     <string name="engine_btn_list_files">List Files</string>
     <string name="engine_btn_signaling_help">Signaling --help</string>
@@ -24,3 +25,4 @@
     <string name="engine_test_running">A test is already running</string>
 
 </resources>
+
