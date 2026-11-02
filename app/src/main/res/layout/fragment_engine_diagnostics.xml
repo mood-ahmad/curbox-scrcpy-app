@@ -13,7 +13,6 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
-    <!-- Existing Shizuku / Engine diagnostics -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -70,75 +69,6 @@
 
     </HorizontalScrollView>
 
-    <!-- Isolated Kadb proof of concept -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="@string/engine_kadb_title"
-        android:textSize="17sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:text="@string/engine_kadb_description"
-        android:textSize="12sp" />
-
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:hint="@string/engine_kadb_pairing_code">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/kadb_pairing_code"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:digits="0123456789"
-            android:inputType="number"
-            android:maxLength="6"
-            android:maxLines="1" />
-
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fillViewport="true"
-        android:scrollbars="none">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_kadb_discover"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="@string/engine_kadb_discover" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_kadb_pair_test"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="6dp"
-                android:text="@string/engine_kadb_pair_test" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_kadb_connect_id"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/engine_kadb_connect_id" />
-
-        </LinearLayout>
-
-    </HorizontalScrollView>
-
-    <!-- Combined diagnostic output -->
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -191,4 +121,3 @@
     </LinearLayout>
 
 </LinearLayout>
-
