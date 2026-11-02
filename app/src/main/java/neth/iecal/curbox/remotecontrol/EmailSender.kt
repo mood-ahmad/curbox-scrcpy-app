@@ -6,39 +6,44 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import neth.iecal.curbox.BuildConfig
 import java.util.Properties
-import javax.mail.Authenticator
 import javax.mail.Message
-import javax.mail.PasswordAuthentication
+import javax.mail.MessagingException
 import javax.mail.Session
 import javax.mail.Transport
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimeMessage
 
 /**
- * Sends CurBox emails (connection links and alerts) through Gmail SMTP.
+ * Sends CurBox connection links and alerts through Gmail SMTP.
  *
- * Credentials come from BuildConfig and are injected at build time
- * from GitHub Secrets.
+ * Credentials are injected into BuildConfig at build time.
  *
- * SMTP passwords and other secrets are never written to diagnostics.
+ * SMTP passwords and secrets are never written to diagnostics.
  */
 object EmailSender {
 
     private const val TAG = "EmailSender"
 
-    private const val SMTP_HOST = "smtp.gmail.com"
-    private const val SMTP_PORT = "587"
+    private const val SMTP_HOST =
+        "smtp.gmail.com"
 
     /*
-     * These are per-operation JavaMail timeouts.
+     * Gmail implicit SSL/TLS port.
      *
-     * connectiontimeout = TCP connection timeout
-     * timeout           = socket read timeout
-     * writetimeout      = socket write timeout
+     * We intentionally use port 465 instead of STARTTLS on 587
+     * because diagnostics showed TLS-upgrade failures on the device.
      */
-    private const val SMTP_CONNECTION_TIMEOUT_MS = 15_000
-    private const val SMTP_READ_TIMEOUT_MS = 20_000
-    private const val SMTP_WRITE_TIMEOUT_MS = 20_000
+    private const val SMTP_PORT =
+        "465"
+
+    private const val SMTP_CONNECTION_TIMEOUT_MS =
+        15_000
+
+    private const val SMTP_READ_TIMEOUT_MS =
+        20_000
+
+    private const val SMTP_WRITE_TIMEOUT_MS =
+        20_000
 
     /**
      * Sends the current CurBox connection link.
@@ -67,7 +72,8 @@ object EmailSender {
 
         EventLogger.logEmail(
             event = "LINK_SEND_REQUESTED",
-            details = "network=$networkType"
+            details =
+                "network=$networkType"
         )
 
         send(
@@ -78,8 +84,7 @@ object EmailSender {
     }
 
     /**
-     * Sends an alert when the Guardian cannot restore
-     * the remote-control service.
+     * Sends an alert when Guardian cannot restore the engine.
      */
     suspend fun sendAlert(
         deviceName: String,
@@ -95,7 +100,7 @@ object EmailSender {
             Device: $deviceName
             Reason: $reason
 
-            Open CurBox and tap Retry in Emergency settings.
+            Open CurBox and check Remote Control diagnostics.
         """.trimIndent()
 
         EventLogger.logEmail(
@@ -131,13 +136,12 @@ object EmailSender {
 
         EventLogger.logEmail(
             event = "SEND_REQUESTED",
-            details = "type=$diagnosticType"
+            details =
+                "type=$diagnosticType"
         )
 
         /*
-         * Do not log the credential values.
-         *
-         * We only record whether required configuration exists.
+         * Never log the actual credential values.
          */
         if (
             fromEmail.isBlank() ||
@@ -146,6 +150,7 @@ object EmailSender {
         ) {
             val missing =
                 buildList {
+
                     if (fromEmail.isBlank()) {
                         add("SMTP_EMAIL")
                     }
@@ -157,7 +162,8 @@ object EmailSender {
                     if (toEmail.isBlank()) {
                         add("TARGET_EMAIL")
                     }
-                }.joinToString(",")
+                }
+                    .joinToString(",")
 
             Log.w(
                 TAG,
@@ -177,28 +183,21 @@ object EmailSender {
             return@withContext false
         }
 
+        var transport: Transport? = null
+
         try {
             EventLogger.logEmail(
                 event = "SMTP_PREPARING",
-                details = "host=$SMTP_HOST port=$SMTP_PORT"
+                details =
+                    "host=$SMTP_HOST port=$SMTP_PORT mode=SSL"
             )
 
             val props =
                 Properties().apply {
 
                     put(
-                        "mail.smtp.auth",
-                        "true"
-                    )
-
-                    put(
-                        "mail.smtp.starttls.enable",
-                        "true"
-                    )
-
-                    put(
-                        "mail.smtp.starttls.required",
-                        "true"
+                        "mail.transport.protocol",
+                        "smtp"
                     )
 
                     put(
@@ -209,6 +208,32 @@ object EmailSender {
                     put(
                         "mail.smtp.port",
                         SMTP_PORT
+                    )
+
+                    put(
+                        "mail.smtp.auth",
+                        "true"
+                    )
+
+                    /*
+                     * Implicit SSL/TLS.
+                     *
+                     * STARTTLS is deliberately disabled because
+                     * the connection is encrypted from the start.
+                     */
+                    put(
+                        "mail.smtp.ssl.enable",
+                        "true"
+                    )
+
+                    put(
+                        "mail.smtp.starttls.enable",
+                        "false"
+                    )
+
+                    put(
+                        "mail.smtp.starttls.required",
+                        "false"
                     )
 
                     put(
@@ -237,26 +262,13 @@ object EmailSender {
             )
 
             val session =
-                Session.getInstance(
-                    props,
-                    object : Authenticator() {
-
-                        override fun getPasswordAuthentication():
-                            PasswordAuthentication {
-
-                            return PasswordAuthentication(
-                                fromEmail,
-                                password
-                            )
-                        }
-                    }
-                )
+                Session.getInstance(props)
 
             /*
-             * JavaMail protocol debug output is intentionally disabled.
+             * Keep JavaMail protocol debugging disabled.
              *
-             * We only write our controlled diagnostic entries so credentials
-             * and SMTP protocol details cannot accidentally end up in email.log.
+             * Our controlled diagnostics contain everything
+             * needed without risking credential exposure.
              */
             session.debug = false
 
@@ -281,14 +293,42 @@ object EmailSender {
                     this.subject =
                         subject
 
-                    setText(body)
+                    setText(
+                        body,
+                        Charsets.UTF_8.name()
+                    )
+
+                    saveChanges()
                 }
+
+            EventLogger.logEmail(
+                event = "SMTP_CONNECT_START",
+                details =
+                    "host=$SMTP_HOST port=$SMTP_PORT"
+            )
+
+            transport =
+                session.getTransport("smtp")
+
+            transport.connect(
+                SMTP_HOST,
+                SMTP_PORT.toInt(),
+                fromEmail,
+                password
+            )
+
+            EventLogger.logEmail(
+                event = "SMTP_CONNECTED"
+            )
 
             EventLogger.logEmail(
                 event = "SMTP_SEND_START"
             )
 
-            Transport.send(message)
+            transport.sendMessage(
+                message,
+                message.allRecipients
+            )
 
             val durationMs =
                 SystemClock.elapsedRealtime() -
@@ -307,7 +347,8 @@ object EmailSender {
             EventLogger.logEmail(
                 event = "SEND_OK",
                 details =
-                    "type=$diagnosticType durationMs=$durationMs"
+                    "type=$diagnosticType " +
+                    "durationMs=$durationMs"
             )
 
             true
@@ -325,11 +366,29 @@ object EmailSender {
                     }
 
             val errorMessage =
-                t.message
-                    ?.replace("\r", " ")
-                    ?.replace("\n", " ")
-                    ?.take(500)
-                    ?: "No error message"
+                sanitiseErrorMessage(
+                    t.message
+                        ?: "No error message"
+                )
+
+            /*
+             * JavaMail often wraps the useful TLS/socket error
+             * inside another exception.
+             */
+            val cause =
+                findDeepestCause(t)
+
+            val causeType =
+                cause.javaClass.simpleName
+                    .ifBlank {
+                        cause.javaClass.name
+                    }
+
+            val causeMessage =
+                sanitiseErrorMessage(
+                    cause.message
+                        ?: "No cause message"
+                )
 
             Log.e(
                 TAG,
@@ -348,11 +407,87 @@ object EmailSender {
                     "type=$diagnosticType " +
                     "errorType=$errorType " +
                     "durationMs=$durationMs " +
-                    "message=$errorMessage"
+                    "message=$errorMessage " +
+                    "causeType=$causeType " +
+                    "cause=$causeMessage"
             )
 
+            if (
+                t is MessagingException &&
+                t.nextException != null
+            ) {
+                val next =
+                    t.nextException!!
+
+                EventLogger.logEmail(
+                    event = "SMTP_NEXT_EXCEPTION",
+                    details =
+                        "type=${next.javaClass.simpleName} " +
+                        "message=${sanitiseErrorMessage(next.message ?: "No message")}"
+                )
+            }
+
             false
+
+        } finally {
+
+            try {
+                if (
+                    transport != null &&
+                    transport.isConnected
+                ) {
+                    transport.close()
+
+                    EventLogger.logEmail(
+                        event = "SMTP_CONNECTION_CLOSED"
+                    )
+                }
+            } catch (closeError: Throwable) {
+                Log.w(
+                    TAG,
+                    "Failed to close SMTP transport",
+                    closeError
+                )
+
+                EventLogger.logEmail(
+                    event = "SMTP_CLOSE_WARNING",
+                    details =
+                        "type=${closeError.javaClass.simpleName}"
+                )
+            }
         }
     }
-}
 
+    private fun findDeepestCause(
+        throwable: Throwable
+    ): Throwable {
+
+        var current =
+            throwable
+
+        val visited =
+            HashSet<Throwable>()
+
+        while (
+            current.cause != null &&
+            current.cause !== current &&
+            visited.add(current)
+        ) {
+            current =
+                current.cause!!
+        }
+
+        return current
+    }
+
+    private fun sanitiseErrorMessage(
+        message: String
+    ): String {
+
+        return message
+            .replace("\r", " ")
+            .replace("\n", " ")
+            .trim()
+            .take(500)
+    }
+}
