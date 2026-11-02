@@ -11,15 +11,25 @@ class RemoteControlServiceBridge(
     context: Context
 ) {
 
-    private val appContext = context.applicationContext
+    private val appContext =
+        context.applicationContext
 
     interface StartCallback {
-        fun onSuccess(link: String, networkType: String)
+
+        fun onSuccess(
+            link: String,
+            networkType: String
+        )
+
         fun onError(message: String)
     }
 
     interface SimpleCallback {
-        fun onComplete(success: Boolean, message: String?)
+
+        fun onComplete(
+            success: Boolean,
+            message: String?
+        )
     }
 
     fun start(callback: StartCallback) {
@@ -30,19 +40,24 @@ class RemoteControlServiceBridge(
             return
         }
 
-        prepareWorkDir { prepOk, prepError ->
-            if (!prepOk) {
-                finishStart()
+        /*
+         * Stop old processes before replacing the working directory.
+         *
+         * This preserves the old PID files long enough for cleanup.
+         */
+        killAllProcesses {
+            prepareWorkDir { prepOk, prepError ->
+                if (!prepOk) {
+                    finishStart()
 
-                callback.onError(
-                    prepError
-                        ?: "Failed to prepare working directory"
-                )
+                    callback.onError(
+                        prepError
+                            ?: "Failed to prepare working directory"
+                    )
 
-                return@prepareWorkDir
-            }
+                    return@prepareWorkDir
+                }
 
-            killAllProcesses {
                 launchServices(callback)
             }
         }
@@ -59,27 +74,45 @@ class RemoteControlServiceBridge(
         }
     }
 
-    fun isRunning(callback: (Boolean) -> Unit) {
+    fun isRunning(
+        callback: (Boolean) -> Unit
+    ) {
+        val target =
+            RemoteControlConfig.WORK_DIR
+
         val command = """
-            SIGNALING_COUNT=${'$'}(
-                pgrep -f "$PROCESS_SIGNALING_PATTERN" \
-                    2>/dev/null \
-                    | wc -l
-            )
+            is_pid_alive() {
+                PID_FILE="${'$'}1"
 
-            AGENT_COUNT=${'$'}(
-                pgrep -f "$PROCESS_AGENT_PATTERN" \
-                    2>/dev/null \
-                    | wc -l
-            )
+                if [ ! -s "${'$'}PID_FILE" ]; then
+                    return 1
+                fi
 
-            if [ "${'$'}SIGNALING_COUNT" -eq 1 ] &&
-               [ "${'$'}AGENT_COUNT" -eq 1 ]; then
+                PID=${'$'}(cat "${'$'}PID_FILE" 2>/dev/null)
+
+                if [ -z "${'$'}PID" ]; then
+                    return 1
+                fi
+
+                kill -0 "${'$'}PID" 2>/dev/null
+            }
+
+            if is_pid_alive "$target/signaling.pid" &&
+               is_pid_alive "$target/agent.pid"; then
                 echo RUNNING
             else
                 echo STOPPED
             fi
         """.trimIndent()
+
+        var callbackDelivered = false
+
+        fun completeOnce(running: Boolean) {
+            if (!callbackDelivered) {
+                callbackDelivered = true
+                callback(running)
+            }
+        }
 
         ShizukuRunner.executeCommand(
             command,
@@ -89,16 +122,22 @@ class RemoteControlServiceBridge(
                     output: String,
                     done: Boolean
                 ) {
-                    if (done) {
-                        callback(
-                            output.lineSequence()
-                                .any { it.trim() == "RUNNING" }
-                        )
+                    if (!done) {
+                        return
                     }
+
+                    val running =
+                        output.lineSequence()
+                            .map { it.trim() }
+                            .any { it == "RUNNING" }
+
+                    completeOnce(running)
                 }
 
-                override fun onCommandError(error: String) {
-                    callback(false)
+                override fun onCommandError(
+                    error: String
+                ) {
+                    completeOnce(false)
                 }
             },
             lineBundle = 100
@@ -108,7 +147,20 @@ class RemoteControlServiceBridge(
     private fun prepareWorkDir(
         callback: (Boolean, String?) -> Unit
     ) {
-        val accumulated = StringBuilder()
+        val accumulated =
+            StringBuilder()
+
+        var callbackDelivered = false
+
+        fun completeOnce(
+            success: Boolean,
+            error: String?
+        ) {
+            if (!callbackDelivered) {
+                callbackDelivered = true
+                callback(success, error)
+            }
+        }
 
         ShizukuRunner.executeCommand(
             buildCopyScript(),
@@ -120,36 +172,49 @@ class RemoteControlServiceBridge(
                 ) {
                     accumulated.append(output)
 
-                    if (done) {
-                        val result = accumulated.toString()
+                    if (!done) {
+                        return
+                    }
 
-                        if (result.contains("COPY_OK")) {
-                            callback(true, null)
-                        } else {
-                            callback(
-                                false,
-                                "Working-directory preparation did not finish correctly:\n" +
-                                    result.takeLast(800)
-                            )
-                        }
+                    val result =
+                        accumulated.toString()
+
+                    if (result.contains("COPY_OK")) {
+                        completeOnce(
+                            true,
+                            null
+                        )
+                    } else {
+                        completeOnce(
+                            false,
+                            "Working-directory preparation did not finish correctly:\n" +
+                                result.takeLast(1000)
+                        )
                     }
                 }
 
-                override fun onCommandError(error: String) {
-                    callback(
+                override fun onCommandError(
+                    error: String
+                ) {
+                    completeOnce(
                         false,
-                        error.take(800)
+                        error.take(1000)
                     )
                 }
             },
-            lineBundle = 1000
+            lineBundle = 1200
         )
     }
 
     private fun buildCopyScript(): String {
-        val staging = stagingDir().absolutePath
-        val target = RemoteControlConfig.WORK_DIR
-        val pkg = appContext.packageName
+        val staging =
+            stagingDir().absolutePath
+
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        val pkg =
+            appContext.packageName
 
         return """
             set -e
@@ -178,24 +243,101 @@ class RemoteControlServiceBridge(
             rm -f "$target/cloudflared.log"
             rm -f "$target/launch.log"
 
+            rm -f "$target/agent.pid"
+            rm -f "$target/signaling.pid"
+            rm -f "$target/cloudflared.pid"
+
             echo COPY_OK
         """.trimIndent()
     }
 
+    /**
+     * Stops processes using their stored PIDs.
+     *
+     * A /proc executable check is also performed for builds created
+     * before PID files were introduced.
+     */
     private fun killAllProcesses(
         callback: () -> Unit
     ) {
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        var callbackDelivered = false
+
+        fun completeOnce() {
+            if (!callbackDelivered) {
+                callbackDelivered = true
+                callback()
+            }
+        }
+
         val script = """
-            pkill -9 -f "$PROCESS_SIGNALING_PATTERN" \
-                2>/dev/null || true
+            kill_pid_file() {
+                PID_FILE="${'$'}1"
 
-            pkill -9 -f "$PROCESS_AGENT_PATTERN" \
-                2>/dev/null || true
+                if [ ! -s "${'$'}PID_FILE" ]; then
+                    return
+                fi
 
-            pkill -9 -f "$PROCESS_CLOUDFLARED_PATTERN" \
-                2>/dev/null || true
+                PID=${'$'}(cat "${'$'}PID_FILE" 2>/dev/null)
 
-            sleep 3
+                if [ -n "${'$'}PID" ]; then
+                    kill -15 "${'$'}PID" 2>/dev/null || true
+                fi
+            }
+
+            force_kill_pid_file() {
+                PID_FILE="${'$'}1"
+
+                if [ ! -s "${'$'}PID_FILE" ]; then
+                    return
+                fi
+
+                PID=${'$'}(cat "${'$'}PID_FILE" 2>/dev/null)
+
+                if [ -n "${'$'}PID" ] &&
+                   kill -0 "${'$'}PID" 2>/dev/null; then
+                    kill -9 "${'$'}PID" 2>/dev/null || true
+                fi
+            }
+
+            kill_matching_executable() {
+                EXPECTED_EXE="${'$'}1"
+
+                for PROC_DIR in /proc/[0-9]*; do
+                    PID=${'$'}{PROC_DIR##*/}
+
+                    EXE=${'$'}(
+                        readlink "${'$'}PROC_DIR/exe" \
+                            2>/dev/null || true
+                    )
+
+                    if [ "${'$'}EXE" = "${'$'}EXPECTED_EXE" ]; then
+                        kill -9 "${'$'}PID" 2>/dev/null || true
+                    fi
+                done
+            }
+
+            kill_pid_file "$target/cloudflared.pid"
+            kill_pid_file "$target/agent.pid"
+            kill_pid_file "$target/signaling.pid"
+
+            sleep 2
+
+            force_kill_pid_file "$target/cloudflared.pid"
+            force_kill_pid_file "$target/agent.pid"
+            force_kill_pid_file "$target/signaling.pid"
+
+            kill_matching_executable "$target/cloudflared"
+            kill_matching_executable "$target/cloudphone-agent"
+            kill_matching_executable "$target/webrtc-signaling"
+
+            sleep 2
+
+            rm -f "$target/cloudflared.pid"
+            rm -f "$target/agent.pid"
+            rm -f "$target/signaling.pid"
 
             echo KILLED
         """.trimIndent()
@@ -209,23 +351,60 @@ class RemoteControlServiceBridge(
                     done: Boolean
                 ) {
                     if (done) {
-                        callback()
+                        completeOnce()
                     }
                 }
 
-                override fun onCommandError(error: String) {
-                    callback()
+                override fun onCommandError(
+                    error: String
+                ) {
+                    completeOnce()
                 }
             },
-            lineBundle = 100
+            lineBundle = 300
         )
     }
 
     private fun launchServices(
         callback: StartCallback
     ) {
-        val accumulated = StringBuilder()
-        val networkMode = detectNetworkMode()
+        val accumulated =
+            StringBuilder()
+
+        val networkMode =
+            detectNetworkMode()
+
+        var callbackDelivered = false
+
+        fun finishWithSuccess(
+            link: String,
+            networkType: String
+        ) {
+            if (callbackDelivered) {
+                return
+            }
+
+            callbackDelivered = true
+            finishStart()
+
+            callback.onSuccess(
+                link,
+                networkType
+            )
+        }
+
+        fun finishWithError(
+            message: String
+        ) {
+            if (callbackDelivered) {
+                return
+            }
+
+            callbackDelivered = true
+            finishStart()
+
+            callback.onError(message)
+        }
 
         ShizukuRunner.executeCommand(
             buildLaunchScript(networkMode),
@@ -241,55 +420,71 @@ class RemoteControlServiceBridge(
                         return
                     }
 
-                    val fullOutput = accumulated.toString()
-                    val link = extractLink(fullOutput)
+                    val fullOutput =
+                        accumulated.toString()
+
+                    val link =
+                        extractLink(fullOutput)
 
                     if (link != null) {
-                        val network = extractNetwork(fullOutput)
-
-                        finishStart()
-
-                        callback.onSuccess(
-                            link,
-                            network
+                        finishWithSuccess(
+                            link = link,
+                            networkType = extractNetwork(
+                                fullOutput
+                            )
                         )
                     } else {
-                        finishStart()
-
-                        callback.onError(
+                        finishWithError(
                             buildString {
                                 appendLine(
                                     "Service startup finished without a usable link."
                                 )
+
                                 appendLine()
-                                appendLine(
-                                    fullOutput.takeLast(1600)
-                                )
+
+                                if (fullOutput.isBlank()) {
+                                    appendLine(
+                                        "The launch script returned no output. Check Launch Log."
+                                    )
+                                } else {
+                                    appendLine(
+                                        fullOutput.takeLast(2200)
+                                    )
+                                }
                             }
                         )
                     }
                 }
 
-                override fun onCommandError(error: String) {
-                    finishStart()
-
-                    callback.onError(
-                        error.take(1000)
+                override fun onCommandError(
+                    error: String
+                ) {
+                    finishWithError(
+                        error.take(1400)
                     )
                 }
             },
-            lineBundle = 2000
+            lineBundle = 3000
         )
     }
 
     private fun buildLaunchScript(
         networkMode: NetworkMode
     ): String {
-        val target = RemoteControlConfig.WORK_DIR
-        val port = RemoteControlConfig.SIGNALING_PORT
-        val agentId = RemoteControlConfig.AGENT_ID
-        val signalingUrl = "wss://127.0.0.1:$port"
-        val agentJar = RemoteControlConfig.AGENT_JAR
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        val port =
+            RemoteControlConfig.SIGNALING_PORT
+
+        val agentId =
+            RemoteControlConfig.AGENT_ID
+
+        val signalingUrl =
+            "wss://127.0.0.1:$port"
+
+        val agentJar =
+            RemoteControlConfig.AGENT_JAR
 
         val useTunnel =
             networkMode != NetworkMode.WIFI
@@ -304,7 +499,10 @@ class RemoteControlServiceBridge(
         return """
             set -u
 
-            cd "$target" || exit 1
+            cd "$target" || {
+                echo "ERROR: unable to enter work directory"
+                exit 1
+            }
 
             export CLASSPATH="$target/libsys_core.so"
 
@@ -312,23 +510,19 @@ class RemoteControlServiceBridge(
             : > signaling.log
             : > agent.log
 
+            rm -f signaling.pid
+            rm -f agent.pid
+            rm -f cloudflared.pid
+
             echo "NETWORK_MODE=$networkLabel" >> launch.log
             echo "START_TIME=${'$'}(date '+%Y-%m-%d %H:%M:%S')" >> launch.log
-
-            pkill -9 -f "$PROCESS_SIGNALING_PATTERN" \
-                2>/dev/null || true
-
-            pkill -9 -f "$PROCESS_AGENT_PATTERN" \
-                2>/dev/null || true
-
-            pkill -9 -f "$PROCESS_CLOUDFLARED_PATTERN" \
-                2>/dev/null || true
-
-            sleep 2
+            echo "CLEANUP_DONE=1" >> launch.log
 
             chmod 711 webrtc-signaling
             chmod 711 cloudphone-agent
             chmod 711 cloudflared
+
+            echo "SIGNALING_STARTING=1" >> launch.log
 
             nohup ./webrtc-signaling \
                 -port "$port" \
@@ -338,6 +532,7 @@ class RemoteControlServiceBridge(
                 >> signaling.log 2>&1 &
 
             SIGNALING_PID=${'$'}!
+            echo "${'$'}SIGNALING_PID" > signaling.pid
 
             echo "SIGNALING_PID=${'$'}SIGNALING_PID" \
                 >> launch.log
@@ -350,8 +545,13 @@ class RemoteControlServiceBridge(
                     break
                 fi
 
-                if grep -q "Listening on" signaling.log 2>/dev/null; then
+                if grep -q \
+                    "Listening on" \
+                    signaling.log \
+                    2>/dev/null; then
+
                     SIGNALING_READY=1
+                    echo "SIGNALING_READY=1" >> launch.log
                     break
                 fi
 
@@ -359,16 +559,21 @@ class RemoteControlServiceBridge(
             done
 
             if [ "${'$'}SIGNALING_READY" -ne 1 ]; then
+                echo "SIGNALING_READY=0" >> launch.log
                 echo "NETWORK=$networkLabel"
                 echo "LINK_ERROR=signaling server did not become ready"
                 echo "--- signaling.log ---"
-                tail -n 50 signaling.log 2>/dev/null
+                tail -n 80 signaling.log 2>/dev/null
+                echo "--- launch.log ---"
+                cat launch.log 2>/dev/null
                 exit 0
             fi
 
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
+
+            echo "AGENT_STARTING=1" >> launch.log
 
             setsid nohup env \
                 GODEBUG=asyncpreemptoff=1 \
@@ -377,6 +582,7 @@ class RemoteControlServiceBridge(
                 >> agent.log 2>&1 &
 
             AGENT_PID=${'$'}!
+            echo "${'$'}AGENT_PID" > agent.pid
 
             echo "AGENT_PID=${'$'}AGENT_PID" \
                 >> launch.log
@@ -395,6 +601,7 @@ class RemoteControlServiceBridge(
                     2>/dev/null; then
 
                     AGENT_READY=1
+                    echo "AGENT_READY=1" >> launch.log
                     break
                 fi
 
@@ -402,45 +609,40 @@ class RemoteControlServiceBridge(
             done
 
             if [ "${'$'}AGENT_READY" -ne 1 ]; then
+                echo "AGENT_READY=0" >> launch.log
                 echo "NETWORK=$networkLabel"
                 echo "LINK_ERROR=agent did not complete handshake"
                 echo "--- agent.log ---"
-                tail -n 50 agent.log 2>/dev/null
+                tail -n 80 agent.log 2>/dev/null
+                echo "--- launch.log ---"
+                cat launch.log 2>/dev/null
                 exit 0
             fi
 
-            SIGNALING_COUNT=${'$'}(
-                pgrep -f "$PROCESS_SIGNALING_PATTERN" \
-                    2>/dev/null \
-                    | wc -l
-            )
-
-            AGENT_COUNT=${'$'}(
-                pgrep -f "$PROCESS_AGENT_PATTERN" \
-                    2>/dev/null \
-                    | wc -l
-            )
-
-            echo "SIGNALING_COUNT=${'$'}SIGNALING_COUNT" \
-                >> launch.log
-
-            echo "AGENT_COUNT=${'$'}AGENT_COUNT" \
-                >> launch.log
-
-            if [ "${'$'}SIGNALING_COUNT" -ne 1 ] ||
-               [ "${'$'}AGENT_COUNT" -ne 1 ]; then
-
+            if ! kill -0 "${'$'}SIGNALING_PID" 2>/dev/null; then
+                echo "SIGNALING_HEALTHY=0" >> launch.log
                 echo "NETWORK=$networkLabel"
-                echo "LINK_ERROR=duplicate engine processes detected"
-                echo "SIGNALING_COUNT=${'$'}SIGNALING_COUNT"
-                echo "AGENT_COUNT=${'$'}AGENT_COUNT"
+                echo "LINK_ERROR=signaling process stopped after startup"
                 exit 0
             fi
+
+            if ! kill -0 "${'$'}AGENT_PID" 2>/dev/null; then
+                echo "AGENT_HEALTHY=0" >> launch.log
+                echo "NETWORK=$networkLabel"
+                echo "LINK_ERROR=agent process stopped after startup"
+                exit 0
+            fi
+
+            echo "SIGNALING_HEALTHY=1" >> launch.log
+            echo "AGENT_HEALTHY=1" >> launch.log
 
             if [ "$useTunnel" = "false" ]; then
+                echo "WIFI_IP_DETECTION_START=1" >> launch.log
+
                 WIFI_IP=${'$'}(
                     ip route get 1.1.1.1 2>/dev/null \
-                        | sed -n 's/.* src $$[0-9.]*$$.*/\1/p' \
+                        | sed -n \
+                            's/.* src $$[0-9.]*$$.*/\1/p' \
                         | head -n 1
                 )
 
@@ -455,10 +657,16 @@ class RemoteControlServiceBridge(
                 fi
 
                 if [ -z "${'$'}WIFI_IP" ]; then
+                    echo "WIFI_IP_NOT_FOUND=1" >> launch.log
                     echo "NETWORK=WiFi"
                     echo "LINK_ERROR=WiFi address was not found"
+                    echo "--- launch.log ---"
+                    cat launch.log 2>/dev/null
                     exit 0
                 fi
+
+                echo "WIFI_IP=${'$'}WIFI_IP" >> launch.log
+                echo "LINK_READY=1" >> launch.log
 
                 echo "NETWORK=WiFi"
                 echo "LINK=https://${'$'}WIFI_IP:$port"
@@ -467,8 +675,7 @@ class RemoteControlServiceBridge(
 
             : > cloudflared.log
 
-            echo "Starting cloudflared..." \
-                >> launch.log
+            echo "CLOUDFLARED_STARTING=1" >> launch.log
 
             nohup ./cloudflared tunnel \
                 --url "https://127.0.0.1:$port" \
@@ -476,6 +683,7 @@ class RemoteControlServiceBridge(
                 >> cloudflared.log 2>&1 &
 
             CLOUDFLARED_PID=${'$'}!
+            echo "${'$'}CLOUDFLARED_PID" > cloudflared.pid
 
             echo "CLOUDFLARED_PID=${'$'}CLOUDFLARED_PID" \
                 >> launch.log
@@ -497,6 +705,7 @@ class RemoteControlServiceBridge(
                 )
 
                 if [ -n "${'$'}URL" ]; then
+                    echo "CLOUDFLARED_READY=1" >> launch.log
                     break
                 fi
 
@@ -506,12 +715,15 @@ class RemoteControlServiceBridge(
             echo "NETWORK=$networkLabel"
 
             if [ -z "${'$'}URL" ]; then
+                echo "CLOUDFLARED_READY=0" >> launch.log
                 echo "LINK_ERROR=cloudflared URL not found"
                 echo "--- cloudflared.log ---"
-                tail -n 60 cloudflared.log 2>/dev/null
+                tail -n 80 cloudflared.log 2>/dev/null
                 echo "--- launch.log ---"
                 cat launch.log 2>/dev/null
             else
+                echo "LINK_READY=1" >> launch.log
+                echo "PUBLIC_URL=${'$'}URL" >> launch.log
                 echo "LINK=${'$'}URL"
             fi
         """.trimIndent()
@@ -607,16 +819,8 @@ class RemoteControlServiceBridge(
     }
 
     companion object {
+
         private val startInProgress =
             AtomicBoolean(false)
-
-        private const val PROCESS_SIGNALING_PATTERN =
-            "[/]webrtc-signaling"
-
-        private const val PROCESS_AGENT_PATTERN =
-            "[/]cloudphone-agent"
-
-        private const val PROCESS_CLOUDFLARED_PATTERN =
-            "[/]cloudflared"
     }
 }
