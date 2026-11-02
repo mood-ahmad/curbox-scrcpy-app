@@ -11,12 +11,14 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import neth.iecal.curbox.R
 import neth.iecal.curbox.databinding.FragmentEngineDiagnosticsBinding
+import neth.iecal.curbox.remotecontrol.EventLogger
 import neth.iecal.curbox.utils.ShizukuRunner
 
 /**
- * Read-only diagnostics for the Scrcpy engine.
+ * Diagnostics for the CurBox remote-control engine.
  *
- * Runs safe shell commands through Shizuku and shows the output.
+ * Shell-based diagnostics run through Shizuku.
+ * App-side email diagnostics are read directly from EventLogger.
  */
 class EngineDiagnosticsFragment : Fragment() {
 
@@ -44,6 +46,8 @@ class EngineDiagnosticsFragment : Fragment() {
         savedInstanceState: Bundle?
     ) {
         super.onViewCreated(view, savedInstanceState)
+
+        EventLogger.init(requireContext())
 
         binding.btnCheckShizuku.setOnClickListener {
             runDiagnostic(
@@ -87,6 +91,17 @@ class EngineDiagnosticsFragment : Fragment() {
             )
         }
 
+        binding.btnLaunchLog.setOnClickListener {
+            runDiagnostic(
+                "Launch Log",
+                "cat /data/local/tmp/android/launch.log 2>&1 ; echo '' ; echo 'DONE'"
+            )
+        }
+
+        binding.btnEmailLog.setOnClickListener {
+            showEmailLog()
+        }
+
         binding.btnCopy.setOnClickListener {
             copyOutput()
         }
@@ -94,6 +109,35 @@ class EngineDiagnosticsFragment : Fragment() {
         binding.btnClear.setOnClickListener {
             binding.outputText.text = ""
         }
+    }
+
+    private fun showEmailLog() {
+        if (isRunning) {
+            showAlreadyRunningToast()
+            return
+        }
+
+        appendOutput(
+            "\n══════ Email Log ══════\n"
+        )
+
+        val emailLog = EventLogger.getEmailLog()
+
+        if (emailLog.isBlank()) {
+            appendOutput(
+                "[No email diagnostics recorded yet]\n"
+            )
+        } else {
+            appendOutput(emailLog)
+
+            if (!emailLog.endsWith("\n")) {
+                appendOutput("\n")
+            }
+        }
+
+        appendOutput(
+            "\n[${getString(R.string.engine_done)}]\n"
+        )
     }
 
     private fun runDiagnostic(
@@ -174,6 +218,8 @@ class EngineDiagnosticsFragment : Fragment() {
         b.btnAgentHelp.isEnabled = enabled
         b.btnCloudflaredLog.isEnabled = enabled
         b.btnSignalingLog.isEnabled = enabled
+        b.btnLaunchLog.isEnabled = enabled
+        b.btnEmailLog.isEnabled = enabled
     }
 
     private fun appendOutput(
