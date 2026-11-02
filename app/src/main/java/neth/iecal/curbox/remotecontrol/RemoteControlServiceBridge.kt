@@ -11,15 +11,23 @@ class RemoteControlServiceBridge(
     context: Context
 ) {
 
-    private val appContext = context.applicationContext
+    private val appContext =
+        context.applicationContext
 
     interface StartCallback {
-        fun onSuccess(link: String, networkType: String)
+        fun onSuccess(
+            link: String,
+            networkType: String
+        )
+
         fun onError(message: String)
     }
 
     interface SimpleCallback {
-        fun onComplete(success: Boolean, message: String?)
+        fun onComplete(
+            success: Boolean,
+            message: String?
+        )
     }
 
     fun start(callback: StartCallback) {
@@ -59,7 +67,9 @@ class RemoteControlServiceBridge(
         }
     }
 
-    fun isRunning(callback: (Boolean) -> Unit) {
+    fun isRunning(
+        callback: (Boolean) -> Unit
+    ) {
         val command = """
             SIGNALING_COUNT=${'$'}(
                 pgrep -f "$PROCESS_SIGNALING_PATTERN" \
@@ -92,12 +102,16 @@ class RemoteControlServiceBridge(
                     if (done) {
                         callback(
                             output.lineSequence()
-                                .any { it.trim() == "RUNNING" }
+                                .any {
+                                    it.trim() == "RUNNING"
+                                }
                         )
                     }
                 }
 
-                override fun onCommandError(error: String) {
+                override fun onCommandError(
+                    error: String
+                ) {
                     callback(false)
                 }
             },
@@ -108,7 +122,8 @@ class RemoteControlServiceBridge(
     private fun prepareWorkDir(
         callback: (Boolean, String?) -> Unit
     ) {
-        val accumulated = StringBuilder()
+        val accumulated =
+            StringBuilder()
 
         ShizukuRunner.executeCommand(
             buildCopyScript(),
@@ -120,23 +135,30 @@ class RemoteControlServiceBridge(
                 ) {
                     accumulated.append(output)
 
-                    if (done) {
-                        val result =
-                            accumulated.toString()
+                    if (!done) {
+                        return
+                    }
 
-                        if (result.contains("COPY_OK")) {
-                            callback(true, null)
-                        } else {
-                            callback(
-                                false,
-                                "Working-directory preparation did not finish correctly:\n" +
-                                    result.takeLast(800)
-                            )
-                        }
+                    val result =
+                        accumulated.toString()
+
+                    if (result.contains("COPY_OK")) {
+                        callback(
+                            true,
+                            null
+                        )
+                    } else {
+                        callback(
+                            false,
+                            "Working-directory preparation did not finish correctly:\n" +
+                                result.takeLast(800)
+                        )
                     }
                 }
 
-                override fun onCommandError(error: String) {
+                override fun onCommandError(
+                    error: String
+                ) {
                     callback(
                         false,
                         error.take(800)
@@ -188,9 +210,24 @@ class RemoteControlServiceBridge(
         """.trimIndent()
     }
 
+    /**
+     * Stops old processes once before starting a clean engine session.
+     *
+     * The launch script must not repeat this cleanup because pkill can
+     * terminate the shell that is currently launching the components.
+     */
     private fun killAllProcesses(
         callback: () -> Unit
     ) {
+        var callbackDelivered = false
+
+        fun completeOnce() {
+            if (!callbackDelivered) {
+                callbackDelivered = true
+                callback()
+            }
+        }
+
         val script = """
             pkill -9 -f "$PROCESS_SIGNALING_PATTERN" \
                 2>/dev/null || true
@@ -215,12 +252,14 @@ class RemoteControlServiceBridge(
                     done: Boolean
                 ) {
                     if (done) {
-                        callback()
+                        completeOnce()
                     }
                 }
 
-                override fun onCommandError(error: String) {
-                    callback()
+                override fun onCommandError(
+                    error: String
+                ) {
+                    completeOnce()
                 }
             },
             lineBundle = 100
@@ -230,7 +269,8 @@ class RemoteControlServiceBridge(
     private fun launchServices(
         callback: StartCallback
     ) {
-        val accumulated = StringBuilder()
+        val accumulated =
+            StringBuilder()
 
         val networkMode =
             detectNetworkMode()
@@ -275,23 +315,32 @@ class RemoteControlServiceBridge(
                                 )
 
                                 appendLine()
-                                appendLine(
-                                    fullOutput.takeLast(1600)
-                                )
+
+                                if (fullOutput.isBlank()) {
+                                    appendLine(
+                                        "The launch script returned no output. Check Launch Log."
+                                    )
+                                } else {
+                                    appendLine(
+                                        fullOutput.takeLast(2000)
+                                    )
+                                }
                             }
                         )
                     }
                 }
 
-                override fun onCommandError(error: String) {
+                override fun onCommandError(
+                    error: String
+                ) {
                     finishStart()
 
                     callback.onError(
-                        error.take(1000)
+                        error.take(1200)
                     )
                 }
             },
-            lineBundle = 2000
+            lineBundle = 2500
         )
     }
 
@@ -326,7 +375,10 @@ class RemoteControlServiceBridge(
         return """
             set -u
 
-            cd "$target" || exit 1
+            cd "$target" || {
+                echo "ERROR: unable to enter work directory"
+                exit 1
+            }
 
             export CLASSPATH="$target/libsys_core.so"
 
@@ -336,21 +388,13 @@ class RemoteControlServiceBridge(
 
             echo "NETWORK_MODE=$networkLabel" >> launch.log
             echo "START_TIME=${'$'}(date '+%Y-%m-%d %H:%M:%S')" >> launch.log
-
-            pkill -9 -f "$PROCESS_SIGNALING_PATTERN" \
-                2>/dev/null || true
-
-            pkill -9 -f "$PROCESS_AGENT_PATTERN" \
-                2>/dev/null || true
-
-            pkill -9 -f "$PROCESS_CLOUDFLARED_PATTERN" \
-                2>/dev/null || true
-
-            sleep 2
+            echo "CLEANUP_DONE=1" >> launch.log
 
             chmod 711 webrtc-signaling
             chmod 711 cloudphone-agent
             chmod 711 cloudflared
+
+            echo "SIGNALING_STARTING=1" >> launch.log
 
             nohup ./webrtc-signaling \
                 -port "$port" \
@@ -374,6 +418,7 @@ class RemoteControlServiceBridge(
 
                 if grep -q "Listening on" signaling.log 2>/dev/null; then
                     SIGNALING_READY=1
+                    echo "SIGNALING_READY=1" >> launch.log
                     break
                 fi
 
@@ -381,16 +426,21 @@ class RemoteControlServiceBridge(
             done
 
             if [ "${'$'}SIGNALING_READY" -ne 1 ]; then
+                echo "SIGNALING_READY=0" >> launch.log
                 echo "NETWORK=$networkLabel"
                 echo "LINK_ERROR=signaling server did not become ready"
                 echo "--- signaling.log ---"
-                tail -n 50 signaling.log 2>/dev/null
+                tail -n 80 signaling.log 2>/dev/null
+                echo "--- launch.log ---"
+                cat launch.log 2>/dev/null
                 exit 0
             fi
 
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
+
+            echo "AGENT_STARTING=1" >> launch.log
 
             setsid nohup env \
                 GODEBUG=asyncpreemptoff=1 \
@@ -417,6 +467,7 @@ class RemoteControlServiceBridge(
                     2>/dev/null; then
 
                     AGENT_READY=1
+                    echo "AGENT_READY=1" >> launch.log
                     break
                 fi
 
@@ -424,10 +475,13 @@ class RemoteControlServiceBridge(
             done
 
             if [ "${'$'}AGENT_READY" -ne 1 ]; then
+                echo "AGENT_READY=0" >> launch.log
                 echo "NETWORK=$networkLabel"
                 echo "LINK_ERROR=agent did not complete handshake"
                 echo "--- agent.log ---"
-                tail -n 50 agent.log 2>/dev/null
+                tail -n 80 agent.log 2>/dev/null
+                echo "--- launch.log ---"
+                cat launch.log 2>/dev/null
                 exit 0
             fi
 
@@ -452,6 +506,7 @@ class RemoteControlServiceBridge(
             if [ "${'$'}SIGNALING_COUNT" -ne 1 ] ||
                [ "${'$'}AGENT_COUNT" -ne 1 ]; then
 
+                echo "DUPLICATE_PROCESSES=1" >> launch.log
                 echo "NETWORK=$networkLabel"
                 echo "LINK_ERROR=duplicate engine processes detected"
                 echo "SIGNALING_COUNT=${'$'}SIGNALING_COUNT"
@@ -459,10 +514,15 @@ class RemoteControlServiceBridge(
                 exit 0
             fi
 
+            echo "DUPLICATE_PROCESSES=0" >> launch.log
+
             if [ "$useTunnel" = "false" ]; then
+                echo "WIFI_IP_DETECTION_START=1" >> launch.log
+
                 WIFI_IP=${'$'}(
                     ip route get 1.1.1.1 2>/dev/null \
-                        | sed -n 's/.* src $$[0-9.]*$$.*/\1/p' \
+                        | sed -n \
+                            's/.* src $$[0-9.]*$$.*/\1/p' \
                         | head -n 1
                 )
 
@@ -477,10 +537,16 @@ class RemoteControlServiceBridge(
                 fi
 
                 if [ -z "${'$'}WIFI_IP" ]; then
+                    echo "WIFI_IP_NOT_FOUND=1" >> launch.log
                     echo "NETWORK=WiFi"
                     echo "LINK_ERROR=WiFi address was not found"
+                    echo "--- launch.log ---"
+                    cat launch.log 2>/dev/null
                     exit 0
                 fi
+
+                echo "WIFI_IP=${'$'}WIFI_IP" >> launch.log
+                echo "LINK_READY=1" >> launch.log
 
                 echo "NETWORK=WiFi"
                 echo "LINK=https://${'$'}WIFI_IP:$port"
@@ -489,8 +555,7 @@ class RemoteControlServiceBridge(
 
             : > cloudflared.log
 
-            echo "Starting cloudflared..." \
-                >> launch.log
+            echo "CLOUDFLARED_STARTING=1" >> launch.log
 
             nohup ./cloudflared tunnel \
                 --url "https://127.0.0.1:$port" \
@@ -519,6 +584,7 @@ class RemoteControlServiceBridge(
                 )
 
                 if [ -n "${'$'}URL" ]; then
+                    echo "CLOUDFLARED_READY=1" >> launch.log
                     break
                 fi
 
@@ -528,12 +594,15 @@ class RemoteControlServiceBridge(
             echo "NETWORK=$networkLabel"
 
             if [ -z "${'$'}URL" ]; then
+                echo "CLOUDFLARED_READY=0" >> launch.log
                 echo "LINK_ERROR=cloudflared URL not found"
                 echo "--- cloudflared.log ---"
-                tail -n 60 cloudflared.log 2>/dev/null
+                tail -n 80 cloudflared.log 2>/dev/null
                 echo "--- launch.log ---"
                 cat launch.log 2>/dev/null
             else
+                echo "LINK_READY=1" >> launch.log
+                echo "PUBLIC_URL=${'$'}URL" >> launch.log
                 echo "LINK=${'$'}URL"
             fi
         """.trimIndent()
