@@ -49,6 +49,13 @@ class EngineDiagnosticsFragment : Fragment() {
 
         EventLogger.init(requireContext())
 
+        binding.btnEngineStatus.setOnClickListener {
+            runDiagnostic(
+                "Engine Status",
+                buildEngineStatusCommand()
+            )
+        }
+
         binding.btnCheckShizuku.setOnClickListener {
             runDiagnostic(
                 "Check Shizuku & Files",
@@ -111,6 +118,86 @@ class EngineDiagnosticsFragment : Fragment() {
         }
     }
 
+    private fun buildEngineStatusCommand(): String {
+        return """
+            WORK=/data/local/tmp/android
+
+            check_pid() {
+                NAME="${'$'}1"
+                FILE="${'$'}2"
+
+                if [ ! -s "${'$'}FILE" ]; then
+                    echo "${'$'}NAME: STOPPED (PID file missing)"
+                    return
+                fi
+
+                PID=${'$'}(cat "${'$'}FILE" 2>/dev/null)
+
+                if [ -z "${'$'}PID" ]; then
+                    echo "${'$'}NAME: STOPPED (PID empty)"
+                    return
+                fi
+
+                if kill -0 "${'$'}PID" 2>/dev/null; then
+                    echo "${'$'}NAME: RUNNING (PID=${'$'}PID)"
+                else
+                    echo "${'$'}NAME: STOPPED (stale PID=${'$'}PID)"
+                fi
+            }
+
+            echo "User:"
+            id 2>&1
+
+            echo ""
+            echo "Processes:"
+
+            check_pid \
+                "Signaling" \
+                "${'$'}WORK/signaling.pid"
+
+            check_pid \
+                "Agent" \
+                "${'$'}WORK/agent.pid"
+
+            check_pid \
+                "Cloudflared" \
+                "${'$'}WORK/cloudflared.pid"
+
+            echo ""
+            echo "Diagnostic files:"
+
+            for FILE in \
+                launch.log \
+                signaling.log \
+                agent.log \
+                cloudflared.log
+            do
+                if [ -e "${'$'}WORK/${'$'}FILE" ]; then
+                    SIZE=${'$'}(
+                        wc -c < "${'$'}WORK/${'$'}FILE" \
+                            2>/dev/null
+                    )
+
+                    echo "${'$'}FILE: EXISTS (${ '$' }SIZE bytes)"
+                else
+                    echo "${'$'}FILE: MISSING"
+                fi
+            done
+
+            echo ""
+            echo "Latest launch state:"
+
+            if [ -s "${'$'}WORK/launch.log" ]; then
+                tail -n 40 "${'$'}WORK/launch.log"
+            else
+                echo "launch.log unavailable"
+            fi
+
+            echo ""
+            echo "DONE"
+        """.trimIndent()
+    }
+
     private fun showEmailLog() {
         if (isRunning) {
             showAlreadyRunningToast()
@@ -121,7 +208,8 @@ class EngineDiagnosticsFragment : Fragment() {
             "\n══════ Email Log ══════\n"
         )
 
-        val emailLog = EventLogger.getEmailLog()
+        val emailLog =
+            EventLogger.getEmailLog()
 
         if (emailLog.isBlank()) {
             appendOutput(
@@ -212,6 +300,7 @@ class EngineDiagnosticsFragment : Fragment() {
     ) {
         val b = _binding ?: return
 
+        b.btnEngineStatus.isEnabled = enabled
         b.btnCheckShizuku.isEnabled = enabled
         b.btnListFiles.isEnabled = enabled
         b.btnSignalingHelp.isEnabled = enabled
@@ -226,7 +315,8 @@ class EngineDiagnosticsFragment : Fragment() {
         text: String
     ) {
         view?.post {
-            val b = _binding ?: return@post
+            val b =
+                _binding ?: return@post
 
             b.outputText.append(text)
 
@@ -239,7 +329,8 @@ class EngineDiagnosticsFragment : Fragment() {
     }
 
     private fun copyOutput() {
-        val b = _binding ?: return
+        val b =
+            _binding ?: return
 
         val clipboard =
             requireContext().getSystemService(
