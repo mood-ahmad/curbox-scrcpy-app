@@ -14,237 +14,1024 @@ import java.io.FileOutputStream
 
 object RemoteControlManager {
 
-    private const val PREFS_NAME = "remote_control_prefs"
-    private const val KEY_ENABLED = "enabled"
-    private const val KEY_LAST_LINK = "last_link"
+    private const val PREFS_NAME =
+        "remote_control_prefs"
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private const val KEY_ENABLED =
+        "enabled"
 
-    private val _state = MutableStateFlow<RemoteControlState>(RemoteControlState.Idle)
-    val state: StateFlow<RemoteControlState> = _state.asStateFlow()
+    private const val KEY_LAST_LINK =
+        "last_link"
 
-    private var bridge: RemoteControlServiceBridge? = null
-    private var currentLink: String? = null
-    private var isStarting = false
+    private val scope =
+        CoroutineScope(Dispatchers.IO)
+
+    private val lifecycleLock =
+        Any()
+
+    private val _state =
+        MutableStateFlow<RemoteControlState>(
+            RemoteControlState.Idle
+        )
+
+    val state: StateFlow<RemoteControlState> =
+        _state.asStateFlow()
+
+    private var bridge:
+        RemoteControlServiceBridge? = null
+
+    private var currentLink:
+        String? = null
+
+    /*
+     * Identifies the currently active lifecycle operation.
+     *
+     * All reads and writes must happen while holding lifecycleLock.
+     */
+    private var activeOperation =
+        LifecycleOperation.IDLE
+
+    /*
+     * Every new lifecycle operation receives a new generation.
+     *
+     * Callbacks from older operations are ignored when their generation
+     * no longer matches the current one.
+     */
+    private var operationGeneration =
+        0L
 
     fun init(context: Context) {
-        if (bridge == null) {
-            bridge = RemoteControlServiceBridge(context.applicationContext)
+        synchronized(lifecycleLock) {
+            if (bridge == null) {
+                bridge =
+                    RemoteControlServiceBridge(
+                        context.applicationContext
+                    )
+            }
         }
+
         EventLogger.init(context)
     }
 
-    fun autoStartIfEnabled(context: Context) {
+    fun autoStartIfEnabled(
+        context: Context
+    ) {
         init(context)
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val enabled = prefs.getBoolean(KEY_ENABLED, true)
+
+        val prefs =
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
+
+        val enabled =
+            prefs.getBoolean(
+                KEY_ENABLED,
+                true
+            )
+
         if (enabled) {
-            start(context)
+            start(
+                context = context,
+                reason = StartReason.AUTO_START
+            )
         }
     }
 
-    fun setEnabled(context: Context, enabled: Boolean) {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putBoolean(KEY_ENABLED, enabled).apply()
-        if (!enabled) {
-            stop()
+    fun setEnabled(
+        context: Context,
+        enabled: Boolean
+    ) {
+        val prefs =
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
+
+        prefs.edit()
+            .putBoolean(
+                KEY_ENABLED,
+                enabled
+            )
+            .apply()
+
+        if (enabled) {
+            start(
+                context = context,
+                reason = StartReason.FEATURE_ENABLED
+            )
         } else {
-            start(context)
+            stop()
         }
     }
 
-    fun isEnabled(context: Context): Boolean {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_ENABLED, true)
+    fun isEnabled(
+        context: Context
+    ): Boolean {
+        return context
+            .getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
+            .getBoolean(
+                KEY_ENABLED,
+                true
+            )
     }
 
-    fun start(context: Context) {
+    /**
+     * Starts the engine.
+     *
+     * The default reason represents a user-triggered start, preserving
+     * compatibility with existing UI call sites.
+     */
+    fun start(
+        context: Context,
+        reason: StartReason = StartReason.USER_START
+    ) {
         init(context)
-        val appContext = context.applicationContext
 
-        if (isStarting ||
-            _state.value is RemoteControlState.Starting ||
-            _state.value is RemoteControlState.Ready
-        ) {
-            return
+        val appContext =
+            context.applicationContext
+
+        val startGeneration: Long
+
+        synchronized(lifecycleLock) {
+            val currentState =
+                _state.value
+
+            if (
+                activeOperation != LifecycleOperation.IDLE ||
+                currentState is RemoteControlState.Starting ||
+                currentState is RemoteControlState.Stopping ||
+                currentState is RemoteControlState.Ready
+            ) {
+                EventLogger.log(
+                    "SERVICE",
+                    "Start skipped: " +
+                        "reason=${reason.label}, " +
+                        "operation=$activeOperation, " +
+                        "state=${currentState.javaClass.simpleName}"
+                )
+
+                return
+            }
+
+            operationGeneration++
+            startGeneration =
+                operationGeneration
+
+            activeOperation =
+                LifecycleOperation.STARTING
+
+            _state.value =
+                RemoteControlState.Starting
         }
 
-        isStarting = true
-        _state.value = RemoteControlState.Starting
-        EventLogger.log("SERVICE", "Start requested")
+        EventLogger.log(
+            "SERVICE",
+            "Start requested: " +
+                "reason=${reason.label}, " +
+                "generation=$startGeneration"
+        )
 
         scope.launch {
             try {
-                val staged = copyAssetsToStaging(appContext)
-                if (!staged) {
-                    _state.value = RemoteControlState.Error("Failed to extract bundled files")
-                    EventLogger.log("SERVICE", "Failed to extract assets")
-                    isStarting = false
+                val staged =
+                    copyAssetsToStaging(
+                        appContext
+                    )
+
+                if (!isCurrentOperation(
+                        generation = startGeneration,
+                        expectedOperation =
+                            LifecycleOperation.STARTING
+                    )
+                ) {
+                    EventLogger.log(
+                        "SERVICE",
+                        "Staging result ignored: " +
+                            "stale generation=$startGeneration"
+                    )
+
                     return@launch
                 }
 
-                bridge?.start(object : RemoteControlServiceBridge.StartCallback {
-                    override fun onSuccess(link: String, networkType: String) {
-                        currentLink = link
-                        _state.value = RemoteControlState.Ready(link)
-                        EventLogger.log("SERVICE", "Started successfully on $networkType: $link")
+                if (!staged) {
+                    finishStartWithError(
+                        generation = startGeneration,
+                        message =
+                            "Failed to extract bundled files"
+                    )
 
-                        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                        val lastLink = prefs.getString(KEY_LAST_LINK, null)
-                        prefs.edit().putString(KEY_LAST_LINK, link).apply()
+                    return@launch
+                }
 
-                        if (link != lastLink) {
-                            EventLogger.log("EMAIL", "Sending new link to email")
-                            scope.launch {
-                                EmailSender.sendLink(link, networkType)
+                val currentBridge =
+                    synchronized(lifecycleLock) {
+                        bridge
+                    }
+
+                if (currentBridge == null) {
+                    finishStartWithError(
+                        generation = startGeneration,
+                        message =
+                            "Remote-control bridge is unavailable"
+                    )
+
+                    return@launch
+                }
+
+                currentBridge.start(
+                    object :
+                        RemoteControlServiceBridge.StartCallback {
+
+                        override fun onSuccess(
+                            link: String,
+                            networkType: String
+                        ) {
+                            val accepted =
+                                synchronized(
+                                    lifecycleLock
+                                ) {
+                                    if (
+                                        operationGeneration !=
+                                            startGeneration ||
+                                        activeOperation !=
+                                            LifecycleOperation.STARTING
+                                    ) {
+                                        false
+                                    } else {
+                                        currentLink =
+                                            link
+
+                                        _state.value =
+                                            RemoteControlState.Ready(
+                                                link
+                                            )
+
+                                        activeOperation =
+                                            LifecycleOperation.IDLE
+
+                                        true
+                                    }
+                                }
+
+                            if (!accepted) {
+                                EventLogger.log(
+                                    "SERVICE",
+                                    "Start success ignored: " +
+                                        "stale generation=" +
+                                        startGeneration
+                                )
+
+                                return
                             }
-                        } else {
-                            EventLogger.log("EMAIL", "Link unchanged, skipping email")
-                        }
-                        isStarting = false
-                    }
 
-                    override fun onError(message: String) {
-                        _state.value = RemoteControlState.Error(message)
-                        EventLogger.log("SERVICE", "Start failed: $message")
-                        isStarting = false
+                            EventLogger.log(
+                                "SERVICE",
+                                "Started successfully: " +
+                                    "reason=${reason.label}, " +
+                                    "network=$networkType, " +
+                                    "generation=$startGeneration"
+                            )
+
+                            handleSuccessfulLink(
+                                appContext = appContext,
+                                link = link,
+                                networkType = networkType
+                            )
+                        }
+
+                        override fun onError(
+                            message: String
+                        ) {
+                            finishStartWithError(
+                                generation =
+                                    startGeneration,
+                                message =
+                                    message
+                            )
+                        }
                     }
-                })
+                )
             } catch (t: Throwable) {
-                _state.value = RemoteControlState.Error(t.message ?: "Unexpected error")
-                EventLogger.log("SERVICE", "Exception: ${t.message}")
-                isStarting = false
+                finishStartWithError(
+                    generation =
+                        startGeneration,
+                    message =
+                        t.message
+                            ?: "Unexpected error"
+                )
             }
         }
     }
 
-    fun restart(context: Context) {
-        val b = bridge
-        if (b == null) {
-            init(context)
-            start(context)
-            return
-        }
-        EventLogger.log("SERVICE", "Restart requested (network changed)")
-        _state.value = RemoteControlState.Stopping
-        b.stop(object : RemoteControlServiceBridge.SimpleCallback {
-            override fun onComplete(success: Boolean, message: String?) {
-                currentLink = null
-                _state.value = RemoteControlState.Idle
-                start(context)
+    /**
+     * Restarts the engine in one serialized lifecycle operation.
+     *
+     * Repeated restart requests are ignored while another start, stop,
+     * or restart is still active.
+     */
+    fun restart(
+        context: Context,
+        reason: StartReason =
+            StartReason.NETWORK_CHANGE
+    ) {
+        init(context)
+
+        val appContext =
+            context.applicationContext
+
+        val currentBridge:
+            RemoteControlServiceBridge
+
+        val restartGeneration:
+            Long
+
+        synchronized(lifecycleLock) {
+            val selectedBridge =
+                bridge
+
+            if (selectedBridge == null) {
+                EventLogger.log(
+                    "SERVICE",
+                    "Restart converted to start: " +
+                        "bridge unavailable, " +
+                        "reason=${reason.label}"
+                )
+
+                activeOperation =
+                    LifecycleOperation.IDLE
+
+                start(
+                    context = appContext,
+                    reason = reason
+                )
+
+                return
             }
-        })
+
+            if (
+                activeOperation != LifecycleOperation.IDLE ||
+                _state.value is RemoteControlState.Starting ||
+                _state.value is RemoteControlState.Stopping
+            ) {
+                EventLogger.log(
+                    "SERVICE",
+                    "Restart skipped: " +
+                        "reason=${reason.label}, " +
+                        "operation=$activeOperation, " +
+                        "state=${_state.value.javaClass.simpleName}"
+                )
+
+                return
+            }
+
+            operationGeneration++
+            restartGeneration =
+                operationGeneration
+
+            activeOperation =
+                LifecycleOperation.RESTARTING
+
+            _state.value =
+                RemoteControlState.Stopping
+
+            currentBridge =
+                selectedBridge
+        }
+
+        EventLogger.log(
+            "SERVICE",
+            "Restart requested: " +
+                "reason=${reason.label}, " +
+                "generation=$restartGeneration"
+        )
+
+        currentBridge.stop(
+            object :
+                RemoteControlServiceBridge.SimpleCallback {
+
+                override fun onComplete(
+                    success: Boolean,
+                    message: String?
+                ) {
+                    val shouldRestart =
+                        synchronized(
+                            lifecycleLock
+                        ) {
+                            if (
+                                operationGeneration !=
+                                    restartGeneration
+                            ) {
+                                false
+                            } else {
+                                val restartStillRequested =
+                                    activeOperation ==
+                                        LifecycleOperation.RESTARTING
+
+                                currentLink =
+                                    null
+
+                                _state.value =
+                                    RemoteControlState.Idle
+
+                                activeOperation =
+                                    LifecycleOperation.IDLE
+
+                                restartStillRequested
+                            }
+                        }
+
+                    if (!shouldRestart) {
+                        EventLogger.log(
+                            "SERVICE",
+                            "Restart continuation skipped: " +
+                                "generation=$restartGeneration"
+                        )
+
+                        return
+                    }
+
+                    if (!success) {
+                        EventLogger.log(
+                            "SERVICE",
+                            "Restart stop phase reported failure: " +
+                                (message ?: "No details")
+                        )
+
+                        synchronized(lifecycleLock) {
+                            _state.value =
+                                RemoteControlState.Error(
+                                    message
+                                        ?: "Failed to stop engine before restart"
+                                )
+                        }
+
+                        return
+                    }
+
+                    EventLogger.log(
+                        "SERVICE",
+                        "Restart stop phase completed: " +
+                            "generation=$restartGeneration"
+                    )
+
+                    start(
+                        context = appContext,
+                        reason = reason
+                    )
+                }
+            }
+        )
     }
 
     fun stop() {
-        val b = bridge ?: return
-        if (_state.value is RemoteControlState.Idle ||
-            _state.value is RemoteControlState.Stopping
-        ) {
-            return
-        }
-        _state.value = RemoteControlState.Stopping
-        EventLogger.log("SERVICE", "Stop requested")
-        b.stop(object : RemoteControlServiceBridge.SimpleCallback {
-            override fun onComplete(success: Boolean, message: String?) {
-                currentLink = null
-                _state.value = RemoteControlState.Idle
-                EventLogger.log("SERVICE", "Stopped")
+        val currentBridge:
+            RemoteControlServiceBridge
+
+        val stopGeneration:
+            Long
+
+        synchronized(lifecycleLock) {
+            val selectedBridge =
+                bridge
+                    ?: return
+
+            /*
+             * If a restart is currently waiting for its stop callback,
+             * convert that restart into a plain stop.
+             *
+             * The existing Bridge stop operation continues, but its
+             * callback will no longer start the engine again.
+             */
+            if (
+                activeOperation ==
+                    LifecycleOperation.RESTARTING
+            ) {
+                activeOperation =
+                    LifecycleOperation.STOPPING
+
+                EventLogger.log(
+                    "SERVICE",
+                    "Pending restart cancelled; " +
+                        "stop will complete normally"
+                )
+
+                return
             }
-        })
+
+            if (
+                activeOperation ==
+                    LifecycleOperation.STOPPING ||
+                _state.value is
+                    RemoteControlState.Stopping
+            ) {
+                EventLogger.log(
+                    "SERVICE",
+                    "Stop skipped: stop already in progress"
+                )
+
+                return
+            }
+
+            if (
+                activeOperation ==
+                    LifecycleOperation.IDLE &&
+                _state.value is
+                    RemoteControlState.Idle
+            ) {
+                return
+            }
+
+            operationGeneration++
+            stopGeneration =
+                operationGeneration
+
+            activeOperation =
+                LifecycleOperation.STOPPING
+
+            _state.value =
+                RemoteControlState.Stopping
+
+            currentBridge =
+                selectedBridge
+        }
+
+        EventLogger.log(
+            "SERVICE",
+            "Stop requested: " +
+                "generation=$stopGeneration"
+        )
+
+        currentBridge.stop(
+            object :
+                RemoteControlServiceBridge.SimpleCallback {
+
+                override fun onComplete(
+                    success: Boolean,
+                    message: String?
+                ) {
+                    val accepted =
+                        synchronized(
+                            lifecycleLock
+                        ) {
+                            if (
+                                operationGeneration !=
+                                    stopGeneration ||
+                                activeOperation !=
+                                    LifecycleOperation.STOPPING
+                            ) {
+                                false
+                            } else {
+                                currentLink =
+                                    null
+
+                                activeOperation =
+                                    LifecycleOperation.IDLE
+
+                                _state.value =
+                                    if (success) {
+                                        RemoteControlState.Idle
+                                    } else {
+                                        RemoteControlState.Error(
+                                            message
+                                                ?: "Failed to stop remote-control engine"
+                                        )
+                                    }
+
+                                true
+                            }
+                        }
+
+                    if (!accepted) {
+                        EventLogger.log(
+                            "SERVICE",
+                            "Stop callback ignored: " +
+                                "stale generation=$stopGeneration"
+                        )
+
+                        return
+                    }
+
+                    if (success) {
+                        EventLogger.log(
+                            "SERVICE",
+                            "Stopped successfully: " +
+                                "generation=$stopGeneration"
+                        )
+                    } else {
+                        EventLogger.log(
+                            "SERVICE",
+                            "Stop failed: " +
+                                (message ?: "No details")
+                        )
+                    }
+                }
+            }
+        )
     }
 
     fun refresh() {
-        val b = bridge ?: return
-        b.isRunning { running ->
-            val current = _state.value
-            when {
-                running && current !is RemoteControlState.Ready -> {
-                    val link = currentLink
-                    if (link != null) {
-                        _state.value = RemoteControlState.Ready(link)
-                    }
+        val currentBridge =
+            synchronized(lifecycleLock) {
+                if (
+                    activeOperation !=
+                        LifecycleOperation.IDLE
+                ) {
+                    null
+                } else {
+                    bridge
                 }
-                !running && current is RemoteControlState.Ready -> {
-                    _state.value = RemoteControlState.Idle
-                    currentLink = null
+            } ?: return
+
+        currentBridge.isRunning { running ->
+            synchronized(lifecycleLock) {
+                if (
+                    activeOperation !=
+                        LifecycleOperation.IDLE
+                ) {
+                    return@isRunning
+                }
+
+                val currentState =
+                    _state.value
+
+                when {
+                    running &&
+                        currentState !is
+                            RemoteControlState.Ready -> {
+
+                        val link =
+                            currentLink
+
+                        if (link != null) {
+                            _state.value =
+                                RemoteControlState.Ready(
+                                    link
+                                )
+                        }
+                    }
+
+                    !running &&
+                        currentState is
+                            RemoteControlState.Ready -> {
+
+                        _state.value =
+                            RemoteControlState.Idle
+
+                        currentLink =
+                            null
+                    }
                 }
             }
         }
     }
 
-    fun getCurrentLink(): String? = currentLink
+    fun getCurrentLink(): String? {
+        return synchronized(lifecycleLock) {
+            currentLink
+        }
+    }
 
     suspend fun isAgentRunningBlocking(): Boolean {
-        val b = bridge ?: return false
-        val deferred = CompletableDeferred<Boolean>()
-        b.isRunning { running ->
-            deferred.complete(running)
+        val currentBridge =
+            synchronized(lifecycleLock) {
+                bridge
+            } ?: return false
+
+        val deferred =
+            CompletableDeferred<Boolean>()
+
+        currentBridge.isRunning { running ->
+            if (!deferred.isCompleted) {
+                deferred.complete(running)
+            }
         }
+
         return deferred.await()
     }
 
-    private suspend fun copyAssetsToStaging(context: Context): Boolean =
-        withContext(Dispatchers.IO) {
-            try {
-                val staging = File(context.filesDir, "cloudphone-staging")
-                if (staging.exists()) staging.deleteRecursively()
-                staging.mkdirs()
+    fun isLifecycleBusy(): Boolean {
+        return synchronized(lifecycleLock) {
+            activeOperation !=
+                LifecycleOperation.IDLE
+        }
+    }
 
-                val assetManager = context.assets
-                val root = RemoteControlConfig.ASSETS_ROOT
+    private fun isCurrentOperation(
+        generation: Long,
+        expectedOperation: LifecycleOperation
+    ): Boolean {
+        return synchronized(lifecycleLock) {
+            operationGeneration ==
+                generation &&
+                activeOperation ==
+                    expectedOperation
+        }
+    }
 
-                copyAssetFile(assetManager, "$root/cloudphone-agent", File(staging, "cloudphone-agent"))
-                copyAssetFile(assetManager, "$root/webrtc-signaling", File(staging, "webrtc-signaling"))
-                copyAssetFile(assetManager, "$root/libsys_core.so", File(staging, "libsys_core.so"))
-                copyAssetFile(assetManager, "$root/cloudflared", File(staging, "cloudflared"))
+    private fun finishStartWithError(
+        generation: Long,
+        message: String
+    ) {
+        val accepted =
+            synchronized(lifecycleLock) {
+                if (
+                    operationGeneration !=
+                        generation ||
+                    activeOperation !=
+                        LifecycleOperation.STARTING
+                ) {
+                    false
+                } else {
+                    activeOperation =
+                        LifecycleOperation.IDLE
 
-                val certsDir = File(staging, "certs").apply { mkdirs() }
-                copyAssetDir(assetManager, "$root/certs", certsDir)
+                    _state.value =
+                        RemoteControlState.Error(
+                            message
+                        )
 
-                val webAssetsDir = File(staging, "assets").apply { mkdirs() }
-                copyAssetDir(assetManager, "$root/assets", webAssetsDir)
-
-                true
-            } catch (t: Throwable) {
-                t.printStackTrace()
-                false
+                    true
+                }
             }
+
+        if (accepted) {
+            EventLogger.log(
+                "SERVICE",
+                "Start failed: " +
+                    "generation=$generation, " +
+                    "message=$message"
+            )
+        } else {
+            EventLogger.log(
+                "SERVICE",
+                "Start failure ignored: " +
+                    "stale generation=$generation"
+            )
+        }
+    }
+
+    private fun handleSuccessfulLink(
+        appContext: Context,
+        link: String,
+        networkType: String
+    ) {
+        val prefs =
+            appContext.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
+
+        val lastLink =
+            prefs.getString(
+                KEY_LAST_LINK,
+                null
+            )
+
+        prefs.edit()
+            .putString(
+                KEY_LAST_LINK,
+                link
+            )
+            .apply()
+
+        if (link == lastLink) {
+            EventLogger.log(
+                "EMAIL",
+                "Link unchanged, skipping email"
+            )
+
+            return
         }
 
+        EventLogger.log(
+            "EMAIL",
+            "Sending new link to email"
+        )
+
+        scope.launch {
+            EmailSender.sendLink(
+                link,
+                networkType
+            )
+        }
+    }
+
+    private suspend fun copyAssetsToStaging(
+        context: Context
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val staging =
+                File(
+                    context.filesDir,
+                    "cloudphone-staging"
+                )
+
+            if (staging.exists()) {
+                staging.deleteRecursively()
+            }
+
+            if (!staging.mkdirs() &&
+                !staging.isDirectory
+            ) {
+                throw IllegalStateException(
+                    "Unable to create staging directory"
+                )
+            }
+
+            val assetManager =
+                context.assets
+
+            val root =
+                RemoteControlConfig.ASSETS_ROOT
+
+            copyAssetFile(
+                assetManager,
+                "$root/cloudphone-agent",
+                File(
+                    staging,
+                    "cloudphone-agent"
+                )
+            )
+
+            copyAssetFile(
+                assetManager,
+                "$root/webrtc-signaling",
+                File(
+                    staging,
+                    "webrtc-signaling"
+                )
+            )
+
+            copyAssetFile(
+                assetManager,
+                "$root/libsys_core.so",
+                File(
+                    staging,
+                    "libsys_core.so"
+                )
+            )
+
+            copyAssetFile(
+                assetManager,
+                "$root/cloudflared",
+                File(
+                    staging,
+                    "cloudflared"
+                )
+            )
+
+            val certsDir =
+                File(
+                    staging,
+                    "certs"
+                )
+
+            if (!certsDir.mkdirs() &&
+                !certsDir.isDirectory
+            ) {
+                throw IllegalStateException(
+                    "Unable to create certs staging directory"
+                )
+            }
+
+            copyAssetDir(
+                assetManager,
+                "$root/certs",
+                certsDir
+            )
+
+            val webAssetsDir =
+                File(
+                    staging,
+                    "assets"
+                )
+
+            if (!webAssetsDir.mkdirs() &&
+                !webAssetsDir.isDirectory
+            ) {
+                throw IllegalStateException(
+                    "Unable to create web-assets staging directory"
+                )
+            }
+
+            copyAssetDir(
+                assetManager,
+                "$root/assets",
+                webAssetsDir
+            )
+
+            true
+        } catch (t: Throwable) {
+            EventLogger.log(
+                "SERVICE",
+                "Failed to prepare staging directory: " +
+                    (t.message
+                        ?: t.javaClass.simpleName)
+            )
+
+            false
+        }
+    }
+
     private fun copyAssetFile(
-        assetManager: android.content.res.AssetManager,
+        assetManager:
+            android.content.res.AssetManager,
         assetPath: String,
-        dest: File
+        destination: File
     ) {
-        assetManager.open(assetPath).use { input ->
-            FileOutputStream(dest).use { output ->
-                input.copyTo(output)
+        assetManager.open(
+            assetPath
+        ).use { input ->
+
+            FileOutputStream(
+                destination
+            ).use { output ->
+
+                input.copyTo(
+                    output
+                )
             }
         }
     }
 
     private fun copyAssetDir(
-        assetManager: android.content.res.AssetManager,
+        assetManager:
+            android.content.res.AssetManager,
         assetDir: String,
-        destDir: File
+        destinationDir: File
     ) {
-        val children = assetManager.list(assetDir) ?: emptyArray()
+        val children =
+            assetManager.list(
+                assetDir
+            ) ?: emptyArray()
+
         if (children.isEmpty()) {
-            copyAssetFile(assetManager, assetDir, destDir)
+            copyAssetFile(
+                assetManager,
+                assetDir,
+                destinationDir
+            )
+
             return
         }
-        destDir.mkdirs()
+
+        if (!destinationDir.exists()) {
+            destinationDir.mkdirs()
+        }
+
         for (child in children) {
-            val childAsset = "$assetDir/$child"
-            val childDest = File(destDir, child)
-            val grandChildren = assetManager.list(childAsset) ?: emptyArray()
+            val childAsset =
+                "$assetDir/$child"
+
+            val childDestination =
+                File(
+                    destinationDir,
+                    child
+                )
+
+            val grandChildren =
+                assetManager.list(
+                    childAsset
+                ) ?: emptyArray()
+
             if (grandChildren.isEmpty()) {
-                copyAssetFile(assetManager, childAsset, childDest)
+                copyAssetFile(
+                    assetManager,
+                    childAsset,
+                    childDestination
+                )
             } else {
-                childDest.mkdirs()
-                copyAssetDir(assetManager, childAsset, childDest)
+                if (!childDestination.exists()) {
+                    childDestination.mkdirs()
+                }
+
+                copyAssetDir(
+                    assetManager,
+                    childAsset,
+                    childDestination
+                )
             }
         }
+    }
+
+    enum class StartReason(
+        val label: String
+    ) {
+        AUTO_START("AUTO_START"),
+        USER_START("USER_START"),
+        FEATURE_ENABLED("FEATURE_ENABLED"),
+        NETWORK_CHANGE("NETWORK_CHANGE"),
+        GUARDIAN_REPAIR("GUARDIAN_REPAIR")
+    }
+
+    private enum class LifecycleOperation {
+        IDLE,
+        STARTING,
+        STOPPING,
+        RESTARTING
     }
 }
