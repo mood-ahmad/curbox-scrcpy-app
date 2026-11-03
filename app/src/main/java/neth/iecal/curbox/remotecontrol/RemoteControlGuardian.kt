@@ -7,31 +7,70 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Hidden guardian that monitors the remote-control engine.
  *
- * The Guardian only attempts recovery when the engine is expected
- * to be running and is not currently starting or stopping.
+ * The Guardian attempts recovery only when Remote Control is enabled
+ * and no start, stop, restart, or previous repair is in progress.
  *
  * No notifications and no UI.
  */
 object RemoteControlGuardian {
 
-    private const val CHECK_INTERVAL_MS = 30_000L
-    private const val INITIAL_SETTLE_MS = 20_000L
-    private const val REPAIR_SETTLE_MS = 20_000L
+    private const val CHECK_INTERVAL_MS =
+        30_000L
 
-    private const val MAX_REPAIR_ATTEMPTS = 3
+    private const val INITIAL_SETTLE_MS =
+        30_000L
+
+    private const val REPAIR_SETTLE_MS =
+        30_000L
+
+    private const val HEALTH_CHECK_TIMEOUT_MS =
+        12_000L
+
+    private const val FIRST_REPAIR_BACKOFF_MS =
+        5_000L
+
+    private const val SECOND_REPAIR_BACKOFF_MS =
+        15_000L
+
+    private const val THIRD_REPAIR_BACKOFF_MS =
+        30_000L
+
+    private const val MAX_REPAIR_ATTEMPTS =
+        3
 
     private val scope =
-        CoroutineScope(Dispatchers.IO)
+        CoroutineScope(
+            Dispatchers.IO
+        )
 
-    private var job: Job? = null
+    private val guardianLock =
+        Any()
 
-    private var consecutiveFailures = 0
-    private var alertSent = false
+    private var job:
+        Job? = null
+
+    private var consecutiveFailures =
+        0
+
+    private var alertSent =
+        false
+
+    /*
+     * Once the maximum number of repair attempts is reached,
+     * the Guardian keeps checking health but stops launching
+     * additional automatic repair attempts.
+     *
+     * The suspension is cleared when the engine recovers,
+     * Remote Control is disabled, or the Guardian is restarted.
+     */
+    private var automaticRepairSuspended =
+        false
 
     private val repairInProgress =
         AtomicBoolean(false)
@@ -39,55 +78,80 @@ object RemoteControlGuardian {
     /**
      * Starts the Guardian loop.
      *
-     * Safe to call multiple times.
+     * Safe to call multiple times inside the main application process.
      */
-    fun start(context: Context) {
-        if (job?.isActive == true) {
-            return
-        }
-
+    fun start(
+        context: Context
+    ) {
         val appContext =
             context.applicationContext
 
-        job = scope.launch {
-            EventLogger.log(
-                "GUARDIAN",
-                "Guardian started"
-            )
+        synchronized(guardianLock) {
+            if (job?.isActive == true) {
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Start skipped: Guardian is already active"
+                )
 
-            /*
-             * Give normal application startup enough time
-             * before the Guardian begins health checks.
-             */
-            delay(INITIAL_SETTLE_MS)
+                return
+            }
 
-            while (isActive) {
-                try {
-                    tick(appContext)
-                } catch (t: Throwable) {
+            resetFailureStateLocked()
+
+            job =
+                scope.launch {
                     EventLogger.log(
                         "GUARDIAN",
-                        "Tick exception: " +
-                            (t.message ?: t.javaClass.simpleName)
+                        "Guardian started"
                     )
-                }
 
-                delay(CHECK_INTERVAL_MS)
-            }
+                    /*
+                     * Allow the normal application AutoStart enough
+                     * time to finish before the first health check.
+                     */
+                    delay(
+                        INITIAL_SETTLE_MS
+                    )
+
+                    while (isActive) {
+                        try {
+                            tick(
+                                appContext
+                            )
+                        } catch (t: Throwable) {
+                            EventLogger.log(
+                                "GUARDIAN",
+                                "Tick exception: " +
+                                    (
+                                        t.message
+                                            ?: t.javaClass.simpleName
+                                    )
+                            )
+                        }
+
+                        delay(
+                            CHECK_INTERVAL_MS
+                        )
+                    }
+                }
         }
     }
 
     /**
-     * Stops the Guardian loop.
+     * Stops the Guardian loop and prevents the current repair from
+     * launching another recovery attempt.
      */
     fun stop() {
-        job?.cancel()
-        job = null
+        synchronized(guardianLock) {
+            job?.cancel()
+            job = null
 
-        repairInProgress.set(false)
+            repairInProgress.set(
+                false
+            )
 
-        consecutiveFailures = 0
-        alertSent = false
+            resetFailureStateLocked()
+        }
 
         EventLogger.log(
             "GUARDIAN",
@@ -100,10 +164,11 @@ object RemoteControlGuardian {
     private suspend fun tick(
         context: Context
     ) {
-        /*
-         * Do nothing when remote control is disabled.
-         */
-        if (!RemoteControlManager.isEnabled(context)) {
+        if (
+            !RemoteControlManager.isEnabled(
+                context
+            )
+        ) {
             resetFailureState()
 
             EventLogger.log(
@@ -115,9 +180,25 @@ object RemoteControlGuardian {
         }
 
         /*
-         * Never interfere while another recovery is still running.
+         * Manager owns the complete Start/Stop/Restart lifecycle.
+         *
+         * Guardian must never perform a health check or request a repair
+         * while another lifecycle operation is active.
          */
-        if (repairInProgress.get()) {
+        if (
+            RemoteControlManager.isLifecycleBusy()
+        ) {
+            EventLogger.log(
+                "GUARDIAN",
+                "Check skipped: engine lifecycle operation is active"
+            )
+
+            return
+        }
+
+        if (
+            repairInProgress.get()
+        ) {
             EventLogger.log(
                 "GUARDIAN",
                 "Check skipped: repair already in progress"
@@ -126,13 +207,9 @@ object RemoteControlGuardian {
             return
         }
 
-        /*
-         * Most important protection:
-         *
-         * If RemoteControlManager is already starting or stopping
-         * the engine, Guardian must not start another copy.
-         */
-        when (RemoteControlManager.state.value) {
+        when (
+            RemoteControlManager.state.value
+        ) {
             is RemoteControlState.Starting -> {
                 EventLogger.log(
                     "GUARDIAN",
@@ -155,13 +232,21 @@ object RemoteControlGuardian {
         }
 
         val running =
-            RemoteControlManager.isAgentRunningBlocking()
+            checkEngineHealth()
 
         if (running) {
-            if (consecutiveFailures > 0) {
+            val previousFailures =
+                synchronized(
+                    guardianLock
+                ) {
+                    consecutiveFailures
+                }
+
+            if (previousFailures > 0) {
                 EventLogger.log(
                     "GUARDIAN",
-                    "Engine recovered after $consecutiveFailures failure(s)"
+                    "Engine recovered after " +
+                        "$previousFailures failure(s)"
                 )
             }
 
@@ -170,11 +255,32 @@ object RemoteControlGuardian {
         }
 
         /*
-         * Engine is not healthy.
-         *
-         * Only one repair attempt can enter this section.
+         * After the maximum failed attempts, continue observing engine
+         * health without creating an unlimited restart loop.
          */
-        if (!repairInProgress.compareAndSet(false, true)) {
+        val repairsSuspended =
+            synchronized(
+                guardianLock
+            ) {
+                automaticRepairSuspended
+            }
+
+        if (repairsSuspended) {
+            EventLogger.log(
+                "GUARDIAN",
+                "Engine is unhealthy; automatic repair remains " +
+                    "suspended after $MAX_REPAIR_ATTEMPTS failed attempts"
+            )
+
+            return
+        }
+
+        if (
+            !repairInProgress.compareAndSet(
+                false,
+                true
+            )
+        ) {
             EventLogger.log(
                 "GUARDIAN",
                 "Repair skipped: another repair acquired the lock"
@@ -185,12 +291,23 @@ object RemoteControlGuardian {
 
         try {
             /*
-             * Re-check the manager state after acquiring the lock.
-             *
-             * The state may have changed between the first check
-             * and entering the recovery section.
+             * Re-check Manager ownership after acquiring the repair lock.
+             * The state may have changed following the health check.
              */
-            when (RemoteControlManager.state.value) {
+            if (
+                RemoteControlManager.isLifecycleBusy()
+            ) {
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Repair cancelled: lifecycle operation became active"
+                )
+
+                return
+            }
+
+            when (
+                RemoteControlManager.state.value
+            ) {
                 is RemoteControlState.Starting -> {
                     EventLogger.log(
                         "GUARDIAN",
@@ -212,43 +329,76 @@ object RemoteControlGuardian {
                 else -> Unit
             }
 
-            consecutiveFailures++
+            val repairAttempt =
+                synchronized(
+                    guardianLock
+                ) {
+                    if (
+                        consecutiveFailures >=
+                            MAX_REPAIR_ATTEMPTS
+                    ) {
+                        automaticRepairSuspended =
+                            true
+
+                        null
+                    } else {
+                        consecutiveFailures++
+
+                        consecutiveFailures
+                    }
+                }
+
+            if (repairAttempt == null) {
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Repair cancelled: maximum attempts reached"
+                )
+
+                sendAlertOnce()
+                return
+            }
+
+            val backoffMs =
+                repairBackoffFor(
+                    repairAttempt
+                )
 
             EventLogger.log(
                 "GUARDIAN",
-                "Engine unhealthy, repair attempt #$consecutiveFailures"
+                "Engine unhealthy; repair attempt " +
+                    "#$repairAttempt scheduled after " +
+                    "${backoffMs}ms"
             )
 
-            RemoteControlManager.start(context)
+            delay(
+                backoffMs
+            )
 
             /*
-             * Give Signaling + Agent enough time to initialise.
-             */
-            delay(REPAIR_SETTLE_MS)
-
-            /*
-             * If startup is still legitimately running,
-             * don't launch yet another repair attempt.
+             * Never start a repair if another lifecycle operation began
+             * during the backoff delay.
              */
             if (
-                RemoteControlManager.state.value
-                    is RemoteControlState.Starting
+                RemoteControlManager.isLifecycleBusy()
             ) {
                 EventLogger.log(
                     "GUARDIAN",
-                    "Repair still starting; waiting for next check"
+                    "Repair cancelled after backoff: " +
+                        "lifecycle operation is active"
                 )
 
                 return
             }
 
-            val recovered =
-                RemoteControlManager.isAgentRunningBlocking()
-
-            if (recovered) {
+            if (
+                !RemoteControlManager.isEnabled(
+                    context
+                )
+            ) {
                 EventLogger.log(
                     "GUARDIAN",
-                    "Repair successful"
+                    "Repair cancelled after backoff: " +
+                        "remote control disabled"
                 )
 
                 resetFailureState()
@@ -257,25 +407,155 @@ object RemoteControlGuardian {
 
             EventLogger.log(
                 "GUARDIAN",
-                "Repair failed (attempt #$consecutiveFailures)"
+                "Starting Guardian repair attempt " +
+                    "#$repairAttempt"
+            )
+
+            RemoteControlManager.start(
+                context = context,
+                reason =
+                    RemoteControlManager
+                        .StartReason
+                        .GUARDIAN_REPAIR
+            )
+
+            /*
+             * Give cleanup, file preparation, Signaling, and Agent time
+             * to complete their controlled startup.
+             */
+            delay(
+                REPAIR_SETTLE_MS
+            )
+
+            /*
+             * If Manager still owns a lifecycle operation, do not perform
+             * a competing health check. The next Guardian tick can verify
+             * the final state.
+             */
+            if (
+                RemoteControlManager.isLifecycleBusy()
+            ) {
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Repair lifecycle still active; " +
+                        "waiting for next health check"
+                )
+
+                return
+            }
+
+            val recovered =
+                checkEngineHealth()
+
+            if (recovered) {
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Repair successful on attempt " +
+                        "#$repairAttempt"
+                )
+
+                resetFailureState()
+                return
+            }
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Repair failed on attempt " +
+                    "#$repairAttempt"
             )
 
             if (
-                consecutiveFailures >= MAX_REPAIR_ATTEMPTS &&
-                !alertSent
+                repairAttempt >=
+                    MAX_REPAIR_ATTEMPTS
             ) {
-                alertSent = true
+                synchronized(
+                    guardianLock
+                ) {
+                    automaticRepairSuspended =
+                        true
+                }
 
                 EventLogger.log(
                     "GUARDIAN",
-                    "Sending alert after $MAX_REPAIR_ATTEMPTS failed repairs"
+                    "Automatic repair suspended after " +
+                        "$MAX_REPAIR_ATTEMPTS failed attempts"
                 )
 
-                sendAlertEmail()
+                sendAlertOnce()
             }
         } finally {
-            repairInProgress.set(false)
+            repairInProgress.set(
+                false
+            )
         }
+    }
+
+    /**
+     * Runs the process health check with a timeout so a missing Shizuku
+     * callback cannot block the Guardian loop indefinitely.
+     */
+    private suspend fun checkEngineHealth(): Boolean {
+        val result =
+            withTimeoutOrNull(
+                HEALTH_CHECK_TIMEOUT_MS
+            ) {
+                RemoteControlManager
+                    .isAgentRunningBlocking()
+            }
+
+        if (result == null) {
+            EventLogger.log(
+                "GUARDIAN",
+                "Engine health check timed out"
+            )
+
+            return false
+        }
+
+        return result
+    }
+
+    private fun repairBackoffFor(
+        attempt: Int
+    ): Long {
+        return when (attempt) {
+            1 ->
+                FIRST_REPAIR_BACKOFF_MS
+
+            2 ->
+                SECOND_REPAIR_BACKOFF_MS
+
+            else ->
+                THIRD_REPAIR_BACKOFF_MS
+        }
+    }
+
+    private suspend fun sendAlertOnce() {
+        val shouldSend =
+            synchronized(
+                guardianLock
+            ) {
+                if (alertSent) {
+                    false
+                } else {
+                    alertSent =
+                        true
+
+                    true
+                }
+            }
+
+        if (!shouldSend) {
+            return
+        }
+
+        EventLogger.log(
+            "GUARDIAN",
+            "Sending alert after " +
+                "$MAX_REPAIR_ATTEMPTS failed repairs"
+        )
+
+        sendAlertEmail()
     }
 
     private suspend fun sendAlertEmail() {
@@ -292,7 +572,7 @@ object RemoteControlGuardian {
             if (success) {
                 EventLogger.log(
                     "GUARDIAN",
-                    "Alert email sent"
+                    "Alert email send accepted"
                 )
             } else {
                 EventLogger.log(
@@ -304,13 +584,30 @@ object RemoteControlGuardian {
             EventLogger.log(
                 "GUARDIAN",
                 "Alert email failed: " +
-                    (t.message ?: t.javaClass.simpleName)
+                    (
+                        t.message
+                            ?: t.javaClass.simpleName
+                    )
             )
         }
     }
 
     private fun resetFailureState() {
-        consecutiveFailures = 0
-        alertSent = false
+        synchronized(
+            guardianLock
+        ) {
+            resetFailureStateLocked()
+        }
+    }
+
+    private fun resetFailureStateLocked() {
+        consecutiveFailures =
+            0
+
+        alertSent =
+            false
+
+        automaticRepairSuspended =
+            false
     }
 }
