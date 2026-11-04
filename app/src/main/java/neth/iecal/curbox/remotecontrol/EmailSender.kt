@@ -46,41 +46,121 @@ object EmailSender {
         20_000
 
     /**
-     * Sends the current CurBox connection link.
+     * Sends the current CurBox connection links.
+     *
+     * A single email is sent containing the available links:
+     *
+     * - localUrl  -> reachable only from the same local network.
+     * - publicUrl -> reachable from any network over the Internet.
+     *
+     * At least one of the two URLs must be non-null. If both are
+     * null this method does not attempt SMTP and returns false.
      */
-    suspend fun sendLink(
-        link: String,
+    suspend fun sendLinks(
+        localUrl: String?,
+        publicUrl: String?,
         networkType: String = "Unknown"
     ): Boolean = withContext(Dispatchers.IO) {
+
+        if (
+            localUrl == null &&
+            publicUrl == null
+        ) {
+            EventLogger.logEmail(
+                event = "LINKS_SEND_REQUESTED",
+                details =
+                    "network=$networkType " +
+                    "localAvailable=false " +
+                    "publicAvailable=false"
+            )
+
+            EventLogger.log(
+                "EMAIL",
+                "Links email skipped: no links available"
+            )
+
+            return@withContext false
+        }
 
         val device =
             DeviceIdentity.getName()
 
         val subject =
-            "[CurBox] $device - Link"
+            "[CurBox] $device - Remote Access"
 
-        val body = """
-            CurBox remote control is running.
-
-            Device: $device
-            Network: $networkType
-            Link: $link
-
-            Open the link in any browser to control this device.
-            Works from any network.
-        """.trimIndent()
+        val body =
+            buildLinksBody(
+                device = device,
+                networkType = networkType,
+                localUrl = localUrl,
+                publicUrl = publicUrl
+            )
 
         EventLogger.logEmail(
-            event = "LINK_SEND_REQUESTED",
+            event = "LINKS_SEND_REQUESTED",
             details =
-                "network=$networkType"
+                "network=$networkType " +
+                "localAvailable=${localUrl != null} " +
+                "publicAvailable=${publicUrl != null}"
         )
 
         send(
             subject = subject,
             body = body,
-            diagnosticType = "LINK"
+            diagnosticType = "LINKS"
         )
+    }
+
+    /**
+     * Builds the body of the links email based on which URLs are
+     * available. Local and public links are described independently
+     * so the recipient understands the reachability of each one.
+     */
+    private fun buildLinksBody(
+        device: String,
+        networkType: String,
+        localUrl: String?,
+        publicUrl: String?
+    ): String {
+
+        val localSection =
+            if (localUrl != null) {
+                """
+                Local Network:
+                $localUrl
+                Use this link when the controlling device is connected to the same local network as this device.
+                """.trimIndent()
+            } else {
+                """
+                Local Network:
+                Unavailable
+                """.trimIndent()
+            }
+
+        val publicSection =
+            if (publicUrl != null) {
+                """
+                Remote / Any Network:
+                $publicUrl
+                Use this link when controlling the device from another network or over the Internet.
+                """.trimIndent()
+            } else {
+                """
+                Remote / Any Network:
+                Unavailable
+                """.trimIndent()
+            }
+
+        return """
+            CurBox remote control is running.
+
+            Device: $device
+            Network: $networkType
+
+            $localSection
+
+            $publicSection
+        """.trimIndent()
     }
 
     /**
