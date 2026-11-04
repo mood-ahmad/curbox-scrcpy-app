@@ -1,7 +1,11 @@
 package neth.iecal.curbox
 
 import android.app.Application
-import android.content.Context.android.material.color.DynamicColors
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.os.Build
+import com.google.android.material.color.DynamicColors
 import neth.iecal.curbox.data.sync.SyncGateway
 import neth.iecal.curbox.remotecontrol.EventLogger
 import neth.iecal.curbox.remotecontrol.RemoteControlGuardian
@@ -32,15 +36,6 @@ class Curbox : Application() {
         /*
          * Remote control must run only inside the main application
          * process.
-         *
-         * CurBox also has processes such as:
-         *
-         * :crash_handler
-         * :app_blocker_service
-         *
-         * Each Android process creates its own Application instance.
-         * Starting Remote Control outside the main process would create
-         * independent Manager, Guardian and process-launching instances.
          */
         if (!isMainProcess()) {
             return
@@ -69,13 +64,9 @@ class Curbox : Application() {
         RemoteControlManager.init(this)
 
         /*
-         * Capture the currently active network before registering the
-         * callback.
-         *
-         * Android normally reports the already-active network when the
-         * callback is first registered. That initial callback must not
-         * be treated as a network change or it would immediately restart
-         * the engine started below.
+         * Register the network monitor before AutoStart so the
+         * already-active network is captured and its first callback
+         * is not treated as a real network change.
          */
         registerNetworkMonitor()
 
@@ -110,7 +101,9 @@ class Curbox : Application() {
                                 if (previousNetwork == network) {
                                     false
                                 } else {
-                                    activeNetwork = network
+                                    activeNetwork =
+                                        network
+
                                     true
                                 }
                             }
@@ -124,15 +117,6 @@ class Curbox : Application() {
                             return
                         }
 
-                        /*
-                         * Restart only an engine that has already
-                         * completed startup.
-                         *
-                         * Starting or stopping engines must be allowed
-                         * to finish without a competing network restart.
-                         * Idle/Error recovery remains the responsibility
-                         * of Manager/Guardian.
-                         */
                         when (RemoteControlManager.state.value) {
                             is RemoteControlState.Ready -> {
                                 EventLogger.log(
@@ -180,7 +164,8 @@ class Curbox : Application() {
                     ) {
                         synchronized(networkLock) {
                             if (activeNetwork == network) {
-                                activeNetwork = null
+                                activeNetwork =
+                                    null
                             }
                         }
 
@@ -195,14 +180,21 @@ class Curbox : Application() {
             EventLogger.log(
                 "NETWORK",
                 "Failed to register monitor: " +
-                    (t.message ?: t.javaClass.simpleName)
+                    (
+                        t.message
+                            ?: t.javaClass.simpleName
+                    )
             )
         }
     }
 
     private fun isMainProcess(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            return getProcessName() == packageName
+        if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.P
+        ) {
+            return getProcessName() ==
+                packageName
         }
 
         val processName =
@@ -219,6 +211,7 @@ class Curbox : Application() {
                 packageName
             }
 
-        return processName == packageName
+        return processName ==
+            packageName
     }
 }
