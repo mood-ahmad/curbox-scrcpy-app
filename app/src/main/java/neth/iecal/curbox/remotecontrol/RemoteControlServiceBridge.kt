@@ -17,8 +17,17 @@ class RemoteControlServiceBridge(
 
     interface StartCallback {
 
+        /**
+         * Startup succeeded with at least one usable link.
+         *
+         * localUrl  = local-network URL, or null if it could not be produced.
+         * publicUrl = real Cloudflare Quick Tunnel URL, or null if it
+         *             could not be produced.
+         * networkType is informational / diagnostic only.
+         */
         fun onSuccess(
-            link: String,
+            localUrl: String?,
+            publicUrl: String?,
             networkType: String
         )
 
@@ -770,7 +779,8 @@ class RemoteControlServiceBridge(
             AtomicBoolean(false)
 
         fun finishWithSuccess(
-            link: String,
+            localUrl: String?,
+            publicUrl: String?,
             networkType: String
         ) {
             if (
@@ -790,7 +800,8 @@ class RemoteControlServiceBridge(
             finishStart()
 
             callback.onSuccess(
-                link,
+                localUrl,
+                publicUrl,
                 networkType
             )
         }
@@ -842,14 +853,20 @@ class RemoteControlServiceBridge(
                     val fullOutput =
                         accumulated.toString()
 
-                    val link =
-                        extractLink(
+                    val localUrl =
+                        extractLocalUrl(
                             fullOutput
                         )
 
-                    if (link != null) {
+                    val publicUrl =
+                        extractPublicUrl(
+                            fullOutput
+                        )
+
+                    if (localUrl != null || publicUrl != null) {
                         finishWithSuccess(
-                            link = link,
+                            localUrl = localUrl,
+                            publicUrl = publicUrl,
                             networkType =
                                 extractNetwork(
                                     fullOutput
@@ -912,15 +929,12 @@ class RemoteControlServiceBridge(
         val agentJar =
             RemoteControlConfig.AGENT_JAR
 
-        val useTunnel =
-            networkMode != NetworkMode.WIFI
-
+        /*
+         * Informational / diagnostic only. The network type must never
+         * decide between Local and Cloudflare: both are always attempted.
+         */
         val networkLabel =
-            if (useTunnel) {
-                networkMode.label
-            } else {
-                "WiFi"
-            }
+            networkMode.label
 
         return """
             set -u
@@ -1046,6 +1060,35 @@ class RemoteControlServiceBridge(
                         fi
                     fi
                 done
+            }
+
+            stop_cloudflared_only() {
+                if [ -s cloudflared.pid ]; then
+                    PID=${'$'}(
+                        cat cloudflared.pid \
+                            2>/dev/null || true
+                    )
+
+                    if pid_matches_executable \
+                        "${'$'}PID" \
+                        "$target/cloudflared"; then
+
+                        kill -15 "${'$'}PID" \
+                            2>/dev/null || true
+
+                        sleep 1
+
+                        if pid_matches_executable \
+                            "${'$'}PID" \
+                            "$target/cloudflared"; then
+
+                            kill -9 "${'$'}PID" \
+                                2>/dev/null || true
+                        fi
+                    fi
+                fi
+
+                rm -f cloudflared.pid
             }
 
             port_is_listening() {
@@ -1344,60 +1387,57 @@ class RemoteControlServiceBridge(
             echo "AGENT_HEALTHY=1" \
                 >> launch.log
 
-            if [ "$useTunnel" = "false" ]; then
-                echo "WIFI_IP_DETECTION_START=1" \
-                    >> launch.log
+            LOCAL_URL_VALUE=""
+            PUBLIC_URL_VALUE=""
 
-                WIFI_IP=${'$'}(
-                    ip route get 1.1.1.1 \
+            # ------------------------------------------------------
+            # Dual-Link path 1: Local URL (always attempted).
+            # A failure here never stops Signaling, Agent or Cloudflare.
+            # ------------------------------------------------------
+            echo "LOCAL_URL_DETECTION_START=1" \
+                >> launch.log
+
+            LOCAL_IP=${'$'}(
+                ip route get 1.1.1.1 \
+                    2>/dev/null \
+                    | sed -n \
+                        's/.* src \([0-9.]*\).*/\1/p' \
+                    | head -n 1
+            )
+
+            if [ -z "${'$'}LOCAL_IP" ]; then
+                LOCAL_IP=${'$'}(
+                    ip -4 addr show \
                         2>/dev/null \
-                        | sed -n \
-                            's/.* src \([0-9.]*\).*/\1/p' \
+                        | grep -oE \
+                            'inet (192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+' \
+                        | awk \
+                            '{print ${'$'}2}' \
                         | head -n 1
                 )
-
-                if [ -z "${'$'}WIFI_IP" ]; then
-                    WIFI_IP=${'$'}(
-                        ip -4 addr show \
-                            2>/dev/null \
-                            | grep -oE \
-                                'inet (192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+' \
-                            | awk \
-                                '{print ${'$'}2}' \
-                            | head -n 1
-                    )
-                fi
-
-                if [ -z "${'$'}WIFI_IP" ]; then
-                    echo "WIFI_IP_NOT_FOUND=1" \
-                        >> launch.log
-
-                    echo "NETWORK=WiFi"
-                    echo "LINK_ERROR=WiFi address was not found"
-                    echo "--- launch.log ---"
-                    cat launch.log \
-                        2>/dev/null
-
-                    abort_startup \
-                        "wifi_ip_not_found"
-
-                    exit 0
-                fi
-
-                echo \
-                    "WIFI_IP=${'$'}WIFI_IP" \
-                    >> launch.log
-
-                echo "LINK_READY=1" \
-                    >> launch.log
-
-                echo "NETWORK=WiFi"
-                echo \
-                    "LINK=https://${'$'}WIFI_IP:$port"
-
-                exit 0
             fi
 
+            if [ -n "${'$'}LOCAL_IP" ]; then
+                LOCAL_URL_VALUE="https://${'$'}LOCAL_IP:$port"
+
+                echo "LOCAL_IP=${'$'}LOCAL_IP" \
+                    >> launch.log
+
+                echo "LOCAL_URL_READY=1" \
+                    >> launch.log
+
+                echo "LOCAL_URL=${'$'}LOCAL_URL_VALUE" \
+                    >> launch.log
+            else
+                echo "LOCAL_URL_READY=0" \
+                    >> launch.log
+            fi
+
+            # ------------------------------------------------------
+            # Dual-Link path 2: Cloudflare Quick Tunnel (always
+            # attempted, whatever the network type is).
+            # A failure here never stops Signaling, Agent or Local.
+            # ------------------------------------------------------
             if ! token_is_valid; then
                 echo "NETWORK=$networkLabel"
                 echo "LINK_ERROR=start operation was cancelled"
@@ -1450,16 +1490,30 @@ class RemoteControlServiceBridge(
                     break
                 fi
 
+                # api.trycloudflare.com is the Cloudflare API endpoint,
+                # never a real Quick Tunnel. It is rejected explicitly.
                 URL=${'$'}(
                     grep -oE \
                         'https://[a-z0-9-]+\.trycloudflare\.com' \
                         cloudflared.log \
+                        2>/dev/null \
+                        | grep -v \
+                            '^https://api\.trycloudflare\.com${'$'}' \
                         | head -n 1
                 )
 
                 if [ -n "${'$'}URL" ]; then
-                    echo "CLOUDFLARED_READY=1" \
+                    if pid_matches_executable \
+                        "${'$'}CLOUDFLARED_PID" \
+                        "$target/cloudflared"; then
+
+                        break
+                    fi
+
+                    echo "CLOUDFLARED_EXITED=1" \
                         >> launch.log
+
+                    URL=""
 
                     break
                 fi
@@ -1467,13 +1521,53 @@ class RemoteControlServiceBridge(
                 sleep 1
             done
 
-            echo "NETWORK=$networkLabel"
+            if [ -n "${'$'}URL" ]; then
+                PUBLIC_URL_VALUE="${'$'}URL"
 
-            if [ -z "${'$'}URL" ]; then
+                echo "CLOUDFLARED_READY=1" \
+                    >> launch.log
+
+                echo "PUBLIC_URL=${'$'}PUBLIC_URL_VALUE" \
+                    >> launch.log
+            else
                 echo "CLOUDFLARED_READY=0" \
                     >> launch.log
 
-                echo "LINK_ERROR=cloudflared URL not found"
+                echo "--- cloudflared.log ---" \
+                    >> launch.log
+
+                tail -n 100 cloudflared.log \
+                    >> launch.log \
+                    2>/dev/null
+
+                # Only the failed tunnel process is stopped here.
+                # Signaling and Agent are left untouched.
+                stop_cloudflared_only
+            fi
+
+            # ------------------------------------------------------
+            # Final decision.
+            # ------------------------------------------------------
+            echo "NETWORK=$networkLabel"
+
+            if [ -n "${'$'}LOCAL_URL_VALUE" ] ||
+               [ -n "${'$'}PUBLIC_URL_VALUE" ]; then
+
+                echo "LINKS_READY=1" \
+                    >> launch.log
+
+                if [ -n "${'$'}LOCAL_URL_VALUE" ]; then
+                    echo "LOCAL_URL=${'$'}LOCAL_URL_VALUE"
+                fi
+
+                if [ -n "${'$'}PUBLIC_URL_VALUE" ]; then
+                    echo "PUBLIC_URL=${'$'}PUBLIC_URL_VALUE"
+                fi
+            else
+                echo "LINKS_READY=0" \
+                    >> launch.log
+
+                echo "LINK_ERROR=no usable local or public link"
                 echo "--- cloudflared.log ---"
                 tail -n 100 cloudflared.log \
                     2>/dev/null
@@ -1482,16 +1576,7 @@ class RemoteControlServiceBridge(
                     2>/dev/null
 
                 abort_startup \
-                    "cloudflared_not_ready"
-            else
-                echo "LINK_READY=1" \
-                    >> launch.log
-
-                echo \
-                    "PUBLIC_URL=${'$'}URL" \
-                    >> launch.log
-
-                echo "LINK=${'$'}URL"
+                    "no_links_available"
             fi
         """.trimIndent()
     }
@@ -1533,7 +1618,11 @@ class RemoteControlServiceBridge(
         }
     }
 
-    private fun extractLink(
+    /**
+     * Reads only the "LOCAL_URL=" marker. Never relies on the first
+     * https:// found in the output.
+     */
+    private fun extractLocalUrl(
         output: String
     ): String? {
         return output.lineSequence()
@@ -1542,15 +1631,48 @@ class RemoteControlServiceBridge(
             }
             .firstOrNull {
                 it.startsWith(
-                    "LINK="
+                    "LOCAL_URL="
                 )
             }
             ?.removePrefix(
-                "LINK="
+                "LOCAL_URL="
             )
             ?.trim()
             ?.takeIf {
                 it.isNotBlank()
+            }
+    }
+
+    /**
+     * Reads only the "PUBLIC_URL=" marker. Defensively rejects the
+     * Cloudflare API endpoint (api.trycloudflare.com), which is never
+     * a real Quick Tunnel URL.
+     */
+    private fun extractPublicUrl(
+        output: String
+    ): String? {
+        return output.lineSequence()
+            .map {
+                it.trim()
+            }
+            .filter {
+                it.startsWith(
+                    "PUBLIC_URL="
+                )
+            }
+            .map {
+                it.removePrefix(
+                    "PUBLIC_URL="
+                ).trim()
+            }
+            .filter {
+                it.isNotBlank()
+            }
+            .firstOrNull {
+                !it.contains(
+                    "api.trycloudflare.com",
+                    ignoreCase = true
+                )
             }
     }
 
