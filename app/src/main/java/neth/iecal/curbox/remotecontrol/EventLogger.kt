@@ -11,22 +11,44 @@ import java.util.Locale
 /**
  * Event logger for CurBox remote-control features.
  *
- * Keeps the existing SharedPreferences ring-buffer and also provides
+ * Keeps the general SharedPreferences ring-buffer and also provides
  * a dedicated email.log file for SMTP diagnostics.
+ *
+ * Startup stages can be recorded in a consistent structured format so
+ * diagnostics can show exactly where the remote-control lifecycle
+ * stopped or failed.
  */
 object EventLogger {
 
-    private const val TAG = "EventLogger"
+    private const val TAG =
+        "EventLogger"
 
-    private const val PREFS_NAME = "remote_control_events"
-    private const val KEY_EVENTS = "events"
-    private const val MAX_EVENTS = 100
+    private const val PREFS_NAME =
+        "remote_control_events"
 
-    private const val EMAIL_LOG_FILE = "email.log"
-    private const val MAX_EMAIL_LOG_BYTES = 256 * 1024L
+    private const val KEY_EVENTS =
+        "events"
 
-    private var prefs: SharedPreferences? = null
-    private var appContext: Context? = null
+    private const val MAX_EVENTS =
+        200
+
+    private const val EMAIL_LOG_FILE =
+        "email.log"
+
+    private const val MAX_EMAIL_LOG_BYTES =
+        256 * 1024L
+
+    private const val MAX_GENERAL_MESSAGE_LENGTH =
+        4000
+
+    private const val MAX_EMAIL_VALUE_LENGTH =
+        2000
+
+    private var prefs:
+        SharedPreferences? = null
+
+    private var appContext:
+        Context? = null
 
     private val dateFormat =
         SimpleDateFormat(
@@ -34,69 +56,171 @@ object EventLogger {
             Locale.US
         )
 
-    private val lock = Any()
+    private val lock =
+        Any()
 
-    fun init(context: Context) {
+    fun init(
+        context: Context
+    ) {
         synchronized(lock) {
+            val applicationContext =
+                context.applicationContext
+
             if (appContext == null) {
-                appContext = context.applicationContext
+                appContext =
+                    applicationContext
             }
 
             if (prefs == null) {
-                prefs = context.applicationContext
-                    .getSharedPreferences(
-                        PREFS_NAME,
-                        Context.MODE_PRIVATE
-                    )
+                prefs =
+                    applicationContext
+                        .getSharedPreferences(
+                            PREFS_NAME,
+                            Context.MODE_PRIVATE
+                        )
             }
         }
     }
 
     /**
-     * Appends a normal CurBox event to the existing ring-buffer.
+     * Appends a normal CurBox event to the general ring-buffer.
+     *
+     * The message is sanitised to keep every event on a single line.
+     * Credentials, authentication tokens and other secrets must never
+     * be passed to this logger.
      */
     fun log(
         type: String,
         message: String
     ) {
         synchronized(lock) {
-            val p = prefs ?: return
+            val p =
+                prefs ?: return
 
             val timestamp =
-                dateFormat.format(Date())
+                dateFormat.format(
+                    Date()
+                )
+
+            val safeType =
+                sanitiseGeneralValue(
+                    type
+                )
+                    .ifBlank {
+                        "EVENT"
+                    }
+
+            val safeMessage =
+                sanitiseGeneralValue(
+                    message
+                )
 
             val event =
-                "[$timestamp] $type - $message"
+                "[$timestamp] $safeType - $safeMessage"
 
             val existing =
-                p.getString(KEY_EVENTS, "")
-                    ?: ""
+                p.getString(
+                    KEY_EVENTS,
+                    ""
+                ) ?: ""
 
             val lines =
                 existing
-                    .split("\n")
-                    .filter { it.isNotBlank() }
+                    .lineSequence()
+                    .filter {
+                        it.isNotBlank()
+                    }
                     .toMutableList()
 
-            lines.add(event)
+            lines.add(
+                event
+            )
 
-            while (lines.size > MAX_EVENTS) {
-                lines.removeAt(0)
+            while (
+                lines.size >
+                MAX_EVENTS
+            ) {
+                lines.removeAt(
+                    0
+                )
             }
 
             p.edit()
                 .putString(
                     KEY_EVENTS,
-                    lines.joinToString("\n")
+                    lines.joinToString(
+                        "\n"
+                    )
                 )
                 .apply()
+
+            Log.d(
+                TAG,
+                "$safeType - $safeMessage"
+            )
         }
     }
 
     /**
-     * Writes an entry to the dedicated email diagnostics log.
+     * Records one structured remote-control lifecycle stage.
      *
-     * Never pass SMTP passwords, authentication tokens, or other
+     * Example:
+     *
+     * START - REQUESTED reason=AUTO_START
+     * STAGING - OK
+     * CLEANUP - FAILED reason=...
+     * WORKDIR - OK
+     * LAUNCH - STARTED
+     *
+     * Callers own the meaning of the stage and status. This logger only
+     * guarantees a consistent, searchable diagnostic representation.
+     */
+    fun logStage(
+        stage: String,
+        status: String,
+        details: String? = null
+    ) {
+        val safeStage =
+            sanitiseGeneralValue(
+                stage
+            )
+                .ifBlank {
+                    "UNKNOWN_STAGE"
+                }
+
+        val safeStatus =
+            sanitiseGeneralValue(
+                status
+            )
+                .ifBlank {
+                    "UNKNOWN_STATUS"
+                }
+
+        val safeDetails =
+            details
+                ?.let(
+                    ::sanitiseGeneralValue
+                )
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+
+        val message =
+            if (safeDetails == null) {
+                safeStatus
+            } else {
+                "$safeStatus $safeDetails"
+            }
+
+        log(
+            type = safeStage,
+            message = message
+        )
+    }
+
+    /**
+     * Writes an entry to the dedicated email diagnostics log.
+ tokens, or other
      * secrets into this function.
      */
     fun logEmail(
@@ -114,18 +238,31 @@ object EventLogger {
                         EMAIL_LOG_FILE
                     )
 
-                rotateEmailLogIfNeeded(logFile)
+                rotateEmailLogIfNeeded(
+                    logFile
+                )
 
                 val timestamp =
-                    dateFormat.format(Date())
+                    dateFormat.format(
+                        Date()
+                    )
 
                 val safeEvent =
-                    sanitiseLogValue(event)
+                    sanitiseEmailLogValue(
+                        event
+                    )
+                        .ifBlank {
+                            "EMAIL_EVENT"
+                        }
 
                 val safeDetails =
                     details
-                        ?.let(::sanitiseLogValue)
-                        ?.takeIf { it.isNotBlank() }
+                        ?.let(
+                            ::sanitiseEmailLogValue
+                        )
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
 
                 val line =
                     if (safeDetails != null) {
@@ -134,7 +271,9 @@ object EventLogger {
                         "[$timestamp] $safeEvent\n"
                     }
 
-                logFile.appendText(line)
+                logFile.appendText(
+                    line
+                )
 
                 Log.d(
                     TAG,
@@ -174,7 +313,10 @@ object EventLogger {
                 }
             } catch (t: Throwable) {
                 "Unable to read email.log: " +
-                    (t.message ?: t.javaClass.simpleName)
+                    (
+                        t.message
+                            ?: t.javaClass.simpleName
+                    )
             }
         }
     }
@@ -221,20 +363,36 @@ object EventLogger {
             val p =
                 prefs ?: return emptyList()
 
+            val safeLimit =
+                limit.coerceAtLeast(
+                    0
+                )
+
+            if (safeLimit == 0) {
+                return emptyList()
+            }
+
             val existing =
-                p.getString(KEY_EVENTS, "")
-                    ?: ""
+                p.getString(
+                    KEY_EVENTS,
+                    ""
+                ) ?: ""
 
             return existing
-                .split("\n")
-                .filter { it.isNotBlank() }
-                .takeLast(limit)
+                .lineSequence()
+                .filter {
+                    it.isNotBlank()
+                }
+                .toList()
+                .takeLast(
+                    safeLimit
+                )
                 .reversed()
         }
     }
 
     /**
-     * Returns all stored general events.
+     * Returns all stored general events in chronological order.
      */
     fun getAll(): String {
         synchronized(lock) {
@@ -257,7 +415,9 @@ object EventLogger {
         synchronized(lock) {
             prefs
                 ?.edit()
-                ?.remove(KEY_EVENTS)
+                ?.remove(
+                    KEY_EVENTS
+                )
                 ?.apply()
 
             Unit
@@ -272,7 +432,8 @@ object EventLogger {
     ) {
         if (
             file.exists() &&
-            file.length() >= MAX_EMAIL_LOG_BYTES
+            file.length() >=
+                MAX_EMAIL_LOG_BYTES
         ) {
             file.writeText(
                 "[${dateFormat.format(Date())}] " +
@@ -282,17 +443,50 @@ object EventLogger {
     }
 
     /**
-     * Avoids accidental multiline/noisy diagnostic entries.
+     * Keeps general diagnostic entries single-line and bounded.
      *
-     * Secret values must never be passed to this logger in the first place.
+     * Secret values must never be passed to this logger in the first
+     * place.
      */
-    private fun sanitiseLogValue(
+    private fun sanitiseGeneralValue(
         value: String
     ): String {
         return value
-            .replace("\r", " ")
-            .replace("\n", " ")
+            .replace(
+                "\r",
+                " "
+            )
+            .replace(
+                "\n",
+                " "
+            )
             .trim()
-            .take(2000)
+            .take(
+                MAX_GENERAL_MESSAGE_LENGTH
+            )
+    }
+
+    /**
+     * Keeps email diagnostic entries single-line and bounded.
+     *
+     * Secret values must never be passed to this logger in the first
+     * place.
+     */
+    private fun sanitiseEmailLogValue(
+        value: String
+    ): String {
+        return value
+            .replace(
+                "\r",
+                " "
+            )
+            .replace(
+                "\n",
+                " "
+            )
+            .trim()
+            .take(
+                MAX_EMAIL_VALUE_LENGTH
+            )
     }
 }
