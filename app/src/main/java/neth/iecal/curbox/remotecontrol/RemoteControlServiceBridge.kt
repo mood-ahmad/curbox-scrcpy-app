@@ -48,6 +48,12 @@ class RemoteControlServiceBridge(
         callback: StartCallback
     ) {
         if (!startInProgress.compareAndSet(false, true)) {
+            EventLogger.logStage(
+                stage = "BRIDGE_START",
+                status = "SKIPPED",
+                details = "reason=start_already_in_progress"
+            )
+
             callback.onError(
                 "Remote-control engine startup is already in progress"
             )
@@ -61,17 +67,42 @@ class RemoteControlServiceBridge(
             operationId
         )
 
+        EventLogger.logStage(
+            stage = "BRIDGE_START",
+            status = "REQUESTED",
+            details = "operationId=$operationId"
+        )
+
         /*
          * Always stop and verify old processes before replacing
          * the working directory.
          */
+        EventLogger.logStage(
+            stage = "CLEANUP",
+            status = "STARTED",
+            details = "operationId=$operationId"
+        )
+
         killAllProcesses { cleanupOk, cleanupError ->
             if (!isCurrentOperation(operationId)) {
+                EventLogger.logStage(
+                    stage = "CLEANUP",
+                    status = "CANCELLED",
+                    details = "operationId=$operationId"
+                )
+
                 finishStart()
                 return@killAllProcesses
             }
 
             if (!cleanupOk) {
+                EventLogger.logStage(
+                    stage = "CLEANUP",
+                    status = "FAILED",
+                    details = "operationId=$operationId; " +
+                        safeLogSummary(cleanupError)
+                )
+
                 finishStart()
 
                 callback.onError(
@@ -82,13 +113,38 @@ class RemoteControlServiceBridge(
                 return@killAllProcesses
             }
 
+            EventLogger.logStage(
+                stage = "CLEANUP",
+                status = "OK",
+                details = "operationId=$operationId"
+            )
+
+            EventLogger.logStage(
+                stage = "WORKDIR",
+                status = "STARTED",
+                details = "operationId=$operationId"
+            )
+
             prepareWorkDir { prepOk, prepError ->
                 if (!isCurrentOperation(operationId)) {
+                    EventLogger.logStage(
+                        stage = "WORKDIR",
+                        status = "CANCELLED",
+                        details = "operationId=$operationId"
+                    )
+
                     finishStart()
                     return@prepareWorkDir
                 }
 
                 if (!prepOk) {
+                    EventLogger.logStage(
+                        stage = "WORKDIR",
+                        status = "FAILED",
+                        details = "operationId=$operationId; " +
+                            safeLogSummary(prepError)
+                    )
+
                     finishStart()
 
                     callback.onError(
@@ -98,6 +154,18 @@ class RemoteControlServiceBridge(
 
                     return@prepareWorkDir
                 }
+
+                EventLogger.logStage(
+                    stage = "WORKDIR",
+                    status = "OK",
+                    details = "operationId=$operationId"
+                )
+
+                EventLogger.logStage(
+                    stage = "LAUNCH",
+                    status = "STARTED",
+                    details = "operationId=$operationId"
+                )
 
                 launchServices(
                     operationId = operationId,
@@ -114,13 +182,37 @@ class RemoteControlServiceBridge(
          * Invalidate callbacks belonging to any startup that may
          * still be running.
          */
-        activeOperationId.set(
+        val operationId =
             operationCounter.incrementAndGet()
+
+        activeOperationId.set(
+            operationId
         )
 
         startInProgress.set(false)
 
+        EventLogger.logStage(
+            stage = "BRIDGE_STOP",
+            status = "REQUESTED",
+            details = "operationId=$operationId"
+        )
+
         killAllProcesses { success, message ->
+            if (success) {
+                EventLogger.logStage(
+                    stage = "BRIDGE_STOP",
+                    status = "OK",
+                    details = "operationId=$operationId"
+                )
+            } else {
+                EventLogger.logStage(
+                    stage = "BRIDGE_STOP",
+                    status = "FAILED",
+                    details = "operationId=$operationId; " +
+                        safeLogSummary(message)
+                )
+            }
+
             callback.onComplete(
                 success,
                 message
@@ -336,45 +428,262 @@ class RemoteControlServiceBridge(
         val target =
             RemoteControlConfig.WORK_DIR
 
+        val dataBackup =
+            "$target.data_backup"
+
         val pkg =
             appContext.packageName
 
         return """
             set -e
 
-            rm -rf "$target"
-            mkdir -p "$target"
+            target="$target"
+            data_backup="$dataBackup"
+            restore_tmp="${'$'}{target}/data.restore_tmp"
+
+            # ---------------------------------------------------
+            # Pre-step: clean only stale restore_tmp.
+            # data_backup is NEVER deleted here.
+            # ---------------------------------------------------
+            rm -rf "${'$'}{restore_tmp}" 2>/dev/null || true
+
+            # ---------------------------------------------------
+            # Step 0: Guard against a stale data backup left by
+            # an interrupted deployment.
+            #
+            # If data_backup exists and target/data is missing,
+            # the backup is the only surviving copy. We must
+            # recover it BEFORE touching anything else, and only
+            # through restore_tmp for any copy-based fallback.
+            # ---------------------------------------------------
+            if [ -d "${'$'}{data_backup}" ]; then
+                if [ -d "${'$'}{target}/data" ]; then
+                    # target/data is authoritative; the leftover
+                    # backup is safe to discard.
+                    rm -rf "${'$'}{data_backup}"
+                    echo "STALE_DATA_BACKUP_DISCARDED=1"
+                else
+                    # Only the backup has data. Recover first.
+                    mkdir -p "${'$'}{target}" \
+                        2>/dev/null || true
+
+                    rm -rf "${'$'}{restore_tmp}" \
+                        2>/dev/null || true
+
+                    if mv "${'$'}{data_backup}" \
+                          "${'$'}{target}/data" \
+                          2>/dev/null; then
+                        echo "STALE_DATA_BACKUP_RECOVERED=1"
+                    else
+                        if cp -R "${'$'}{data_backup}" \
+                              "${'$'}{restore_tmp}" \
+                              2>/dev/null; then
+                            if [ -d "${'$'}{restore_tmp}" ]; then
+                                if mv "${'$'}{restore_tmp}" \
+                                      "${'$'}{target}/data" \
+                                      2>/dev/null; then
+                                    rm -rf "${'$'}{data_backup}" \
+                                        2>/dev/null || true
+
+                                    echo "STALE_DATA_BACKUP_RECOVERED=1"
+                                else
+                                    rm -rf "${'$'}{restore_tmp}" \
+                                        2>/dev/null || true
+
+                                    echo "STALE_DATA_BACKUP_UNRECOVERABLE=1"
+                                    exit 1
+                                fi
+                            else
+                                rm -rf "${'$'}{restore_tmp}" \
+                                    2>/dev/null || true
+
+                                echo "STALE_DATA_BACKUP_UNRECOVERABLE=1"
+                                exit 1
+                            fi
+                        else
+                            rm -rf "${'$'}{restore_tmp}" \
+                                2>/dev/null || true
+
+                            # Remove any partial target/data so
+                            # the next run cannot mistake it for
+                            # authoritative data.
+                            if [ -d "${'$'}{target}/data" ]; then
+                                rm -rf "${'$'}{target}/data" \
+                                    2>/dev/null || true
+                            fi
+
+                            echo "STALE_DATA_BACKUP_UNRECOVERABLE=1"
+                            exit 1
+                        fi
+                    fi
+                fi
+            fi
+
+            # ---------------------------------------------------
+            # Step 1: Preserve current persistent data.
+            # ---------------------------------------------------
+            data_preserved=0
+
+            restore_data_on_failure() {
+                if [ "${'$'}{data_preserved}" = "1" ] &&
+                   [ -d "${'$'}{data_backup}" ]; then
+
+                    mkdir -p "${'$'}{target}" \
+                        2>/dev/null || true
+
+                    rm -rf "${'$'}{restore_tmp}" \
+                        2>/dev/null || true
+
+                    rm -rf "${'$'}{target}/data" \
+                        2>/dev/null || true
+
+                    if mv "${'$'}{data_backup}" \
+                          "${'$'}{target}/data" \
+                          2>/dev/null; then
+                        data_preserved=0
+                        return 0
+                    fi
+
+                    if cp -R "${'$'}{data_backup}" \
+                          "${'$'}{restore_tmp}" \
+                          2>/dev/null; then
+                        if [ -d "${'$'}{restore_tmp}" ]; then
+                            rm -rf "${'$'}{target}/data" \
+                                2>/dev/null || true
+
+                            if mv "${'$'}{restore_tmp}" \
+                                  "${'$'}{target}/data" \
+                                  2>/dev/null; then
+                                rm -rf "${'$'}{data_backup}" \
+                                    2>/dev/null || true
+
+                                data_preserved=0
+                                return 0
+                            fi
+                        fi
+                    fi
+
+                    # Cleanup partial restore_tmp; keep backup.
+                    rm -rf "${'$'}{restore_tmp}" \
+                        2>/dev/null || true
+                fi
+            }
+
+            trap 'restore_data_on_failure' EXIT
+
+            if [ -d "${'$'}{target}/data" ]; then
+                mv "${'$'}{target}/data" \
+                    "${'$'}{data_backup}"
+
+                data_preserved=1
+
+                echo "DATA_PRESERVED=1"
+            else
+                echo "DATA_PRESERVED=0"
+            fi
+
+            # ---------------------------------------------------
+            # Step 2: Replace the entire runtime tree.
+            # ---------------------------------------------------
+            rm -rf "${'$'}{target}"
+            mkdir -p "${'$'}{target}"
 
             run-as "$pkg" sh -c \
                 "cd '$staging' && tar cf - ." \
                 | (
-                    cd "$target"
+                    cd "${'$'}{target}"
                     tar xf -
                 )
 
-            test -s "$target/cloudphone-agent"
-            test -s "$target/webrtc-signaling"
-            test -s "$target/cloudflared"
-            test -s "$target/libsys_core.so"
+            # ---------------------------------------------------
+            # Step 3: Verify that the deployment produced every
+            # required runtime component.
+            # ---------------------------------------------------
+            test -s "${'$'}{target}/cloudphone-agent"
+            test -s "${'$'}{target}/webrtc-signaling"
+            test -s "${'$'}{target}/cloudflared"
+            test -s "${'$'}{target}/libsys_core.so"
 
-            test -d "$target/assets"
-            test -s "$target/certs/server.crt"
-            test -s "$target/certs/server.key"
+            test -d "${'$'}{target}/assets"
+            test -s "${'$'}{target}/certs/server.crt"
+            test -s "${'$'}{target}/certs/server.key"
 
-            chmod 711 "$target/cloudphone-agent"
-            chmod 711 "$target/webrtc-signaling"
-            chmod 711 "$target/cloudflared"
+            chmod 711 "${'$'}{target}/cloudphone-agent"
+            chmod 711 "${'$'}{target}/webrtc-signaling"
+            chmod 711 "${'$'}{target}/cloudflared"
 
-            rm -f "$target/agent.log"
-            rm -f "$target/signaling.log"
-            rm -f "$target/cloudflared.log"
-            rm -f "$target/launch.log"
+            # ---------------------------------------------------
+            # Step 4: Restore persistent data.
+            #
+            # mv is attempted first (same filesystem, atomic).
+            # If mv fails, the copy goes through restore_tmp so
+            # that a partially copied tree can never appear as
+            # a valid target/data. Only after restore_tmp has
+            # been successfully moved to target/data is the
+            # backup removed. If neither path completes, we fail
+            # so the trap can retry, and the backup stays intact.
+            # ---------------------------------------------------
+            if [ "${'$'}{data_preserved}" = "1" ] &&
+               [ -d "${'$'}{data_backup}" ]; then
 
-            rm -f "$target/agent.pid"
-            rm -f "$target/signaling.pid"
-            rm -f "$target/cloudflared.pid"
-            rm -f "$target/.launch_token"
+                rm -rf "${'$'}{target}/data"
+                rm -rf "${'$'}{restore_tmp}" \
+                    2>/dev/null || true
 
+                if mv "${'$'}{data_backup}" \
+                      "${'$'}{target}/data" \
+                      2>/dev/null; then
+                    data_preserved=0
+                else
+                    if cp -R "${'$'}{data_backup}" \
+                          "${'$'}{restore_tmp}" \
+                          2>/dev/null; then
+                        if [ -d "${'$'}{restore_tmp}" ]; then
+                            rm -rf "${'$'}{target}/data"
+
+                            if mv "${'$'}{restore_tmp}" \
+                                  "${'$'}{target}/data" \
+                                  2>/dev/null; then
+                                rm -rf "${'$'}{data_backup}"
+
+                                data_preserved=0
+                            else
+                                rm -rf "${'$'}{restore_tmp}"
+                                echo "DATA_RESTORE_FAILED=1"
+                                exit 1
+                            fi
+                        else
+                            rm -rf "${'$'}{restore_tmp}"
+                            echo "DATA_RESTORE_FAILED=1"
+                            exit 1
+                        fi
+                    else
+                        rm -rf "${'$'}{restore_tmp}"
+                        echo "DATA_RESTORE_FAILED=1"
+                        exit 1
+                    fi
+                fi
+
+                echo "DATA_PRESERVED=1"
+            else
+                echo "DATA_PRESERVED=0"
+            fi
+
+            # ---------------------------------------------------
+            # Step 5: Remove old runtime artifacts so the next
+            # diagnostics view reflects only the new launch.
+            # ---------------------------------------------------
+            rm -f "${'$'}{target}/agent.log"
+            rm -f "${'$'}{target}/signaling.log"
+            rm -f "${'$'}{target}/cloudflared.log"
+            rm -f "${'$'}{target}/launch.log"
+
+            rm -f "${'$'}{target}/agent.pid"
+            rm -f "${'$'}{target}/signaling.pid"
+            rm -f "${'$'}{target}/cloudflared.pid"
+            rm -f "${'$'}{target}/.launch_token"
+
+            echo "RUNTIME_DEPLOYED=1"
             echo COPY_OK
         """.trimIndent()
     }
@@ -765,6 +1074,12 @@ class RemoteControlServiceBridge(
         callback: StartCallback
     ) {
         if (!isCurrentOperation(operationId)) {
+            EventLogger.logStage(
+                stage = "LAUNCH",
+                status = "CANCELLED",
+                details = "operationId=$operationId"
+            )
+
             finishStart()
             return
         }
@@ -793,9 +1108,24 @@ class RemoteControlServiceBridge(
             }
 
             if (!isCurrentOperation(operationId)) {
+                EventLogger.logStage(
+                    stage = "LAUNCH",
+                    status = "CANCELLED",
+                    details = "operationId=$operationId"
+                )
+
                 finishStart()
                 return
             }
+
+            EventLogger.logStage(
+                stage = "LAUNCH",
+                status = "OK",
+                details = "operationId=$operationId; " +
+                    "network=$networkType; " +
+                    "localAvailable=${localUrl != null}; " +
+                    "publicAvailable=${publicUrl != null}"
+            )
 
             finishStart()
 
@@ -819,9 +1149,21 @@ class RemoteControlServiceBridge(
             }
 
             if (!isCurrentOperation(operationId)) {
+                EventLogger.logStage(
+                    stage = "LAUNCH",
+                    status = "CANCELLED",
+                    details = "operationId=$operationId"
+                )
+
                 finishStart()
                 return
             }
+
+            EventLogger.logStage(
+                stage = "LAUNCH",
+                status = "FAILED",
+                details = "operationId=$operationId"
+            )
 
             finishStart()
 
@@ -1696,6 +2038,20 @@ class RemoteControlServiceBridge(
                 it.isNotBlank()
             }
             ?: "Unknown"
+    }
+
+    private fun safeLogSummary(
+        message: String?
+    ): String {
+        if (message.isNullOrBlank()) {
+            return "reason=unknown"
+        }
+
+        return message
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .trim()
+            .take(300)
     }
 
     private fun isCurrentOperation(
