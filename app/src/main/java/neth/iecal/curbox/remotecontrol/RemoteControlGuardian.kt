@@ -88,6 +88,12 @@ object RemoteControlGuardian {
 
         synchronized(guardianLock) {
             if (job?.isActive == true) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN",
+                    status = "START_SKIPPED",
+                    details = "reason=already_active"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Start skipped: Guardian is already active"
@@ -100,6 +106,11 @@ object RemoteControlGuardian {
 
             job =
                 scope.launch {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN",
+                        status = "STARTED"
+                    )
+
                     EventLogger.log(
                         "GUARDIAN",
                         "Guardian started"
@@ -119,6 +130,17 @@ object RemoteControlGuardian {
                                 appContext
                             )
                         } catch (t: Throwable) {
+                            EventLogger.logStage(
+                                stage = "GUARDIAN_CHECK",
+                                status = "EXCEPTION",
+                                details =
+                                    "reason=" +
+                                    safeLogSummary(
+                                        t.message
+                                            ?: t.javaClass.simpleName
+                                    )
+                            )
+
                             EventLogger.log(
                                 "GUARDIAN",
                                 "Tick exception: " +
@@ -153,6 +175,11 @@ object RemoteControlGuardian {
             resetFailureStateLocked()
         }
 
+        EventLogger.logStage(
+            stage = "GUARDIAN",
+            status = "STOPPED"
+        )
+
         EventLogger.log(
             "GUARDIAN",
             "Guardian stopped"
@@ -171,6 +198,12 @@ object RemoteControlGuardian {
         ) {
             resetFailureState()
 
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "SKIPPED",
+                details = "reason=feature_disabled"
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Check skipped: remote control disabled"
@@ -188,6 +221,12 @@ object RemoteControlGuardian {
         if (
             RemoteControlManager.isLifecycleBusy()
         ) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "SKIPPED",
+                details = "reason=lifecycle_busy"
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Check skipped: engine lifecycle operation is active"
@@ -199,6 +238,12 @@ object RemoteControlGuardian {
         if (
             repairInProgress.get()
         ) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "SKIPPED",
+                details = "reason=repair_in_progress"
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Check skipped: repair already in progress"
@@ -211,6 +256,12 @@ object RemoteControlGuardian {
             RemoteControlManager.state.value
         ) {
             is RemoteControlState.Starting -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=engine_starting"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Check skipped: engine is starting"
@@ -220,6 +271,12 @@ object RemoteControlGuardian {
             }
 
             is RemoteControlState.Stopping -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=engine_stopping"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Check skipped: engine is stopping"
@@ -230,6 +287,11 @@ object RemoteControlGuardian {
 
             else -> Unit
         }
+
+        EventLogger.logStage(
+            stage = "GUARDIAN_CHECK",
+            status = "STARTED"
+        )
 
         val running =
             checkEngineHealth()
@@ -250,9 +312,21 @@ object RemoteControlGuardian {
                 )
             }
 
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "HEALTHY",
+                details =
+                    "previousFailures=$previousFailures"
+            )
+
             resetFailureState()
             return
         }
+
+        EventLogger.logStage(
+            stage = "GUARDIAN_CHECK",
+            status = "UNHEALTHY"
+        )
 
         /*
          * After the maximum failed attempts, continue observing engine
@@ -266,6 +340,14 @@ object RemoteControlGuardian {
             }
 
         if (repairsSuspended) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_REPAIR",
+                status = "SKIPPED",
+                details =
+                    "reason=automatic_repair_suspended; " +
+                    "maxAttempts=$MAX_REPAIR_ATTEMPTS"
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Engine is unhealthy; automatic repair remains " +
@@ -281,6 +363,12 @@ object RemoteControlGuardian {
                 true
             )
         ) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_REPAIR",
+                status = "SKIPPED",
+                details = "reason=repair_lock_unavailable"
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Repair skipped: another repair acquired the lock"
@@ -297,6 +385,12 @@ object RemoteControlGuardian {
             if (
                 RemoteControlManager.isLifecycleBusy()
             ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=lifecycle_became_active"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Repair cancelled: lifecycle operation became active"
@@ -309,6 +403,12 @@ object RemoteControlGuardian {
                 RemoteControlManager.state.value
             ) {
                 is RemoteControlState.Starting -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_REPAIR",
+                        status = "CANCELLED",
+                        details = "reason=engine_started_normally"
+                    )
+
                     EventLogger.log(
                         "GUARDIAN",
                         "Repair cancelled: engine started normally"
@@ -318,6 +418,12 @@ object RemoteControlGuardian {
                 }
 
                 is RemoteControlState.Stopping -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_REPAIR",
+                        status = "CANCELLED",
+                        details = "reason=engine_stopping"
+                    )
+
                     EventLogger.log(
                         "GUARDIAN",
                         "Repair cancelled: engine is stopping"
@@ -349,6 +455,19 @@ object RemoteControlGuardian {
                 }
 
             if (repairAttempt == null) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=maximum_attempts_reached"
+                )
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "SUSPENDED",
+                    details =
+                        "attempts=$MAX_REPAIR_ATTEMPTS"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Repair cancelled: maximum attempts reached"
@@ -362,6 +481,14 @@ object RemoteControlGuardian {
                 repairBackoffFor(
                     repairAttempt
                 )
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_REPAIR",
+                status = "SCHEDULED",
+                details =
+                    "attempt=$repairAttempt; " +
+                    "backoffMs=$backoffMs"
+            )
 
             EventLogger.log(
                 "GUARDIAN",
@@ -381,6 +508,12 @@ object RemoteControlGuardian {
             if (
                 RemoteControlManager.isLifecycleBusy()
             ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=lifecycle_active_after_backoff"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Repair cancelled after backoff: " +
@@ -395,6 +528,12 @@ object RemoteControlGuardian {
                     context
                 )
             ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=feature_disabled_after_backoff"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Repair cancelled after backoff: " +
@@ -404,6 +543,12 @@ object RemoteControlGuardian {
                 resetFailureState()
                 return
             }
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_REPAIR",
+                status = "STARTED",
+                details = "attempt=$repairAttempt"
+            )
 
             EventLogger.log(
                 "GUARDIAN",
@@ -435,6 +580,14 @@ object RemoteControlGuardian {
             if (
                 RemoteControlManager.isLifecycleBusy()
             ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "PENDING",
+                    details =
+                        "attempt=$repairAttempt; " +
+                        "reason=lifecycle_still_active"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Repair lifecycle still active; " +
@@ -448,6 +601,12 @@ object RemoteControlGuardian {
                 checkEngineHealth()
 
             if (recovered) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "OK",
+                    details = "attempt=$repairAttempt"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Repair successful on attempt " +
@@ -457,6 +616,12 @@ object RemoteControlGuardian {
                 resetFailureState()
                 return
             }
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_REPAIR",
+                status = "FAILED",
+                details = "attempt=$repairAttempt"
+            )
 
             EventLogger.log(
                 "GUARDIAN",
@@ -474,6 +639,13 @@ object RemoteControlGuardian {
                     automaticRepairSuspended =
                         true
                 }
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "SUSPENDED",
+                    details =
+                        "attempts=$MAX_REPAIR_ATTEMPTS"
+                )
 
                 EventLogger.log(
                     "GUARDIAN",
@@ -504,6 +676,13 @@ object RemoteControlGuardian {
             }
 
         if (result == null) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "TIMEOUT",
+                details =
+                    "timeoutMs=$HEALTH_CHECK_TIMEOUT_MS"
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Engine health check timed out"
@@ -546,8 +725,21 @@ object RemoteControlGuardian {
             }
 
         if (!shouldSend) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_ALERT",
+                status = "SKIPPED",
+                details = "reason=already_sent"
+            )
+
             return
         }
+
+        EventLogger.logStage(
+            stage = "GUARDIAN_ALERT",
+            status = "REQUESTED",
+            details =
+                "failedAttempts=$MAX_REPAIR_ATTEMPTS"
+        )
 
         EventLogger.log(
             "GUARDIAN",
@@ -570,17 +762,40 @@ object RemoteControlGuardian {
                 )
 
             if (success) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_ALERT",
+                    status = "OK"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Alert email send accepted"
                 )
             } else {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_ALERT",
+                    status = "FAILED",
+                    details =
+                        "reason=email_sender_returned_false"
+                )
+
                 EventLogger.log(
                     "GUARDIAN",
                     "Alert email send returned false"
                 )
             }
         } catch (t: Throwable) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_ALERT",
+                status = "FAILED",
+                details =
+                    "reason=" +
+                    safeLogSummary(
+                        t.message
+                            ?: t.javaClass.simpleName
+                    )
+            )
+
             EventLogger.log(
                 "GUARDIAN",
                 "Alert email failed: " +
@@ -609,5 +824,15 @@ object RemoteControlGuardian {
 
         automaticRepairSuspended =
             false
+    }
+
+    private fun safeLogSummary(
+        message: String
+    ): String {
+        return message
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .trim()
+            .take(300)
     }
 }
