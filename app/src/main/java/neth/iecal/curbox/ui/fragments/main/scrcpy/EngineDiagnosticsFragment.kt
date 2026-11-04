@@ -311,7 +311,7 @@ class EngineDiagnosticsFragment : Fragment() {
                     )
 
                     echo \
-                        "${'$'}FILE: EXISTS (${ '$' }SIZE bytes)"
+                        "${'$'}FILE: EXISTS (${'$'}SIZE bytes)"
                 else
                     echo \
                         "${'$'}FILE: MISSING"
