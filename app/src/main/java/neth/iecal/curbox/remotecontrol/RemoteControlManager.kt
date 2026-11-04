@@ -20,8 +20,11 @@ object RemoteControlManager {
     private const val KEY_ENABLED =
         "enabled"
 
-    private const val KEY_LAST_LINK =
-        "last_link"
+    private const val KEY_LAST_LOCAL_URL =
+        "last_local_url"
+
+    private const val KEY_LAST_PUBLIC_URL =
+        "last_public_url"
 
     private val scope =
         CoroutineScope(Dispatchers.IO)
@@ -40,7 +43,10 @@ object RemoteControlManager {
     private var bridge:
         RemoteControlServiceBridge? = null
 
-    private var currentLink:
+    private var currentLocalUrl:
+        String? = null
+
+    private var currentPublicUrl:
         String? = null
 
     /*
@@ -247,7 +253,8 @@ object RemoteControlManager {
                         RemoteControlServiceBridge.StartCallback {
 
                         override fun onSuccess(
-                            link: String,
+                            localUrl: String?,
+                            publicUrl: String?,
                             networkType: String
                         ) {
                             val accepted =
@@ -262,12 +269,16 @@ object RemoteControlManager {
                                     ) {
                                         false
                                     } else {
-                                        currentLink =
-                                            link
+                                        currentLocalUrl =
+                                            localUrl
+
+                                        currentPublicUrl =
+                                            publicUrl
 
                                         _state.value =
                                             RemoteControlState.Ready(
-                                                link
+                                                localUrl = localUrl,
+                                                publicUrl = publicUrl
                                             )
 
                                         activeOperation =
@@ -293,12 +304,15 @@ object RemoteControlManager {
                                 "Started successfully: " +
                                     "reason=${reason.label}, " +
                                     "network=$networkType, " +
-                                    "generation=$startGeneration"
+                                    "generation=$startGeneration, " +
+                                    "localAvailable=${localUrl != null}, " +
+                                    "publicAvailable=${publicUrl != null}"
                             )
 
-                            handleSuccessfulLink(
+                            handleSuccessfulLinks(
                                 appContext = appContext,
-                                link = link,
+                                localUrl = localUrl,
+                                publicUrl = publicUrl,
                                 networkType = networkType
                             )
                         }
@@ -431,7 +445,10 @@ object RemoteControlManager {
                                     activeOperation ==
                                         LifecycleOperation.RESTARTING
 
-                                currentLink =
+                                currentLocalUrl =
+                                    null
+
+                                currentPublicUrl =
                                     null
 
                                 _state.value =
@@ -585,7 +602,10 @@ object RemoteControlManager {
                             ) {
                                 false
                             } else {
-                                currentLink =
+                                currentLocalUrl =
+                                    null
+
+                                currentPublicUrl =
                                     null
 
                                 activeOperation =
@@ -663,13 +683,20 @@ object RemoteControlManager {
                         currentState !is
                             RemoteControlState.Ready -> {
 
-                        val link =
-                            currentLink
+                        val localUrl =
+                            currentLocalUrl
 
-                        if (link != null) {
+                        val publicUrl =
+                            currentPublicUrl
+
+                        if (
+                            localUrl != null ||
+                            publicUrl != null
+                        ) {
                             _state.value =
                                 RemoteControlState.Ready(
-                                    link
+                                    localUrl = localUrl,
+                                    publicUrl = publicUrl
                                 )
                         }
                     }
@@ -681,7 +708,10 @@ object RemoteControlManager {
                         _state.value =
                             RemoteControlState.Idle
 
-                        currentLink =
+                        currentLocalUrl =
+                            null
+
+                        currentPublicUrl =
                             null
                     }
                 }
@@ -689,9 +719,26 @@ object RemoteControlManager {
         }
     }
 
+    fun getCurrentLocalUrl(): String? {
+        return synchronized(lifecycleLock) {
+            currentLocalUrl
+        }
+    }
+
+    fun getCurrentPublicUrl(): String? {
+        return synchronized(lifecycleLock) {
+            currentPublicUrl
+        }
+    }
+
+    /**
+     * Compatibility getter for call sites that have not yet been migrated
+     * to Dual-Link. Returns the local URL when available, otherwise the
+     * public URL. Dual-Link logic must not depend on this getter.
+     */
     fun getCurrentLink(): String? {
         return synchronized(lifecycleLock) {
-            currentLink
+            currentLocalUrl ?: currentPublicUrl
         }
     }
 
@@ -746,6 +793,12 @@ object RemoteControlManager {
                 ) {
                     false
                 } else {
+                    currentLocalUrl =
+                        null
+
+                    currentPublicUrl =
+                        null
+
                     activeOperation =
                         LifecycleOperation.IDLE
 
@@ -774,9 +827,10 @@ object RemoteControlManager {
         }
     }
 
-    private fun handleSuccessfulLink(
+    private fun handleSuccessfulLinks(
         appContext: Context,
-        link: String,
+        localUrl: String?,
+        publicUrl: String?,
         networkType: String
     ) {
         val prefs =
@@ -785,23 +839,26 @@ object RemoteControlManager {
                 Context.MODE_PRIVATE
             )
 
-        val lastLink =
+        val lastLocalUrl =
             prefs.getString(
-                KEY_LAST_LINK,
+                KEY_LAST_LOCAL_URL,
                 null
             )
 
-        prefs.edit()
-            .putString(
-                KEY_LAST_LINK,
-                link
+        val lastPublicUrl =
+            prefs.getString(
+                KEY_LAST_PUBLIC_URL,
+                null
             )
-            .apply()
 
-        if (link == lastLink) {
+        val linksUnchanged =
+            localUrl == lastLocalUrl &&
+                publicUrl == lastPublicUrl
+
+        if (linksUnchanged) {
             EventLogger.log(
                 "EMAIL",
-                "Link unchanged, skipping email"
+                "Links unchanged, skipping email"
             )
 
             return
@@ -809,14 +866,86 @@ object RemoteControlManager {
 
         EventLogger.log(
             "EMAIL",
-            "Sending new link to email"
+            "Sending new links to email: " +
+                "localAvailable=${localUrl != null}, " +
+                "publicAvailable=${publicUrl != null}"
         )
 
         scope.launch {
-            EmailSender.sendLink(
-                link,
-                networkType
-            )
+            try {
+                val sent =
+                    EmailSender.sendLinks(
+                        localUrl = localUrl,
+                        publicUrl = publicUrl,
+                        networkType = networkType
+                    )
+
+                if (!sent) {
+                    EventLogger.log(
+                        "EMAIL",
+                        "Links email failed; " +
+                            "keeping previous sent-link state for retry"
+                    )
+
+                    return@launch
+                }
+
+                val linksStillCurrent =
+                    synchronized(lifecycleLock) {
+                        currentLocalUrl == localUrl &&
+                            currentPublicUrl == publicUrl
+                    }
+
+                if (!linksStillCurrent) {
+                    EventLogger.log(
+                        "EMAIL",
+                        "Sent-link state update skipped: " +
+                            "links are no longer current"
+                    )
+
+                    return@launch
+                }
+
+                val editor =
+                    prefs.edit()
+
+                if (localUrl != null) {
+                    editor.putString(
+                        KEY_LAST_LOCAL_URL,
+                        localUrl
+                    )
+                } else {
+                    editor.remove(
+                        KEY_LAST_LOCAL_URL
+                    )
+                }
+
+                if (publicUrl != null) {
+                    editor.putString(
+                        KEY_LAST_PUBLIC_URL,
+                        publicUrl
+                    )
+                } else {
+                    editor.remove(
+                        KEY_LAST_PUBLIC_URL
+                    )
+                }
+
+                editor.apply()
+
+                EventLogger.log(
+                    "EMAIL",
+                    "Links email sent; sent-link state updated"
+                )
+            } catch (t: Throwable) {
+                EventLogger.log(
+                    "EMAIL",
+                    "Links email failed with exception; " +
+                        "keeping previous sent-link state for retry: " +
+                        (t.message
+                            ?: t.javaClass.simpleName)
+                )
+            }
         }
     }
 
