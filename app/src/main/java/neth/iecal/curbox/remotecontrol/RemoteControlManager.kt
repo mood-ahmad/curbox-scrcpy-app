@@ -97,9 +97,20 @@ object RemoteControlManager {
             )
 
         if (enabled) {
+            EventLogger.logStage(
+                stage = "AUTO_START",
+                status = "ENABLED"
+            )
+
             start(
                 context = context,
                 reason = StartReason.AUTO_START
+            )
+        } else {
+            EventLogger.logStage(
+                stage = "AUTO_START",
+                status = "SKIPPED",
+                details = "reason=feature_disabled"
             )
         }
     }
@@ -172,6 +183,15 @@ object RemoteControlManager {
                 currentState is RemoteControlState.Stopping ||
                 currentState is RemoteControlState.Ready
             ) {
+                EventLogger.logStage(
+                    stage = "START",
+                    status = "SKIPPED",
+                    details =
+                        "reason=${reason.label}; " +
+                        "operation=$activeOperation; " +
+                        "state=${currentState.javaClass.simpleName}"
+                )
+
                 EventLogger.log(
                     "SERVICE",
                     "Start skipped: " +
@@ -194,6 +214,14 @@ object RemoteControlManager {
                 RemoteControlState.Starting
         }
 
+        EventLogger.logStage(
+            stage = "START",
+            status = "REQUESTED",
+            details =
+                "reason=${reason.label}; " +
+                "generation=$startGeneration"
+        )
+
         EventLogger.log(
             "SERVICE",
             "Start requested: " +
@@ -203,6 +231,12 @@ object RemoteControlManager {
 
         scope.launch {
             try {
+                EventLogger.logStage(
+                    stage = "STAGING",
+                    status = "STARTED",
+                    details = "generation=$startGeneration"
+                )
+
                 val staged =
                     copyAssetsToStaging(
                         appContext
@@ -214,6 +248,14 @@ object RemoteControlManager {
                             LifecycleOperation.STARTING
                     )
                 ) {
+                    EventLogger.logStage(
+                        stage = "STAGING",
+                        status = "CANCELLED",
+                        details =
+                            "generation=$startGeneration; " +
+                            "reason=stale_operation"
+                    )
+
                     EventLogger.log(
                         "SERVICE",
                         "Staging result ignored: " +
@@ -224,6 +266,12 @@ object RemoteControlManager {
                 }
 
                 if (!staged) {
+                    EventLogger.logStage(
+                        stage = "STAGING",
+                        status = "FAILED",
+                        details = "generation=$startGeneration"
+                    )
+
                     finishStartWithError(
                         generation = startGeneration,
                         message =
@@ -232,6 +280,12 @@ object RemoteControlManager {
 
                     return@launch
                 }
+
+                EventLogger.logStage(
+                    stage = "STAGING",
+                    status = "OK",
+                    details = "generation=$startGeneration"
+                )
 
                 val currentBridge =
                     synchronized(lifecycleLock) {
@@ -289,6 +343,14 @@ object RemoteControlManager {
                                 }
 
                             if (!accepted) {
+                                EventLogger.logStage(
+                                    stage = "START",
+                                    status = "CANCELLED",
+                                    details =
+                                        "generation=$startGeneration; " +
+                                        "reason=stale_success_callback"
+                                )
+
                                 EventLogger.log(
                                     "SERVICE",
                                     "Start success ignored: " +
@@ -298,6 +360,17 @@ object RemoteControlManager {
 
                                 return
                             }
+
+                            EventLogger.logStage(
+                                stage = "START",
+                                status = "OK",
+                                details =
+                                    "reason=${reason.label}; " +
+                                    "generation=$startGeneration; " +
+                                    "network=$networkType; " +
+                                    "localAvailable=${localUrl != null}; " +
+                                    "publicAvailable=${publicUrl != null}"
+                            )
 
                             EventLogger.log(
                                 "SERVICE",
@@ -812,6 +885,14 @@ object RemoteControlManager {
             }
 
         if (accepted) {
+            EventLogger.logStage(
+                stage = "START",
+                status = "FAILED",
+                details =
+                    "generation=$generation; " +
+                    "reason=${safeLogSummary(message)}"
+            )
+
             EventLogger.log(
                 "SERVICE",
                 "Start failed: " +
@@ -819,12 +900,30 @@ object RemoteControlManager {
                     "message=$message"
             )
         } else {
+            EventLogger.logStage(
+                stage = "START",
+                status = "CANCELLED",
+                details =
+                    "generation=$generation; " +
+                    "reason=stale_error_callback"
+            )
+
             EventLogger.log(
                 "SERVICE",
                 "Start failure ignored: " +
                     "stale generation=$generation"
             )
         }
+    }
+
+    private fun safeLogSummary(
+        message: String
+    ): String {
+        return message
+            .replace('\n', ' ')
+            .replace('\r', ' ')
+            .trim()
+            .take(300)
     }
 
     private fun handleSuccessfulLinks(
