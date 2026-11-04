@@ -646,7 +646,7 @@ class RemoteControlServiceBridge(
             fi
 
             if port_is_listening; then
-                echo "CLEANUP_FAILED=port_$port_still_listening"
+                echo "CLEANUP_FAILED=port_${port}_still_listening"
 
                 if command -v ss >/dev/null 2>&1; then
                     ss -ltnp 2>/dev/null \
@@ -1028,13 +1028,8 @@ class RemoteControlServiceBridge(
                     "agent.pid:$target/cloudphone-agent" \
                     "signaling.pid:$target/webrtc-signaling"
                 do
-                    PID_FILE=${'$'}{
-                        FILE_AND_EXE%%:*
-                    }
-
-                    EXPECTED_EXE=${'$'}{
-                        FILE_AND_EXE#*:
-                    }
+                    PID_FILE="${'$'}{FILE_AND_EXE%%:*}"
+                    EXPECTED_EXE="${'$'}{FILE_AND_EXE#*:}"
 
                     if [ -s "${'$'}PID_FILE" ]; then
                         PID=${'$'}(
@@ -1357,7 +1352,7 @@ class RemoteControlServiceBridge(
                     ip route get 1.1.1.1 \
                         2>/dev/null \
                         | sed -n \
-                            's/.* src $$[0-9.]*$$.*/\1/p' \
+                            's/.* src \([0-9.]*\).*/\1/p' \
                         | head -n 1
                 )
 
