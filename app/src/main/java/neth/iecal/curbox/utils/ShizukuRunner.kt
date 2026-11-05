@@ -405,6 +405,7 @@ class ShizukuRunner {
                                                 .filter {
                                                     it.isNotEmpty()
                                                 }
+                                                .toList()
                                                 .takeLast(
                                                     trailingLineCount
                                                 )
