@@ -1798,6 +1798,7 @@ class RemoteControlServiceBridge(
             nohup ./cloudflared tunnel \
                 --url "https://127.0.0.1:$port" \
                 --no-tls-verify \
+                --no-autoupdate \
                 >> cloudflared.log 2>&1 &
 
             CLOUDFLARED_PID=${'$'}!
