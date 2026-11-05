@@ -44,6 +44,17 @@ class RemoteControlServiceBridge(
         )
     }
 
+    interface CloudflareRepairCallback {
+
+        fun onSuccess(
+            publicUrl: String
+        )
+
+        fun onError(
+            message: String
+        )
+    }
+
     fun start(
         callback: StartCallback
     ) {
@@ -59,6 +70,17 @@ class RemoteControlServiceBridge(
             )
             return
         }
+
+        /*
+         * Invalidate any Cloudflare-only repair that may still be
+         * running. Any in-flight repair callback will observe a
+         * stale generation and refuse to deliver a success result.
+         * The repair lock is released defensively so that future
+         * repairs remain possible even if a repair script is still
+         * unwinding.
+         */
+        cloudflareRepairGeneration.incrementAndGet()
+        cloudflareRepairInProgress.set(false)
 
         val operationId =
             operationCounter.incrementAndGet()
@@ -190,6 +212,15 @@ class RemoteControlServiceBridge(
         )
 
         startInProgress.set(false)
+
+        /*
+         * Invalidate any in-flight Cloudflare-only repair so that
+         * its script cannot launch a fresh cloudflared after this
+         * stop, and so that its callback will not deliver a stale
+         * success result.
+         */
+        cloudflareRepairGeneration.incrementAndGet()
+        cloudflareRepairInProgress.set(false)
 
         EventLogger.logStage(
             stage = "BRIDGE_STOP",
@@ -337,6 +368,926 @@ class RemoteControlServiceBridge(
             },
             lineBundle = 200
         )
+    }
+
+    fun isCloudflaredRunning(
+        callback: (Boolean) -> Unit
+    ) {
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        val command = """
+            set +e
+
+            normalise_exe() {
+                printf '%s' "${'$'}1" \
+                    | sed 's/ (deleted)${'$'}//'
+            }
+
+            pid_matches_executable() {
+                PID="${'$'}1"
+                EXPECTED_EXE="${'$'}2"
+
+                if [ -z "${'$'}PID" ] ||
+                   ! kill -0 "${'$'}PID" 2>/dev/null; then
+                    return 1
+                fi
+
+                ACTUAL_EXE=${'$'}(
+                    readlink "/proc/${'$'}PID/exe" \
+                        2>/dev/null || true
+                )
+
+                ACTUAL_EXE=${'$'}(
+                    normalise_exe "${'$'}ACTUAL_EXE"
+                )
+
+                [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
+            }
+
+            if [ ! -s "$target/cloudflared.pid" ]; then
+                echo CLOUDFLARED_STOPPED
+                exit 0
+            fi
+
+            PID=${'$'}(
+                cat "$target/cloudflared.pid" \
+                    2>/dev/null || true
+            )
+
+            if pid_matches_executable \
+                "${'$'}PID" \
+                "$target/cloudflared"; then
+
+                echo CLOUDFLARED_RUNNING
+            else
+                echo CLOUDFLARED_STOPPED
+            fi
+        """.trimIndent()
+
+        val callbackDelivered =
+            AtomicBoolean(false)
+
+        fun completeOnce(
+            running: Boolean
+        ) {
+            if (
+                callbackDelivered.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                callback(running)
+            }
+        }
+
+        ShizukuRunner.executeCommand(
+            command,
+            object :
+                ShizukuRunner.CommandResultListener {
+
+                override fun onCommandResult(
+                    output: String,
+                    done: Boolean
+                ) {
+                    if (!done) {
+                        return
+                    }
+
+                    val running =
+                        output.lineSequence()
+                            .map {
+                                it.trim()
+                            }
+                            .any {
+                                it == "CLOUDFLARED_RUNNING"
+                            }
+
+                    completeOnce(
+                        running
+                    )
+                }
+
+                override fun onCommandError(
+                    error: String
+                ) {
+                    completeOnce(
+                        false
+                    )
+                }
+            },
+            lineBundle = 200
+        )
+    }
+
+    private fun writeCloudflareRepairGeneration(
+        generation: Long,
+        callback: (Boolean) -> Unit
+    ) {
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        val command = """
+            set +e
+
+            target="$target"
+            token_file="${'$'}target/.cloudflare_repair_token"
+            tmp_file="${'$'}target/.cloudflare_repair_token.tmp"
+            gen="$generation"
+
+            test -d "${'$'}target" || {
+                echo TOKEN_WRITE_FAILED
+                exit 0
+            }
+
+            printf '%s\n' "${'$'}gen" > "${'$'}tmp_file" || {
+                rm -f "${'$'}tmp_file"
+                echo TOKEN_WRITE_FAILED
+                exit 0
+            }
+
+            mv "${'$'}tmp_file" "${'$'}token_file" || {
+                rm -f "${'$'}tmp_file"
+                echo TOKEN_WRITE_FAILED
+                exit 0
+            }
+
+            ACTUAL=${'$'}(cat "${'$'}token_file" 2>/dev/null || true)
+
+            if [ "${'$'}ACTUAL" = "${'$'}gen" ]; then
+                echo TOKEN_WRITE_OK
+            else
+                echo TOKEN_WRITE_FAILED
+            fi
+        """.trimIndent()
+
+        val callbackDelivered =
+            AtomicBoolean(false)
+
+        fun completeOnce(
+            success: Boolean
+        ) {
+            if (
+                callbackDelivered.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                callback(success)
+            }
+        }
+
+        ShizukuRunner.executeCommand(
+            command,
+            object :
+                ShizukuRunner.CommandResultListener {
+
+                override fun onCommandResult(
+                    output: String,
+                    done: Boolean
+                ) {
+                    if (!done) {
+                        return
+                    }
+
+                    val success =
+                        output.lineSequence()
+                            .map {
+                                it.trim()
+                            }
+                            .any {
+                                it == "TOKEN_WRITE_OK"
+                            }
+
+                    completeOnce(success)
+                }
+
+                override fun onCommandError(
+                    error: String
+                ) {
+                    completeOnce(false)
+                }
+            },
+            lineBundle = 200
+        )
+    }
+
+    fun restartCloudflaredOnly(
+        callback: CloudflareRepairCallback
+    ) {
+        if (startInProgress.get()) {
+            EventLogger.logStage(
+                stage = "CLOUDFLARE_REPAIR",
+                status = "SKIPPED",
+                details = "reason=full_start_in_progress"
+            )
+
+            callback.onError(
+                "Cloudflare repair cannot start while engine startup is in progress"
+            )
+
+            return
+        }
+
+        if (!cloudflareRepairInProgress.compareAndSet(false, true)) {
+            EventLogger.logStage(
+                stage = "CLOUDFLARE_REPAIR",
+                status = "SKIPPED",
+                details = "reason=repair_already_in_progress"
+            )
+
+            callback.onError(
+                "Cloudflare repair is already in progress"
+            )
+
+            return
+        }
+
+        /*
+         * Every repair owns a unique generation. A newer generation
+         * can only be produced by start(), stop(), or another repair.
+         * If any of those happen while we are running, this repair
+         * becomes stale and must not deliver a success result, nor
+         * start cloudflared after stop() has killed everything.
+         */
+        val repairGeneration =
+            cloudflareRepairGeneration.incrementAndGet()
+
+        EventLogger.logStage(
+            stage = "CLOUDFLARE_REPAIR",
+            status = "REQUESTED",
+            details = "operation=cloudflared_only"
+        )
+
+        val accumulated =
+            StringBuilder()
+
+        val callbackDelivered =
+            AtomicBoolean(false)
+
+        fun completeOnce(
+            success: Boolean,
+            publicUrl: String?,
+            message: String?
+        ) {
+            if (
+                !callbackDelivered.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                return
+            }
+
+            val currentGeneration =
+                cloudflareRepairGeneration.get()
+
+            val stale =
+                currentGeneration != repairGeneration
+
+            /*
+             * Release the repair lock only when our generation is
+             * still the current one. If a newer generation exists,
+             * either start()/stop() already reset the flag, or a
+             * newer repair owns it via CAS(false, true) — in both
+             * cases we must not clobber it.
+             */
+            if (!stale) {
+                cloudflareRepairInProgress.set(false)
+            }
+
+            if (stale) {
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation"
+                )
+
+                return
+            }
+
+            if (success && publicUrl != null) {
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR",
+                    status = "OK",
+                    details = "publicUrlAvailable=true"
+                )
+
+                callback.onSuccess(
+                    publicUrl
+                )
+            } else {
+                val safeMessage =
+                    message
+                        ?: "Cloudflare repair failed"
+
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR",
+                    status = "FAILED",
+                    details = safeLogSummary(safeMessage)
+                )
+
+                callback.onError(
+                    safeMessage
+                )
+            }
+        }
+
+        /*
+         * The generation token is written here, by the Kotlin bridge,
+         * before the repair script is ever executed. The script is
+         * strictly read-only with respect to the token file so that a
+         * superseded repair cannot recreate it after Full Start or
+         * Full Stop has invalidated it.
+         */
+        writeCloudflareRepairGeneration(
+            repairGeneration
+        ) { writeOk ->
+            if (cloudflareRepairGeneration.get() != repairGeneration) {
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_before_script"
+                )
+
+                return@writeCloudflareRepairGeneration
+            }
+
+            if (!writeOk) {
+                completeOnce(
+                    false,
+                    null,
+                    "Failed to persist Cloudflare repair generation token"
+                )
+
+                return@writeCloudflareRepairGeneration
+            }
+
+            if (!cloudflareRepairInProgress.get()) {
+                completeOnce(
+                    false,
+                    null,
+                    "Cloudflare repair was cancelled"
+                )
+
+                return@writeCloudflareRepairGeneration
+            }
+
+            ShizukuRunner.executeCommand(
+                buildCloudflareRepairScript(
+                    repairGeneration
+                ),
+                object :
+                    ShizukuRunner.CommandResultListener {
+
+                    override fun onCommandResult(
+                        output: String,
+                        done: Boolean
+                    ) {
+                        accumulated.append(
+                            output
+                        )
+
+                        if (!done) {
+                            return
+                        }
+
+                        val fullOutput =
+                            accumulated.toString()
+
+                        val successMarker =
+                            fullOutput.lineSequence()
+                                .map {
+                                    it.trim()
+                                }
+                                .any {
+                                    it == "CLOUDFLARE_REPAIR_OK"
+                                }
+
+                        val cancelledMarker =
+                            fullOutput.lineSequence()
+                                .map {
+                                    it.trim()
+                                }
+                                .any {
+                                    it == "CLOUDFLARE_REPAIR_CANCELLED"
+                                }
+
+                        if (cancelledMarker) {
+                            completeOnce(
+                                false,
+                                null,
+                                "Cloudflare repair was cancelled"
+                            )
+
+                            return
+                        }
+
+                        if (successMarker) {
+                            val publicUrl =
+                                extractPublicUrl(
+                                    fullOutput
+                                )
+
+                            if (publicUrl != null) {
+                                completeOnce(
+                                    true,
+                                    publicUrl,
+                                    null
+                                )
+                            } else {
+                                completeOnce(
+                                    false,
+                                    null,
+                                    buildString {
+                                        appendLine(
+                                            "Cloudflare repair reported OK but no valid URL was parsed."
+                                        )
+
+                                        if (fullOutput.isNotBlank()) {
+                                            appendLine()
+                                            append(
+                                                fullOutput.takeLast(2400)
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                        } else {
+                            completeOnce(
+                                false,
+                                null,
+                                buildString {
+                                    appendLine(
+                                        "Cloudflare repair failed."
+                                    )
+
+                                    if (fullOutput.isNotBlank()) {
+                                        appendLine()
+                                        append(
+                                            fullOutput.takeLast(2400)
+                                        )
+                                    }
+                                }
+                            )
+                        }
+                    }
+
+                    override fun onCommandError(
+                        error: String
+                    ) {
+                        val result =
+                            accumulated.toString()
+
+                        completeOnce(
+                            false,
+                            null,
+                            buildString {
+                                appendLine(
+                                    "Cloudflare repair failed."
+                                )
+
+                                if (error.isNotBlank()) {
+                                    appendLine()
+                                    appendLine(
+                                        error.take(1200)
+                                    )
+                                }
+
+                                if (result.isNotBlank()) {
+                                    appendLine()
+                                    append(
+                                        result.takeLast(1200)
+                                    )
+                                }
+                            }
+                        )
+                    }
+                },
+                lineBundle = 3600
+            )
+        }
+    }
+
+    private fun buildCloudflareRepairScript(
+        repairGeneration: Long
+    ): String {
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        val port =
+            RemoteControlConfig.SIGNALING_PORT
+
+        return """
+            set +e
+
+            EXPECTED_REPAIR_GEN="$repairGeneration"
+            repair_token_file="$target/.cloudflare_repair_token"
+
+            normalise_exe() {
+                printf '%s' "${'$'}1" \
+                    | sed 's/ (deleted)${'$'}//'
+            }
+
+            pid_matches_executable() {
+                PID="${'$'}1"
+                EXPECTED_EXE="${'$'}2"
+
+                if [ -z "${'$'}PID" ] ||
+                   ! kill -0 "${'$'}PID" 2>/dev/null; then
+                    return 1
+                fi
+
+                ACTUAL_EXE=${'$'}(
+                    readlink "/proc/${'$'}PID/exe" \
+                        2>/dev/null || true
+                )
+
+                ACTUAL_EXE=${'$'}(
+                    normalise_exe "${'$'}ACTUAL_EXE"
+                )
+
+                [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
+            }
+
+            list_matching_executable() {
+                EXPECTED_EXE="${'$'}1"
+
+                for PROC_DIR in /proc/[0-9]*; do
+                    [ -d "${'$'}PROC_DIR" ] || continue
+
+                    PID=${'$'}{PROC_DIR##*/}
+
+                    ACTUAL_EXE=${'$'}(
+                        readlink "${'$'}PROC_DIR/exe" \
+                            2>/dev/null || true
+                    )
+
+                    ACTUAL_EXE=${'$'}(
+                        normalise_exe "${'$'}ACTUAL_EXE"
+                    )
+
+                    if [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]; then
+                        echo "${'$'}PID"
+                    fi
+                done
+            }
+
+            repair_token_is_valid() {
+                [ -s "${'$'}repair_token_file" ] ||
+                    return 1
+
+                CURRENT=${'$'}(
+                    cat "${'$'}repair_token_file" \
+                        2>/dev/null || true
+                )
+
+                [ "${'$'}CURRENT" = "${'$'}EXPECTED_REPAIR_GEN" ]
+            }
+
+            cleanup_repair_token() {
+                if [ -s "${'$'}repair_token_file" ]; then
+                    CURRENT=${'$'}(
+                        cat "${'$'}repair_token_file" \
+                            2>/dev/null || true
+                    )
+
+                    if [ "${'$'}CURRENT" = "${'$'}EXPECTED_REPAIR_GEN" ]; then
+                        rm -f "${'$'}repair_token_file"
+                    fi
+                fi
+            }
+
+            kill_our_cloudflared() {
+                OUR_PID="${'$'}1"
+
+                if [ -z "${'$'}OUR_PID" ]; then
+                    return
+                fi
+
+                if pid_matches_executable \
+                    "${'$'}OUR_PID" \
+                    "$target/cloudflared"; then
+
+                    kill -15 "${'$'}OUR_PID" \
+                        2>/dev/null || true
+
+                    sleep 1
+
+                    if pid_matches_executable \
+                        "${'$'}OUR_PID" \
+                        "$target/cloudflared"; then
+
+                        kill -9 "${'$'}OUR_PID" \
+                            2>/dev/null || true
+                    fi
+                fi
+
+                if [ -s cloudflared.pid ]; then
+                    CURRENT_PID=${'$'}(
+                        cat cloudflared.pid \
+                            2>/dev/null || true
+                    )
+
+                    if [ "${'$'}CURRENT_PID" = "${'$'}OUR_PID" ]; then
+                        rm -f cloudflared.pid
+                    fi
+                fi
+            }
+
+            abort_repair_cancelled() {
+                cleanup_repair_token
+
+                echo "CLOUDFLARE_REPAIR_CANCELLED"
+                exit 0
+            }
+
+            # ---------------------------------------------------
+            # The generation token is written by the Kotlin bridge
+            # before this script is executed. This script is
+            # strictly read-only with respect to the token file
+            # so that a superseded repair cannot recreate it
+            # after Full Start or Full Stop has invalidated it.
+            # ---------------------------------------------------
+            if ! repair_token_is_valid; then
+                abort_repair_cancelled
+            fi
+
+            # ---------------------------------------------------
+            # Gate 0: Required runtime files must exist.
+            # ---------------------------------------------------
+            if [ ! -s "$target/cloudflared" ] ||
+               [ ! -s "$target/webrtc-signaling" ] ||
+               [ ! -s "$target/cloudphone-agent" ]; then
+
+                cleanup_repair_token
+                echo "CLOUDFLARE_REPAIR_ERROR=missing_runtime_files"
+                exit 0
+            fi
+
+            # ---------------------------------------------------
+            # Gate 1: Signaling must be healthy.
+            # ---------------------------------------------------
+            if ! repair_token_is_valid; then
+                abort_repair_cancelled
+            fi
+
+            SIGNALING_OK=0
+
+            if [ -s "$target/signaling.pid" ]; then
+                SIG_PID=${'$'}(
+                    cat "$target/signaling.pid" \
+                        2>/dev/null || true
+                )
+
+                if pid_matches_executable \
+                    "${'$'}SIG_PID" \
+                    "$target/webrtc-signaling"; then
+
+                    SIGNALING_OK=1
+                fi
+            fi
+
+            if [ "${'$'}SIGNALING_OK" -ne 1 ]; then
+                cleanup_repair_token
+                echo "CLOUDFLARE_REPAIR_ERROR=core_not_healthy"
+                exit 0
+            fi
+
+            # ---------------------------------------------------
+            # Gate 2: Agent must be healthy.
+            # ---------------------------------------------------
+            if ! repair_token_is_valid; then
+                abort_repair_cancelled
+            fi
+
+            AGENT_OK=0
+
+            if [ -s "$target/agent.pid" ]; then
+                AGENT_PID=${'$'}(
+                    cat "$target/agent.pid" \
+                        2>/dev/null || true
+                )
+
+                if pid_matches_executable \
+                    "${'$'}AGENT_PID" \
+                    "$target/cloudphone-agent"; then
+
+                    AGENT_OK=1
+                fi
+            fi
+
+            if [ "${'$'}AGENT_OK" -ne 1 ]; then
+                cleanup_repair_token
+                echo "CLOUDFLARE_REPAIR_ERROR=core_not_healthy"
+                exit 0
+            fi
+
+            # ---------------------------------------------------
+            # Step 1: Stop any cloudflared instance only.
+            #
+            # Signaling and Agent are never signalled here.
+            # Persistent data and working directory are untouched.
+            # ---------------------------------------------------
+            if ! repair_token_is_valid; then
+                abort_repair_cancelled
+            fi
+
+            if [ -s "$target/cloudflared.pid" ]; then
+                OLD_PID=${'$'}(
+                    cat "$target/cloudflared.pid" \
+                        2>/dev/null || true
+                )
+
+                if pid_matches_executable \
+                    "${'$'}OLD_PID" \
+                    "$target/cloudflared"; then
+
+                    kill -15 "${'$'}OLD_PID" \
+                        2>/dev/null || true
+                fi
+            fi
+
+            for PID in ${'$'}(
+                list_matching_executable \
+                    "$target/cloudflared"
+            ); do
+                kill -15 "${'$'}PID" \
+                    2>/dev/null || true
+            done
+
+            for i in ${'$'}(seq 1 5); do
+                REMAINING=${'$'}(
+                    list_matching_executable \
+                        "$target/cloudflared"
+                )
+
+                if [ -z "${'$'}REMAINING" ]; then
+                    break
+                fi
+
+                sleep 1
+            done
+
+            for PID in ${'$'}(
+                list_matching_executable \
+                    "$target/cloudflared"
+            ); do
+                kill -9 "${'$'}PID" \
+                    2>/dev/null || true
+            done
+
+            sleep 1
+
+            REMAINING=${'$'}(
+                list_matching_executable \
+                    "$target/cloudflared"
+            )
+
+            if [ -n "${'$'}REMAINING" ]; then
+                cleanup_repair_token
+                echo "CLOUDFLARE_REPAIR_ERROR=cloudflared_still_running"
+                exit 0
+            fi
+
+            rm -f "$target/cloudflared.pid"
+
+            if ! repair_token_is_valid; then
+                abort_repair_cancelled
+            fi
+
+            # ---------------------------------------------------
+            # Step 2: Start a fresh Quick Tunnel only.
+            # ---------------------------------------------------
+            cd "$target" || {
+                cleanup_repair_token
+                echo "CLOUDFLARE_REPAIR_ERROR=cannot_enter_workdir"
+                exit 0
+            }
+
+            if ! repair_token_is_valid; then
+                abort_repair_cancelled
+            fi
+
+            : > cloudflared.log
+
+            nohup ./cloudflared tunnel \
+                --url "https://127.0.0.1:$port" \
+                --no-tls-verify \
+                --no-autoupdate \
+                >> cloudflared.log 2>&1 &
+
+            CLOUDFLARED_PID=${'$'}!
+
+            echo "${'$'}CLOUDFLARED_PID" \
+                > cloudflared.pid
+
+            URL=""
+
+            for i in ${'$'}(seq 1 45); do
+                if ! repair_token_is_valid; then
+                    kill_our_cloudflared \
+                        "${'$'}CLOUDFLARED_PID"
+
+                    abort_repair_cancelled
+                fi
+
+                if ! pid_matches_executable \
+                    "${'$'}CLOUDFLARED_PID" \
+                    "$target/cloudflared"; then
+
+                    break
+                fi
+
+                # api.trycloudflare.com is the Cloudflare API endpoint,
+                # never a real Quick Tunnel. It is rejected explicitly.
+                URL=${'$'}(
+                    grep -oE \
+                        'https://[a-z0-9-]+\.trycloudflare\.com' \
+                        cloudflared.log \
+                        2>/dev/null \
+                        | grep -v \
+                            '^https://api\.trycloudflare\.com${'$'}' \
+                        | head -n 1
+                )
+
+                if [ -n "${'$'}URL" ]; then
+                    if pid_matches_executable \
+                        "${'$'}CLOUDFLARED_PID" \
+                        "$target/cloudflared"; then
+
+                        break
+                    fi
+
+                    URL=""
+
+                    break
+                fi
+
+                sleep 1
+            done
+
+            # ---------------------------------------------------
+            # Step 3: Verify outcome.
+            # ---------------------------------------------------
+            if ! repair_token_is_valid; then
+                kill_our_cloudflared \
+                    "${'$'}CLOUDFLARED_PID"
+
+                abort_repair_cancelled
+            fi
+
+            if [ -z "${'$'}URL" ]; then
+                kill_our_cloudflared \
+                    "${'$'}CLOUDFLARED_PID"
+
+                cleanup_repair_token
+
+                echo "CLOUDFLARE_REPAIR_ERROR=no_url_after_timeout"
+                echo "--- cloudflared.log ---"
+                tail -n 100 cloudflared.log \
+                    2>/dev/null
+
+                exit 0
+            fi
+
+            if ! pid_matches_executable \
+                "${'$'}CLOUDFLARED_PID" \
+                "$target/cloudflared"; then
+
+                if [ -s cloudflared.pid ]; then
+                    CURRENT_PID=${'$'}(
+                        cat cloudflared.pid \
+                            2>/dev/null || true
+                    )
+
+                    if [ "${'$'}CURRENT_PID" = "${'$'}CLOUDFLARED_PID" ]; then
+                        rm -f cloudflared.pid
+                    fi
+                fi
+
+                cleanup_repair_token
+
+                echo "CLOUDFLARE_REPAIR_ERROR=cloudflared_died"
+                echo "--- cloudflared.log ---"
+                tail -n 100 cloudflared.log \
+                    2>/dev/null
+
+                exit 0
+            fi
+
+            if ! repair_token_is_valid; then
+                kill_our_cloudflared \
+                    "${'$'}CLOUDFLARED_PID"
+
+                abort_repair_cancelled
+            fi
+
+            cleanup_repair_token
+
+            echo "CLOUDFLARE_REPAIR_OK"
+            echo "PUBLIC_URL=${'$'}URL"
+        """.trimIndent()
     }
 
     private fun prepareWorkDir(
@@ -682,6 +1633,7 @@ class RemoteControlServiceBridge(
             rm -f "${'$'}{target}/signaling.pid"
             rm -f "${'$'}{target}/cloudflared.pid"
             rm -f "${'$'}{target}/.launch_token"
+            rm -f "${'$'}{target}/.cloudflare_repair_token"
 
             echo "RUNTIME_DEPLOYED=1"
             echo COPY_OK
@@ -865,6 +1817,7 @@ class RemoteControlServiceBridge(
             }
 
             rm -f "$target/.launch_token"
+            rm -f "$target/.cloudflare_repair_token"
 
             echo CLEANUP_START
 
@@ -2093,6 +3046,12 @@ class RemoteControlServiceBridge(
             AtomicLong(0L)
 
         private val activeOperationId =
+            AtomicLong(0L)
+
+        private val cloudflareRepairInProgress =
+            AtomicBoolean(false)
+
+        private val cloudflareRepairGeneration =
             AtomicLong(0L)
     }
 }
