@@ -612,6 +612,25 @@ object RemoteControlManager {
                 return
             }
 
+            /*
+             * If a Cloudflare-only repair is in progress, do not return.
+             * Fall through to the normal stop path so the engine is
+             * actually stopped. operationGeneration++ below invalidates
+             * any pending Cloudflare repair callback, and the bridge's
+             * stop path cancels its internal repair generation as well.
+             */
+            if (
+                activeOperation ==
+                    LifecycleOperation.CLOUDFLARE_REPAIRING
+            ) {
+                EventLogger.log(
+                    "SERVICE",
+                    "Stop requested during Cloudflare repair; " +
+                        "repair callback will be invalidated and " +
+                        "engine will stop normally"
+                )
+            }
+
             if (
                 activeOperation ==
                     LifecycleOperation.STOPPING ||
@@ -726,6 +745,222 @@ object RemoteControlManager {
         )
     }
 
+    /**
+     * Repairs only the Cloudflare public tunnel while Signaling, Agent,
+     * and Local URL remain untouched.
+     *
+     * Preconditions:
+     *  - Lifecycle is IDLE.
+     *  - State is Ready (core + local are healthy).
+     *
+     * State remains Ready during the repair because core and local are
+     * still valid. Only currentPublicUrl is replaced on success. On
+     * failure, currentLocalUrl and currentPublicUrl are preserved and
+     * the state stays Ready.
+     */
+    fun repairPublicTunnel(
+        context: Context
+    ) {
+        init(context)
+
+        val appContext =
+            context.applicationContext
+
+        val selectedBridge:
+            RemoteControlServiceBridge
+
+        val repairGeneration:
+            Long
+
+        synchronized(lifecycleLock) {
+            val bridgeOrNull =
+                bridge
+
+            if (bridgeOrNull == null) {
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR_MANAGER",
+                    status = "SKIPPED",
+                    details = "reason=bridge_unavailable"
+                )
+
+                return
+            }
+
+            if (
+                activeOperation !=
+                    LifecycleOperation.IDLE
+            ) {
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR_MANAGER",
+                    status = "SKIPPED",
+                    details =
+                        "reason=lifecycle_busy; " +
+                        "operation=$activeOperation"
+                )
+
+                return
+            }
+
+            if (
+                _state.value !is
+                    RemoteControlState.Ready
+            ) {
+                EventLogger.logStage(
+                    stage = "CLOUDFLARE_REPAIR_MANAGER",
+                    status = "SKIPPED",
+                    details = "reason=engine_not_ready"
+                )
+
+                return
+            }
+
+            operationGeneration++
+            repairGeneration =
+                operationGeneration
+
+            activeOperation =
+                LifecycleOperation.CLOUDFLARE_REPAIRING
+
+            /*
+             * Intentionally do not modify _state, currentLocalUrl,
+             * or currentPublicUrl here. Core and Local remain healthy
+             * while the public tunnel is being repaired.
+             */
+
+            selectedBridge =
+                bridgeOrNull
+        }
+
+        EventLogger.logStage(
+            stage = "CLOUDFLARE_REPAIR_MANAGER",
+            status = "REQUESTED",
+            details = "generation=$repairGeneration"
+        )
+
+        selectedBridge.restartCloudflaredOnly(
+            object :
+                RemoteControlServiceBridge.CloudflareRepairCallback {
+
+                override fun onSuccess(
+                    publicUrl: String
+                ) {
+                    var accepted = false
+                    var localUrl: String? = null
+
+                    synchronized(lifecycleLock) {
+                        if (
+                            operationGeneration !=
+                                repairGeneration ||
+                            activeOperation !=
+                                LifecycleOperation.CLOUDFLARE_REPAIRING
+                        ) {
+                            accepted = false
+                        } else {
+                            localUrl =
+                                currentLocalUrl
+
+                            currentPublicUrl =
+                                publicUrl
+
+                            _state.value =
+                                RemoteControlState.Ready(
+                                    localUrl = localUrl,
+                                    publicUrl = publicUrl
+                                )
+
+                            activeOperation =
+                                LifecycleOperation.IDLE
+
+                            accepted = true
+                        }
+                    }
+
+                    if (!accepted) {
+                        EventLogger.logStage(
+                            stage = "CLOUDFLARE_REPAIR_MANAGER",
+                            status = "CANCELLED",
+                            details =
+                                "generation=$repairGeneration; " +
+                                "reason=stale_success_callback"
+                        )
+
+                        return
+                    }
+
+                    EventLogger.logStage(
+                        stage = "CLOUDFLARE_REPAIR_MANAGER",
+                        status = "OK",
+                        details =
+                            "generation=$repairGeneration; " +
+                            "localAvailable=${localUrl != null}; " +
+                            "publicAvailable=true"
+                    )
+
+                    handleSuccessfulLinks(
+                        appContext = appContext,
+                        localUrl = localUrl,
+                        publicUrl = publicUrl,
+                        networkType = "Cloudflare Repair"
+                    )
+                }
+
+                override fun onError(
+                    message: String
+                ) {
+                    val accepted =
+                        synchronized(lifecycleLock) {
+                            if (
+                                operationGeneration !=
+                                    repairGeneration ||
+                                activeOperation !=
+                                    LifecycleOperation.CLOUDFLARE_REPAIRING
+                            ) {
+                                false
+                            } else {
+                                /*
+                                 * Cloudflare-only repair failed. Core and
+                                 * Local are still healthy, so the engine
+                                 * remains Ready and existing URLs are
+                                 * preserved.
+                                 */
+                                activeOperation =
+                                    LifecycleOperation.IDLE
+
+                                true
+                            }
+                        }
+
+                    if (!accepted) {
+                        EventLogger.logStage(
+                            stage = "CLOUDFLARE_REPAIR_MANAGER",
+                            status = "CANCELLED",
+                            details =
+                                "generation=$repairGeneration; " +
+                                "reason=stale_error_callback"
+                        )
+
+                        return
+                    }
+
+                    EventLogger.logStage(
+                        stage = "CLOUDFLARE_REPAIR_MANAGER",
+                        status = "FAILED",
+                        details =
+                            "generation=$repairGeneration; " +
+                            "reason=${safeLogSummary(message)}"
+                    )
+
+                    EventLogger.log(
+                        "SERVICE",
+                        "Cloudflare repair failed: " +
+                            "generation=$repairGeneration, " +
+                            "message=$message"
+                    )
+                }
+            }
+        )
+    }
+
     fun refresh() {
         val currentBridge =
             synchronized(lifecycleLock) {
@@ -825,6 +1060,32 @@ object RemoteControlManager {
             CompletableDeferred<Boolean>()
 
         currentBridge.isRunning { running ->
+            if (!deferred.isCompleted) {
+                deferred.complete(running)
+            }
+        }
+
+        return deferred.await()
+    }
+
+    /**
+     * Returns whether cloudflared itself is currently running.
+     *
+     * This is intentionally separate from isAgentRunningBlocking().
+     * Guardian distinguishes:
+     *  - Core unhealthy (Signaling + Agent).
+     *  - Core healthy but Cloudflare unhealthy.
+     */
+    suspend fun isCloudflaredRunningBlocking(): Boolean {
+        val currentBridge =
+            synchronized(lifecycleLock) {
+                bridge
+            } ?: return false
+
+        val deferred =
+            CompletableDeferred<Boolean>()
+
+        currentBridge.isCloudflaredRunning { running ->
             if (!deferred.isCompleted) {
                 deferred.complete(running)
             }
@@ -1260,6 +1521,7 @@ object RemoteControlManager {
         IDLE,
         STARTING,
         STOPPING,
-        RESTARTING
+        RESTARTING,
+        CLOUDFLARE_REPAIRING
     }
 }
