@@ -16,6 +16,17 @@ import java.util.concurrent.atomic.AtomicBoolean
  * The Guardian attempts recovery only when Remote Control is enabled
  * and no start, stop, restart, or previous repair is in progress.
  *
+ * Two independent health axes are monitored:
+ *
+ *  - Core health (Signaling + Agent). Failures here trigger the Full
+ *    Engine Guardian Repair path that calls RemoteControlManager.restart(
+ *    reason = GUARDIAN_REPAIR).
+ *
+ *  - Cloudflare health (cloudflared). Failures here — while the core
+ *    remains healthy — trigger the Cloudflare-only repair path that
+ *    calls RemoteControlManager.repairPublicTunnel(context). That path
+ *    never stops Signaling, Agent, Local URL, or the Runtime.
+ *
  * No notifications and no UI.
  */
 object RemoteControlGuardian {
@@ -75,6 +86,25 @@ object RemoteControlGuardian {
     private val repairInProgress =
         AtomicBoolean(false)
 
+    /*
+     * Cloudflare-only recovery state.
+     *
+     * Kept fully independent from the Full Engine repair state above
+     * so that a healthy Core with a dead Cloudflare tunnel does not
+     * inherit the Core repair attempt budget (and vice versa).
+     */
+    private var cloudflareConsecutiveFailures =
+        0
+
+    private var cloudflareAlertSent =
+        false
+
+    private var cloudflareAutomaticRepairSuspended =
+        false
+
+    private val cloudflareRepairInProgress =
+        AtomicBoolean(false)
+
     /**
      * Starts the Guardian loop.
      *
@@ -103,6 +133,7 @@ object RemoteControlGuardian {
             }
 
             resetFailureStateLocked()
+            resetCloudflareFailureStateLocked()
 
             job =
                 scope.launch {
@@ -172,7 +203,12 @@ object RemoteControlGuardian {
                 false
             )
 
+            cloudflareRepairInProgress.set(
+                false
+            )
+
             resetFailureStateLocked()
+            resetCloudflareFailureStateLocked()
         }
 
         EventLogger.logStage(
@@ -197,6 +233,7 @@ object RemoteControlGuardian {
             )
         ) {
             resetFailureState()
+            resetCloudflareFailureState()
 
             EventLogger.logStage(
                 stage = "GUARDIAN_CHECK",
@@ -252,6 +289,23 @@ object RemoteControlGuardian {
             return
         }
 
+        if (
+            cloudflareRepairInProgress.get()
+        ) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "SKIPPED",
+                details = "reason=cloudflare_repair_in_progress"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Check skipped: cloudflare repair already in progress"
+            )
+
+            return
+        }
+
         when (
             RemoteControlManager.state.value
         ) {
@@ -293,10 +347,40 @@ object RemoteControlGuardian {
             status = "STARTED"
         )
 
-        val running =
+        /*
+         * Core health must be evaluated first. A dead core always takes
+         * priority over the Cloudflare tunnel because Cloudflare repair
+         * assumes Signaling, Agent, and Local are healthy.
+         */
+        val coreHealthy =
             checkEngineHealth()
 
-        if (running) {
+        if (!coreHealthy) {
+            handleCoreRepair(
+                context
+            )
+
+            return
+        }
+
+        /*
+         * Core is healthy. Reset the Core repair state immediately,
+         * regardless of whether Cloudflare is healthy. A healthy core
+         * means consecutiveFailures / alertSent / automaticRepairSuspended
+         * are no longer meaningful and must not affect future Core
+         * failure handling.
+         */
+        resetFailureState()
+
+        /*
+         * Core is healthy. Now check whether the public tunnel is
+         * still alive. A healthy core with a dead Cloudflare tunnel
+         * must never trigger a Full Engine repair.
+         */
+        val cloudflareHealthy =
+            checkCloudflareHealth()
+
+        if (cloudflareHealthy) {
             val previousFailures =
                 synchronized(
                     guardianLock
@@ -316,13 +400,31 @@ object RemoteControlGuardian {
                 stage = "GUARDIAN_CHECK",
                 status = "HEALTHY",
                 details =
+                    "core=true; cloudflare=true; " +
                     "previousFailures=$previousFailures"
             )
 
-            resetFailureState()
+            resetCloudflareFailureState()
             return
         }
 
+        EventLogger.logStage(
+            stage = "GUARDIAN_CLOUDFLARE_CHECK",
+            status = "UNHEALTHY"
+        )
+
+        handleCloudflareRepair(
+            context
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Core repair (existing Full Engine Guardian Repair path)
+    // -------------------------------------------------------------------------
+
+    private suspend fun handleCoreRepair(
+        context: Context
+    ) {
         EventLogger.logStage(
             stage = "GUARDIAN_CHECK",
             status = "UNHEALTHY"
@@ -556,7 +658,7 @@ object RemoteControlGuardian {
                     "#$repairAttempt"
             )
 
-            RemoteControlManager.start(
+            RemoteControlManager.restart(
                 context = context,
                 reason =
                     RemoteControlManager
@@ -662,6 +764,392 @@ object RemoteControlGuardian {
         }
     }
 
+    // -------------------------------------------------------------------------
+    // Cloudflare-only repair path
+    // -------------------------------------------------------------------------
+
+    private suspend fun handleCloudflareRepair(
+        context: Context
+    ) {
+        val repairsSuspended =
+            synchronized(
+                guardianLock
+            ) {
+                cloudflareAutomaticRepairSuspended
+            }
+
+        if (repairsSuspended) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                status = "SKIPPED",
+                details =
+                    "reason=automatic_repair_suspended; " +
+                    "maxAttempts=$MAX_REPAIR_ATTEMPTS"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Cloudflare tunnel is unhealthy; automatic repair " +
+                    "remains suspended after $MAX_REPAIR_ATTEMPTS " +
+                    "failed attempts"
+            )
+
+            return
+        }
+
+        if (
+            !cloudflareRepairInProgress.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                status = "SKIPPED",
+                details = "reason=repair_lock_unavailable"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Cloudflare repair skipped: " +
+                    "another repair acquired the lock"
+            )
+
+            return
+        }
+
+        try {
+            if (
+                RemoteControlManager.isLifecycleBusy()
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=lifecycle_became_active"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled: " +
+                        "lifecycle operation became active"
+                )
+
+                return
+            }
+
+            if (
+                !RemoteControlManager.isEnabled(
+                    context
+                )
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=feature_disabled"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled: " +
+                        "remote control disabled"
+                )
+
+                resetCloudflareFailureState()
+                return
+            }
+
+            if (
+                !checkEngineHealth()
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=core_became_unhealthy"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled: " +
+                        "core became unhealthy before repair"
+                )
+
+                return
+            }
+
+            val cloudflareRepairAttempt =
+                synchronized(
+                    guardianLock
+                ) {
+                    if (
+                        cloudflareConsecutiveFailures >=
+                            MAX_REPAIR_ATTEMPTS
+                    ) {
+                        cloudflareAutomaticRepairSuspended =
+                            true
+
+                        null
+                    } else {
+                        cloudflareConsecutiveFailures++
+
+                        cloudflareConsecutiveFailures
+                    }
+                }
+
+            if (cloudflareRepairAttempt == null) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=maximum_attempts_reached"
+                )
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "SUSPENDED",
+                    details =
+                        "attempts=$MAX_REPAIR_ATTEMPTS"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled: " +
+                        "maximum attempts reached"
+                )
+
+                sendCloudflareAlertOnce()
+                return
+            }
+
+            val backoffMs =
+                repairBackoffFor(
+                    cloudflareRepairAttempt
+                )
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                status = "SCHEDULED",
+                details =
+                    "attempt=$cloudflareRepairAttempt; " +
+                    "backoffMs=$backoffMs"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Cloudflare tunnel unhealthy; repair attempt " +
+                    "#$cloudflareRepairAttempt scheduled after " +
+                    "${backoffMs}ms"
+            )
+
+            delay(
+                backoffMs
+            )
+
+            if (
+                RemoteControlManager.isLifecycleBusy()
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=lifecycle_active_after_backoff"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled after backoff: " +
+                        "lifecycle operation is active"
+                )
+
+                return
+            }
+
+            if (
+                !RemoteControlManager.isEnabled(
+                    context
+                )
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=feature_disabled_after_backoff"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled after backoff: " +
+                        "remote control disabled"
+                )
+
+                resetCloudflareFailureState()
+                return
+            }
+
+            if (
+                !checkEngineHealth()
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=core_unhealthy_after_backoff"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled after backoff: " +
+                        "core became unhealthy"
+                )
+
+                return
+            }
+
+            /*
+             * If the tunnel recovered by itself during the backoff,
+             * do not fire an unnecessary repair.
+             */
+            if (
+                checkCloudflareHealth()
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=cloudflare_recovered_before_repair"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair cancelled: tunnel recovered " +
+                        "before repair was launched"
+                )
+
+                resetCloudflareFailureState()
+                return
+            }
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                status = "STARTED",
+                details = "attempt=$cloudflareRepairAttempt"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Starting Cloudflare-only repair attempt " +
+                    "#$cloudflareRepairAttempt"
+            )
+
+            RemoteControlManager.repairPublicTunnel(
+                context
+            )
+
+            delay(
+                REPAIR_SETTLE_MS
+            )
+
+            if (
+                RemoteControlManager.isLifecycleBusy()
+            ) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "PENDING",
+                    details =
+                        "attempt=$cloudflareRepairAttempt; " +
+                        "reason=lifecycle_still_active"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair lifecycle still active; " +
+                        "waiting for next health check"
+                )
+
+                return
+            }
+
+            val coreStillHealthy =
+                checkEngineHealth()
+
+            if (!coreStillHealthy) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "FAILED",
+                    details =
+                        "attempt=$cloudflareRepairAttempt; " +
+                        "reason=core_unhealthy_after_repair"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair attempt " +
+                        "#$cloudflareRepairAttempt failed: " +
+                        "core became unhealthy after repair"
+                )
+
+                return
+            }
+
+            val cloudflareRecovered =
+                checkCloudflareHealth()
+
+            if (cloudflareRecovered) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "OK",
+                    details = "attempt=$cloudflareRepairAttempt"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare repair successful on attempt " +
+                        "#$cloudflareRepairAttempt"
+                )
+
+                resetCloudflareFailureState()
+                return
+            }
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                status = "FAILED",
+                details = "attempt=$cloudflareRepairAttempt"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Cloudflare repair failed on attempt " +
+                    "#$cloudflareRepairAttempt"
+            )
+
+            if (
+                cloudflareRepairAttempt >=
+                    MAX_REPAIR_ATTEMPTS
+            ) {
+                synchronized(
+                    guardianLock
+                ) {
+                    cloudflareAutomaticRepairSuspended =
+                        true
+                }
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "SUSPENDED",
+                    details =
+                        "attempts=$MAX_REPAIR_ATTEMPTS"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare automatic repair suspended after " +
+                        "$MAX_REPAIR_ATTEMPTS failed attempts"
+                )
+
+                sendCloudflareAlertOnce()
+            }
+        } finally {
+            cloudflareRepairInProgress.set(
+                false
+            )
+        }
+    }
+
     /**
      * Runs the process health check with a timeout so a missing Shizuku
      * callback cannot block the Guardian loop indefinitely.
@@ -686,6 +1174,38 @@ object RemoteControlGuardian {
             EventLogger.log(
                 "GUARDIAN",
                 "Engine health check timed out"
+            )
+
+            return false
+        }
+
+        return result
+    }
+
+    /**
+     * Runs the cloudflared health check with a timeout so a missing
+     * Shizuku callback cannot block the Guardian loop indefinitely.
+     */
+    private suspend fun checkCloudflareHealth(): Boolean {
+        val result =
+            withTimeoutOrNull(
+                HEALTH_CHECK_TIMEOUT_MS
+            ) {
+                RemoteControlManager
+                    .isCloudflaredRunningBlocking()
+            }
+
+        if (result == null) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_CHECK",
+                status = "TIMEOUT",
+                details =
+                    "timeoutMs=$HEALTH_CHECK_TIMEOUT_MS"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Cloudflare health check timed out"
             )
 
             return false
@@ -807,6 +1327,105 @@ object RemoteControlGuardian {
         }
     }
 
+    private suspend fun sendCloudflareAlertOnce() {
+        val shouldSend =
+            synchronized(
+                guardianLock
+            ) {
+                if (cloudflareAlertSent) {
+                    false
+                } else {
+                    cloudflareAlertSent =
+                        true
+
+                    true
+                }
+            }
+
+        if (!shouldSend) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_ALERT",
+                status = "SKIPPED",
+                details = "reason=already_sent"
+            )
+
+            return
+        }
+
+        EventLogger.logStage(
+            stage = "GUARDIAN_CLOUDFLARE_ALERT",
+            status = "REQUESTED",
+            details =
+                "failedAttempts=$MAX_REPAIR_ATTEMPTS"
+        )
+
+        EventLogger.log(
+            "GUARDIAN",
+            "Sending cloudflare alert after " +
+                "$MAX_REPAIR_ATTEMPTS failed repairs"
+        )
+
+        sendCloudflareAlertEmail()
+    }
+
+    private suspend fun sendCloudflareAlertEmail() {
+        try {
+            val success =
+                EmailSender.sendAlert(
+                    deviceName =
+                        DeviceIdentity.getName(),
+                    reason =
+                        "Cloudflare public tunnel failed to recover " +
+                            "after $MAX_REPAIR_ATTEMPTS attempts " +
+                            "while the remote-control core remained healthy"
+                )
+
+            if (success) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_ALERT",
+                    status = "OK"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare alert email send accepted"
+                )
+            } else {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_ALERT",
+                    status = "FAILED",
+                    details =
+                        "reason=email_sender_returned_false"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Cloudflare alert email send returned false"
+                )
+            }
+        } catch (t: Throwable) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CLOUDFLARE_ALERT",
+                status = "FAILED",
+                details =
+                    "reason=" +
+                    safeLogSummary(
+                        t.message
+                            ?: t.javaClass.simpleName
+                    )
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Cloudflare alert email failed: " +
+                    (
+                        t.message
+                            ?: t.javaClass.simpleName
+                    )
+            )
+        }
+    }
+
     private fun resetFailureState() {
         synchronized(
             guardianLock
@@ -823,6 +1442,25 @@ object RemoteControlGuardian {
             false
 
         automaticRepairSuspended =
+            false
+    }
+
+    private fun resetCloudflareFailureState() {
+        synchronized(
+            guardianLock
+        ) {
+            resetCloudflareFailureStateLocked()
+        }
+    }
+
+    private fun resetCloudflareFailureStateLocked() {
+        cloudflareConsecutiveFailures =
+            0
+
+        cloudflareAlertSent =
+            false
+
+        cloudflareAutomaticRepairSuspended =
             false
     }
 
