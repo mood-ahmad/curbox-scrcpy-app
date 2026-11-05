@@ -6,9 +6,16 @@ on:
 permissions:
   contents: write
 
+env:
+  BINARIES_REPOSITORY: 'mood-ahmad/curbox-scrcpy-binaries'
+  SCRCPY_RELEASE_TAG: 'binaries-v041'
+  CLOUDFLARED_RELEASE_TAG: 'cloudflared-android-2026.10.5'
+  CLOUDFLARED_EXPECTED_SHA256: 'b2980050c656458c4e3b1c35eda53d1c00d9b02edbb32ff55e37df318b5e657c'
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -25,94 +32,452 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Cache downloaded binaries
+      - name: Cache downloaded runtime dependencies
         uses: actions/cache@v4
         with:
           path: /tmp/curbox-cache
-          key: curbox-binaries-v041-cloudflared-v1
+          key: curbox-runtime-v041-cloudflared-android-2026.10.5-v2
 
-      - name: Download Scrcpy binaries, keystore and cloudflared
+      - name: Download pinned Scrcpy runtime and signing key
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
         run: |
           set -euo pipefail
 
-          mkdir -p /tmp/curbox-cache
-          mkdir -p /tmp/extracted
+          CACHE_ROOT="/tmp/curbox-cache"
+          SCRCPY_CACHE="$CACHE_ROOT/scrcpy-v041"
 
-          if [ ! -f /tmp/curbox-cache/cloudflared ]; then
-            echo "Downloading binaries..."
+          SCRCPY_ZIP="$SCRCPY_CACHE/cloudphone-binaries-v041.zip"
+          KEYSTORE="$SCRCPY_CACHE/curbox-release.jks"
 
-            gh release download binaries-v041 \
-              --repo mood-ahmad/curbox-scrcpy-binaries \
+          mkdir -p "$SCRCPY_CACHE"
+
+          if [ ! -s "$SCRCPY_ZIP" ]; then
+            echo "Downloading pinned Scrcpy runtime..."
+
+            gh release download "$SCRCPY_RELEASE_TAG" \
+              --repo "$BINARIES_REPOSITORY" \
               --pattern "cloudphone-binaries-v041.zip" \
-              --pattern "curbox-release.jks" \
-              --pattern "cloudflared" \
-              --dir /tmp/curbox-cache/
+              --dir "$SCRCPY_CACHE"
           else
-            echo "Using cached binaries."
+            echo "Using cached Scrcpy runtime."
           fi
 
-          unzip -o \
-            /tmp/curbox-cache/cloudphone-binaries-v041.zip \
-            -d /tmp/extracted/
+          if [ ! -s "$KEYSTORE" ]; then
+            echo "Downloading CurBox signing key..."
 
-          mkdir -p app/src/main/assets/cloudphone/certs
-          mkdir -p app/src/main/assets/cloudphone/assets
+            gh release download "$SCRCPY_RELEASE_TAG" \
+              --repo "$BINARIES_REPOSITORY" \
+              --pattern "curbox-release.jks" \
+              --dir "$SCRCPY_CACHE"
+          else
+            echo "Using cached CurBox signing key."
+          fi
+
+          test -s "$SCRCPY_ZIP"
+          test -s "$KEYSTORE"
+
+          echo "===== Scrcpy runtime download ====="
+          ls -lh "$SCRCPY_ZIP"
+
+          echo ""
+          echo "===== Signing key download ====="
+          ls -lh "$KEYSTORE"
+
+      - name: Download verified Android cloudflared release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BINARIES_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          CACHE_ROOT="/tmp/curbox-cache"
+          CLOUDFLARED_CACHE="$CACHE_ROOT/cloudflared-android-2026.10.5"
+
+          CLOUDFLARED_BIN="$CLOUDFLARED_CACHE/cloudflared"
+          CLOUDFLARED_SUMS="$CLOUDFLARED_CACHE/SHA256SUMS"
+          CLOUDFLARED_INFO="$CLOUDFLARED_CACHE/build-info.txt"
+
+          mkdir -p "$CLOUDFLARED_CACHE"
+
+          if [ ! -s "$CLOUDFLARED_BIN" ] || \
+             [ ! -s "$CLOUDFLARED_SUMS" ] || \
+             [ ! -s "$CLOUDFLARED_INFO" ]; then
+
+            echo "Downloading verified Android cloudflared release..."
+
+            rm -f \
+              "$CLOUDFLARED_BIN" \
+              "$CLOUDFLARED_SUMS" \
+              "$CLOUDFLARED_INFO"
+
+            gh release download "$CLOUDFLARED_RELEASE_TAG" \
+              --repo "$BINARIES_REPOSITORY" \
+              --pattern "cloudflared" \
+              --pattern "SHA256SUMS" \
+              --pattern "build-info.txt" \
+              --dir "$CLOUDFLARED_CACHE"
+          else
+            echo "Using cached verified Android cloudflared."
+          fi
+
+          test -s "$CLOUDFLARED_BIN"
+          test -s "$CLOUDFLARED_SUMS"
+          test -s "$CLOUDFLARED_INFO"
+
+          cd "$CLOUDFLARED_CACHE"
+
+          echo "===== Published SHA-256 verification ====="
+          sha256sum -c SHA256SUMS
+
+          ACTUAL_SHA256="$(
+            sha256sum cloudflared |
+            awk '{print $1}'
+          )"
+
+          echo ""
+          echo "Expected SHA-256:"
+          echo "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo "Actual SHA-256:"
+          echo "$ACTUAL_SHA256"
+
+          test "$ACTUAL_SHA256" = "$CLOUDFLARED_EXPECTED_SHA256"
+
+      - name: Verify Android cloudflared identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CLOUDFLARED_CACHE="/tmp/curbox-cache/cloudflared-android-2026.10.5"
+          CLOUDFLARED_BIN="$CLOUDFLARED_CACHE/cloudflared"
+          CLOUDFLARED_INFO="$CLOUDFLARED_CACHE/build-info.txt"
+
+          file "$CLOUDFLARED_BIN" \
+            > /tmp/cloudflared-file-info.txt
+
+          readelf -h "$CLOUDFLARED_BIN" \
+            > /tmp/cloudflared-elf-header.txt
+
+          readelf -l "$CLOUDFLARED_BIN" \
+            > /tmp/cloudflared-program-headers.txt
+
+          echo "===== File information ====="
+          cat /tmp/cloudflared-file-info.txt
+
+          echo ""
+          echo "===== ELF header ====="
+          cat /tmp/cloudflared-elf-header.txt
+
+          echo ""
+          echo "===== Verified build information ====="
+          cat "$CLOUDFLARED_INFO"
+
+          grep -Fq "ELF 64-bit" \
+            /tmp/cloudflared-file-info.txt
+
+          grep -Fq "ARM aarch64" \
+            /tmp/cloudflared-file-info.txt
+
+          grep -Fq "dynamically linked" \
+            /tmp/cloudflared-file-info.txt
+
+          grep -Fq "for Android 21" \
+            /tmp/cloudflared-file-info.txt
+
+          grep -Fq "AArch64" \
+            /tmp/cloudflared-elf-header.txt
+
+          grep -Fq "/system/bin/linker64" \
+            /tmp/cloudflared-program-headers.txt
+
+          grep -Fq "cloudflared version: 2026.10.5" \
+            "$CLOUDFLARED_INFO"
+
+          grep -Fq \
+            "source commit: 99b2eb2c0152862af2b1abf7c7b4e2170a46b9fe" \
+            "$CLOUDFLARED_INFO"
+
+          grep -Fq "CGO_ENABLED=1" \
+            "$CLOUDFLARED_INFO"
+
+          grep -Fq "GOOS=android" \
+            "$CLOUDFLARED_INFO"
+
+          grep -Fq "GOARCH=arm64" \
+            "$CLOUDFLARED_INFO"
+
+          grep -Fq \
+            "$CLOUDFLARED_EXPECTED_SHA256  cloudflared" \
+            "$CLOUDFLARED_INFO"
+
+          echo "Android cloudflared identity verified successfully."
+
+      - name: Prepare verified CurBox runtime assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SCRCPY_CACHE="/tmp/curbox-cache/scrcpy-v041"
+          CLOUDFLARED_CACHE="/tmp/curbox-cache/cloudflared-android-2026.10.5"
+
+          EXTRACT_ROOT="/tmp/extracted"
+          SOURCE_ROOT="$EXTRACT_ROOT/cloudphone-v0.4.1"
+          ANDROID_SOURCE="$SOURCE_ROOT/android"
+          WEB_ASSETS_SOURCE="$SOURCE_ROOT/assets"
+
+          TARGET_ROOT="app/src/main/assets/cloudphone"
+          TARGET_CERTS="$TARGET_ROOT/certs"
+          TARGET_ASSETS="$TARGET_ROOT/assets"
+
+          rm -rf "$EXTRACT_ROOT"
+          mkdir -p "$EXTRACT_ROOT"
+
+          unzip -q -o \
+            "$SCRCPY_CACHE/cloudphone-binaries-v041.zip" \
+            -d "$EXTRACT_ROOT"
+
+          test -d "$SOURCE_ROOT"
+          test -d "$ANDROID_SOURCE"
+          test -d "$WEB_ASSETS_SOURCE"
+
+          test -s "$ANDROID_SOURCE/cloudphone-agent"
+          test -s "$ANDROID_SOURCE/webrtc-signaling"
+          test -s "$ANDROID_SOURCE/libsys_core.so"
+
+          test -d "$ANDROID_SOURCE/certs"
+
+          find "$ANDROID_SOURCE/certs" \
+            -type f \
+            -size +0c \
+            -print \
+            -quit |
+            grep -q .
+
+          find "$WEB_ASSETS_SOURCE" \
+            -type f \
+            -size +0c \
+            -print \
+            -quit |
+            grep -q .
+
+          rm -rf "$TARGET_ROOT"
+
+          mkdir -p \
+            "$TARGET_CERTS" \
+            "$TARGET_ASSETS"
 
           cp \
-            /tmp/extracted/cloudphone-v0.4.1/android/cloudphone-agent \
-            app/src/main/assets/cloudphone/
+            "$ANDROID_SOURCE/cloudphone-agent" \
+            "$TARGET_ROOT/cloudphone-agent"
 
           cp \
-            /tmp/extracted/cloudphone-v0.4.1/android/webrtc-signaling \
-            app/src/main/assets/cloudphone/
+            "$ANDROID_SOURCE/webrtc-signaling" \
+            "$TARGET_ROOT/webrtc-signaling"
 
           cp \
-            /tmp/extracted/cloudphone-v0.4.1/android/libsys_core.so \
-            app/src/main/assets/cloudphone/
+            "$ANDROID_SOURCE/libsys_core.so" \
+            "$TARGET_ROOT/libsys_core.so"
+
+          cp -a \
+            "$ANDROID_SOURCE/certs/." \
+            "$TARGET_CERTS/"
+
+          cp -a \
+            "$WEB_ASSETS_SOURCE/." \
+            "$TARGET_ASSETS/"
 
           cp \
-            /tmp/extracted/cloudphone-v0.4.1/android/certs/* \
-            app/src/main/assets/cloudphone/certs/
-
-          cp -r \
-            /tmp/extracted/cloudphone-v0.4.1/assets/* \
-            app/src/main/assets/cloudphone/assets/
+            "$CLOUDFLARED_CACHE/cloudflared" \
+            "$TARGET_ROOT/cloudflared"
 
           cp \
-            /tmp/curbox-cache/cloudflared \
-            app/src/main/assets/cloudphone/cloudflared
-
-          cp \
-            /tmp/curbox-cache/curbox-release.jks \
+            "$SCRCPY_CACHE/curbox-release.jks" \
             app/curbox-release.jks
 
-          test -s app/curbox-release.jks
-          test -s app/src/main/assets/cloudphone/cloudphone-agent
-          test -s app/src/main/assets/cloudphone/webrtc-signaling
-          test -s app/src/main/assets/cloudphone/cloudflared
+          chmod 755 "$TARGET_ROOT/cloudflared"
 
-          echo "--- Keystore ---"
+      - name: Verify prepared CurBox runtime assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TARGET_ROOT="app/src/main/assets/cloudphone"
+
+          test -s app/curbox-release.jks
+
+          test -s "$TARGET_ROOT/cloudphone-agent"
+          test -s "$TARGET_ROOT/webrtc-signaling"
+          test -s "$TARGET_ROOT/libsys_core.so"
+          test -s "$TARGET_ROOT/cloudflared"
+
+          test -d "$TARGET_ROOT/certs"
+          test -d "$TARGET_ROOT/assets"
+
+          find "$TARGET_ROOT/certs" \
+            -type f \
+            -size +0c \
+            -print \
+            -quit |
+            grep -q .
+
+          find "$TARGET_ROOT/assets" \
+            -type f \
+            -size +0c \
+            -print \
+            -quit |
+            grep -q .
+
+          CLOUDFLARED_SHA256="$(
+            sha256sum "$TARGET_ROOT/cloudflared" |
+            awk '{print $1}'
+          )"
+
+          echo "Expected embedded cloudflared SHA-256:"
+          echo "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo "Actual embedded cloudflared SHA-256:"
+          echo "$CLOUDFLARED_SHA256"
+
+          test \
+            "$CLOUDFLARED_SHA256" = \
+            "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo ""
+          echo "===== CurBox signing key ====="
           ls -lh app/curbox-release.jks
 
-          echo "--- Cloudphone files ---"
-          ls -lh app/src/main/assets/cloudphone/
+          echo ""
+          echo "===== CurBox runtime root ====="
+          ls -lah "$TARGET_ROOT"
+
+          echo ""
+          echo "===== Runtime files ====="
+          find "$TARGET_ROOT" \
+            -type f \
+            -printf '%s %p\n' \
+            | sort
 
       - name: Make Gradle executable
-        run: chmod +x gradlew
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          chmod +x gradlew
+
+          test -x gradlew
 
       - name: Build Fdroid Debug APK
+        shell: bash
         env:
           CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
         run: |
           set -euo pipefail
+
           ./gradlew assembleFdroidDebug
+
+      - name: Locate unsigned Fdroid Debug APK
+        id: unsigned_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t APKS < <(
+            find app/build/outputs/apk/fdroid/debug \
+              -type f \
+              -name "*.apk" \
+              | sort
+          )
+
+          if [ "${#APKS[@]}" -ne 1 ]; then
+            echo "Expected exactly one unsigned Fdroid Debug APK."
+            echo "Found: ${#APKS[@]}"
+
+            printf '%s\n' "${APKS[@]}"
+
+            exit 1
+          fi
+
+          APK_PATH="${APKS[0]}"
+
+          test -s "$APK_PATH"
+
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+
+          echo "Unsigned APK:"
+          echo "$APK_PATH"
+
+          ls -lh "$APK_PATH"
+
+          unzip -t "$APK_PATH" >/dev/null
+
+      - name: Verify Android cloudflared inside unsigned APK
+        shell: bash
+        env:
+          APK_PATH: ${{ steps.unsigned_apk.outputs.apk_path }}
+        run: |
+          set -euo pipefail
+
+          EMBEDDED_PATH="assets/cloudphone/cloudflared"
+          EXTRACTED_BIN="/tmp/apk-cloudflared"
+
+          unzip -Z1 "$APK_PATH" |
+            grep -Fxq "$EMBEDDED_PATH"
+
+          unzip -p \
+            "$APK_PATH" \
+            "$EMBEDDED_PATH" \
+            > "$EXTRACTED_BIN"
+
+          test -s "$EXTRACTED_BIN"
+
+          EMBEDDED_SHA256="$(
+            sha256sum "$EXTRACTED_BIN" |
+            awk '{print $1}'
+          )"
+
+          echo "Expected APK cloudflared SHA-256:"
+          echo "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo "Actual APK cloudflared SHA-256:"
+          echo "$EMBEDDED_SHA256"
+
+          test \
+            "$EMBEDDED_SHA256" = \
+            "$CLOUDFLARED_EXPECTED_SHA256"
+
+          file "$EXTRACTED_BIN" \
+            > /tmp/apk-cloudflared-file-info.txt
+
+          readelf -h "$EXTRACTED_BIN" \
+            > /tmp/apk-cloudflared-elf-header.txt
+
+          readelf -l "$EXTRACTED_BIN" \
+            > /tmp/apk-cloudflared-program-headers.txt
+
+          grep -Fq "ELF 64-bit" \
+            /tmp/apk-cloudflared-file-info.txt
+
+          grep -Fq "ARM aarch64" \
+            /tmp/apk-cloudflared-file-info.txt
+
+          grep -Fq "for Android 21" \
+            /tmp/apk-cloudflared-file-info.txt
+
+          grep -Fq "AArch64" \
+            /tmp/apk-cloudflared-elf-header.txt
+
+          grep -Fq "/system/bin/linker64" \
+            /tmp/apk-cloudflared-program-headers.txt
+
+          echo "Verified Android cloudflared is embedded in the APK."
 
       - name: Locate Android signing tools
         id: android_tools
+        shell: bash
         run: |
           set -euo pipefail
 
@@ -141,34 +506,27 @@ jobs:
           echo "zipalign=$ZIPALIGN" >> "$GITHUB_OUTPUT"
 
           echo "Build Tools: $BUILD_TOOLS_DIR"
+
           "$APKSIGNER" version
 
       - name: Prepare, align and sign Debug APK
+        shell: bash
         env:
           APKSIGNER: ${{ steps.android_tools.outputs.apksigner }}
           ZIPALIGN: ${{ steps.android_tools.outputs.zipalign }}
+          APK_PATH: ${{ steps.unsigned_apk.outputs.apk_path }}
         run: |
           set -euo pipefail
-
-          APK_PATH="$(
-            find app/build/outputs/apk/fdroid/debug \
-              -type f \
-              -name "*.apk" \
-              | head -n 1
-          )"
-
-          if [ -z "$APK_PATH" ]; then
-            echo "No APK was produced."
-            exit 1
-          fi
 
           test -s "$APK_PATH"
 
           echo "APK produced by Gradle:"
           echo "$APK_PATH"
+
           ls -lh "$APK_PATH"
 
           echo "Testing APK ZIP structure..."
+
           unzip -t "$APK_PATH" >/dev/null
 
           echo "Aligning APK..."
@@ -201,16 +559,19 @@ jobs:
           rm -f curbox-aligned-debug.apk
 
           echo "Signed APK:"
+
           ls -lh curbox-latest-debug.apk
 
-      - name: Verify APK integrity and signature
+      - name: Verify final APK integrity and signature
+        shell: bash
         env:
           APKSIGNER: ${{ steps.android_tools.outputs.apksigner }}
         run: |
           set -euo pipefail
 
           echo "Testing final APK ZIP structure..."
-          unzip -t curbox-latest-debug.apk
+
+          unzip -t curbox-latest-debug.apk >/dev/null
 
           echo "Verifying APK signature..."
 
@@ -221,13 +582,53 @@ jobs:
 
           echo "APK signature verified successfully."
 
-          echo "SHA-256:"
+          echo ""
+          echo "Final APK SHA-256:"
+
           sha256sum curbox-latest-debug.apk
 
-          echo "APK information:"
+          echo ""
+          echo "Final APK information:"
+
           ls -lh curbox-latest-debug.apk
 
+      - name: Verify Android cloudflared inside final signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EMBEDDED_PATH="assets/cloudphone/cloudflared"
+          EXTRACTED_BIN="/tmp/final-apk-cloudflared"
+
+          unzip -Z1 curbox-latest-debug.apk |
+            grep -Fxq "$EMBEDDED_PATH"
+
+          unzip -p \
+            curbox-latest-debug.apk \
+            "$EMBEDDED_PATH" \
+            > "$EXTRACTED_BIN"
+
+          test -s "$EXTRACTED_BIN"
+
+          FINAL_EMBEDDED_SHA256="$(
+            sha256sum "$EXTRACTED_BIN" |
+            awk '{print $1}'
+          )"
+
+          echo "Expected final APK cloudflared SHA-256:"
+          echo "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo "Actual final APK cloudflared SHA-256:"
+          echo "$FINAL_EMBEDDED_SHA256"
+
+          test \
+            "$FINAL_EMBEDDED_SHA256" = \
+            "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo "Final signed APK contains verified Android cloudflared."
+
       - name: Upload verified APK to Debug Release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -237,28 +638,28 @@ jobs:
           APK_NAME="curbox-latest-debug.apk"
 
           if gh release view "$TAG" \
-            --repo "${{ github.repository }}" \
+            --repo "$GITHUB_REPOSITORY" \
             >/dev/null 2>&1; then
 
             echo "Debug release already exists."
 
             gh release delete-asset "$TAG" \
               "$APK_NAME" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --yes \
               2>/dev/null || true
 
             gh release upload "$TAG" \
               "$APK_NAME" \
-              --repo "${{ github.repository }}" \
+              --repo "$GITHUB_REPOSITORY" \
               --clobber
           else
             echo "Creating Debug Release..."
 
             gh release create "$TAG" \
               "$APK_NAME" \
-              --repo "${{ github.repository }}" \
-              --target "${{ github.sha }}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
               --title "CurBox Latest Debug" \
               --notes "Verified and signed development build generated automatically by Debug CI." \
               --prerelease
@@ -267,22 +668,35 @@ jobs:
           echo "APK uploaded successfully."
 
       - name: Build Summary
+        shell: bash
         run: |
+          set -euo pipefail
+
           {
             echo "## CurBox Debug Build"
             echo ""
             echo "Build completed successfully."
             echo ""
+            echo "Runtime assets: verified."
+            echo ""
+            echo "Android cloudflared:"
+            echo "- Release: \`${CLOUDFLARED_RELEASE_TAG}\`"
+            echo "- SHA-256: \`${CLOUDFLARED_EXPECTED_SHA256}\`"
+            echo "- Target: Android ARM64"
+            echo "- CGO: enabled"
+            echo ""
             echo "APK ZIP structure: verified."
             echo ""
             echo "APK signature: verified."
             echo ""
+            echo "Embedded cloudflared: verified before and after signing."
+            echo ""
             echo "Download:"
             echo "**Releases -> CurBox Latest Debug -> curbox-latest-debug.apk**"
             echo ""
-            echo "Commit: \`${{ github.sha }}\`"
+            echo "Commit: \`${GITHUB_SHA}\`"
             echo ""
-            echo "SHA-256:"
+            echo "APK SHA-256:"
             echo '```text'
             sha256sum curbox-latest-debug.apk
             echo '```'
