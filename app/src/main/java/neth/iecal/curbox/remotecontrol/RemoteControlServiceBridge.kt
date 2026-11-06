@@ -1683,6 +1683,10 @@ class RemoteControlServiceBridge(
         val script = """
             set +e
 
+            cleanup_stage() {
+                echo "CLEANUP_STAGE=${'$'}1"
+            }
+
             normalise_exe() {
                 printf '%s' "${'$'}1" \
                     | sed 's/ (deleted)${'$'}//'
@@ -1709,9 +1713,7 @@ class RemoteControlServiceBridge(
                 [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
             }
 
-            list_matching_executable() {
-                EXPECTED_EXE="${'$'}1"
-
+            list_matching_executables_once() {
                 for PROC_DIR in /proc/[0-9]*; do
                     [ -d "${'$'}PROC_DIR" ] || continue
 
@@ -1726,9 +1728,11 @@ class RemoteControlServiceBridge(
                         normalise_exe "${'$'}ACTUAL_EXE"
                     )
 
-                    if [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]; then
-                        echo "${'$'}PID"
-                    fi
+                    case "${'$'}ACTUAL_EXE" in
+                        "$target/cloudflared"|"$target/cloudphone-agent"|"$target/webrtc-signaling")
+                            echo "${'$'}PID"
+                            ;;
+                    esac
                 done
             }
 
@@ -1762,32 +1766,17 @@ class RemoteControlServiceBridge(
                 fi
             }
 
-            signal_matching_executable() {
+            signal_matching_executables() {
                 SIGNAL="${'$'}1"
-                EXPECTED_EXE="${'$'}2"
 
-                for PID in ${'$'}(
-                    list_matching_executable \
-                        "${'$'}EXPECTED_EXE"
-                ); do
+                for PID in ${'$'}(list_matching_executables_once); do
                     echo \
-                        "SIGNAL_MATCH signal=${'$'}SIGNAL pid=${'$'}PID exe=${'$'}EXPECTED_EXE"
+                        "SIGNAL_MATCH signal=${'$'}SIGNAL pid=${'$'}PID"
 
                     kill "-${'$'}SIGNAL" \
                         "${'$'}PID" \
                         2>/dev/null || true
                 done
-            }
-
-            matching_processes() {
-                list_matching_executable \
-                    "$target/cloudflared"
-
-                list_matching_executable \
-                    "$target/cloudphone-agent"
-
-                list_matching_executable \
-                    "$target/webrtc-signaling"
             }
 
             port_is_listening() {
@@ -1816,11 +1805,13 @@ class RemoteControlServiceBridge(
                     2>/dev/null
             }
 
+            cleanup_stage INVALIDATE_TOKENS
             rm -f "$target/.launch_token"
             rm -f "$target/.cloudflare_repair_token"
 
             echo CLEANUP_START
 
+            cleanup_stage TERM_PID_FILES
             signal_pid_file \
                 15 \
                 "$target/cloudflared.pid" \
@@ -1836,21 +1827,13 @@ class RemoteControlServiceBridge(
                 "$target/signaling.pid" \
                 "$target/webrtc-signaling"
 
-            signal_matching_executable \
-                15 \
-                "$target/cloudflared"
+            cleanup_stage TERM_EXECUTABLE_SCAN
+            signal_matching_executables 15
 
-            signal_matching_executable \
-                15 \
-                "$target/cloudphone-agent"
-
-            signal_matching_executable \
-                15 \
-                "$target/webrtc-signaling"
-
+            cleanup_stage WAIT_FOR_GRACEFUL_EXIT
             for i in ${'$'}(seq 1 5); do
                 REMAINING=${'$'}(
-                    matching_processes
+                    list_matching_executables_once
                 )
 
                 if [ -z "${'$'}REMAINING" ]; then
@@ -1860,6 +1843,7 @@ class RemoteControlServiceBridge(
                 sleep 1
             done
 
+            cleanup_stage KILL_PID_FILES
             signal_pid_file \
                 9 \
                 "$target/cloudflared.pid" \
@@ -1875,22 +1859,15 @@ class RemoteControlServiceBridge(
                 "$target/signaling.pid" \
                 "$target/webrtc-signaling"
 
-            signal_matching_executable \
-                9 \
-                "$target/cloudflared"
+            cleanup_stage KILL_EXECUTABLE_SCAN
+            signal_matching_executables 9
 
-            signal_matching_executable \
-                9 \
-                "$target/cloudphone-agent"
-
-            signal_matching_executable \
-                9 \
-                "$target/webrtc-signaling"
-
+            cleanup_stage FINAL_PROCESS_WAIT
             sleep 2
 
+            cleanup_stage VERIFY_PROCESSES
             REMAINING=${'$'}(
-                matching_processes
+                list_matching_executables_once
             )
 
             if [ -n "${'$'}REMAINING" ]; then
@@ -1916,6 +1893,7 @@ class RemoteControlServiceBridge(
                 exit 1
             fi
 
+            cleanup_stage VERIFY_PORT
             if port_is_listening; then
                 echo "CLEANUP_FAILED=port_${port}_still_listening"
 
@@ -1928,10 +1906,12 @@ class RemoteControlServiceBridge(
                 exit 1
             fi
 
+            cleanup_stage REMOVE_PID_FILES
             rm -f "$target/cloudflared.pid"
             rm -f "$target/agent.pid"
             rm -f "$target/signaling.pid"
 
+            cleanup_stage COMPLETE
             echo CLEANUP_OK
         """.trimIndent()
 
@@ -1944,16 +1924,20 @@ class RemoteControlServiceBridge(
                     output: String,
                     done: Boolean
                 ) {
-                    accumulated.append(
-                        output
-                    )
+                    synchronized(accumulated) {
+                        accumulated.append(
+                            output
+                        )
+                    }
 
                     if (!done) {
                         return
                     }
 
                     val result =
-                        accumulated.toString()
+                        synchronized(accumulated) {
+                            accumulated.toString()
+                        }
 
                     val success =
                         result.lineSequence()
@@ -1980,7 +1964,7 @@ class RemoteControlServiceBridge(
                                 if (result.isNotBlank()) {
                                     appendLine()
                                     append(
-                                        result.takeLast(2200)
+                                        result.takeLast(3000)
                                     )
                                 }
                             }
@@ -1992,7 +1976,9 @@ class RemoteControlServiceBridge(
                     error: String
                 ) {
                     val result =
-                        accumulated.toString()
+                        synchronized(accumulated) {
+                            accumulated.toString()
+                        }
 
                     completeOnce(
                         false,
@@ -2004,21 +1990,25 @@ class RemoteControlServiceBridge(
                             if (error.isNotBlank()) {
                                 appendLine()
                                 appendLine(
-                                    error.take(1200)
+                                    error.take(1800)
                                 )
                             }
 
                             if (result.isNotBlank()) {
                                 appendLine()
+                                appendLine(
+                                    "Cleanup progress:"
+                                )
                                 append(
-                                    result.takeLast(1200)
+                                    result.takeLast(3000)
                                 )
                             }
                         }
                     )
                 }
             },
-            lineBundle = 1800
+            lineBundle = 1,
+            timeoutMs = CLEANUP_TIMEOUT_MS
         )
     }
 
@@ -3038,6 +3028,21 @@ class RemoteControlServiceBridge(
     }
 
     companion object {
+
+        private const val CLEANUP_TIMEOUT_MS =
+            45_000L
+
+        private const val HEALTH_CHECK_TIMEOUT_MS =
+            15_000L
+
+        private const val WORKDIR_TIMEOUT_MS =
+            120_000L
+
+        private const val LAUNCH_TIMEOUT_MS =
+            120_000L
+
+        private const val CLOUDFLARE_REPAIR_TIMEOUT_MS =
+            90_000L
 
         private val startInProgress =
             AtomicBoolean(false)
