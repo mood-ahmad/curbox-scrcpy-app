@@ -47,7 +47,10 @@ class ShizukuRunner {
             120_000L
 
         private const val STREAM_JOIN_TIMEOUT_MS =
-            3_000L
+            1_000L
+
+        private const val DESTROY_JOIN_TIMEOUT_MS =
+            1_000L
 
         /**
          * Executes a shell command using Shizuku.
@@ -55,9 +58,9 @@ class ShizukuRunner {
          * Standard output and standard error are drained concurrently
          * so neither stream can block the native process.
          *
-         * The command is bounded by [timeoutMs]. If the timeout expires,
-         * the remote process is destroyed and exactly one terminal error
-         * callback is delivered.
+         * The command is bounded by [timeoutMs]. A local JVM watchdog
+         * delivers the timeout callback close to [timeoutMs] regardless
+         * of Binder latency on waitForTimeout() or destroy().
          *
          * The process exit code determines success or failure.
          * Text written to stderr does not automatically mean that the
@@ -189,6 +192,110 @@ class ShizukuRunner {
                     val errorReadFailure =
                         AtomicReference<Throwable?>(null)
 
+                    val destroyRequested =
+                        AtomicBoolean(false)
+
+                    /*
+                     * Spawn a single daemon thread for process
+                     * destruction. The destroy call is fully
+                     * non-blocking from the caller's perspective.
+                     */
+                    fun requestDestroy() {
+                        if (
+                            destroyRequested.compareAndSet(
+                                false,
+                                true
+                            )
+                        ) {
+                            thread(
+                                start = true,
+                                isDaemon = true,
+                                name = "CurBox-Shizuku-destroy"
+                            ) {
+                                try {
+                                    process.destroy()
+                                } catch (_: Throwable) {
+                                    /*
+                                     * The Binder or remote process may
+                                     * already be dead.
+                                     */
+                                }
+                            }
+                        }
+                    }
+
+                    /*
+                     * Deliver the timeout callback via CAS and then
+                     * request process destruction without waiting.
+                     * Returns true if this call won the CAS.
+                     */
+                    fun tryDeliverTimeoutMessage(): Boolean {
+                        if (
+                            !terminalCallbackDelivered.compareAndSet(
+                                false,
+                                true
+                            )
+                        ) {
+                            return false
+                        }
+
+                        val stdout =
+                            synchronized(finalOutput) {
+                                finalOutput.toString()
+                            }
+
+                        val stderr =
+                            synchronized(errorOutput) {
+                                errorOutput.toString()
+                            }
+
+                        try {
+                            listener.onCommandError(
+                                buildString {
+                                    append(
+                                        "Shizuku command timed out after "
+                                    )
+
+                                    append(
+                                        safeTimeoutMs
+                                    )
+
+                                    append(
+                                        " ms and termination was requested."
+                                    )
+
+                                    if (stderr.isNotBlank()) {
+                                        append(
+                                            "\n\nstderr:\n"
+                                        )
+
+                                        append(stderr)
+                                    }
+
+                                    if (stdout.isNotBlank()) {
+                                        append(
+                                            "\n\nstdout:\n"
+                                        )
+
+                                        append(stdout)
+                                    }
+                                }
+                            )
+                        } catch (_: Throwable) {
+                            /*
+                             * Terminal listener failure is ignored.
+                             */
+                        }
+
+                        /*
+                         * Destruction is requested after the callback
+                         * has been delivered, satisfying the
+                         * callback-before-destroy ordering.
+                         */
+                        requestDestroy()
+                        return true
+                    }
+
                     val outputThread =
                         thread(
                             start = true,
@@ -265,9 +372,10 @@ class ShizukuRunner {
                                 }
                             } catch (t: Throwable) {
                                 /*
-                                 * Stream failures after timeout or remote
-                                 * process destruction are expected. Preserve
-                                 * them only while no terminal result has been
+                                 * Stream failures after terminal callback
+                                 * delivery (timeout, destruction, normal
+                                 * completion) are expected. Preserve them
+                                 * only while no terminal result has been
                                  * delivered.
                                  */
                                 if (
@@ -319,9 +427,41 @@ class ShizukuRunner {
                         }
 
                     /*
-                     * Use the timeout-capable Shizuku remote-process API.
-                     * This prevents waitFor() from blocking the lifecycle
-                     * indefinitely.
+                     * Local JVM watchdog: guarantees that a timeout
+                     * callback is delivered close to safeTimeoutMs,
+                     * even if the Binder calls for waitForTimeout()
+                     * or destroy() are delayed. The watchdog competes
+                     * with the command thread through the same CAS
+                     * gate, so exactly one terminal callback is
+                     * delivered under any race.
+                     */
+                    val watchdogThread =
+                        thread(
+                            start = true,
+                            isDaemon = true,
+                            name = "CurBox-Shizuku-timeout"
+                        ) {
+                            val interrupted = try {
+                                Thread.sleep(
+                                    safeTimeoutMs
+                                )
+
+                                false
+                            } catch (_: InterruptedException) {
+                                true
+                            }
+
+                            if (interrupted) {
+                                return@thread
+                            }
+
+                            tryDeliverTimeoutMessage()
+                        }
+
+                    /*
+                     * Use the timeout-capable Shizuku remote-process API
+                     * to keep the command thread bounded. The local
+                     * watchdog remains the ultimate fallback.
                      */
                     val completed =
                         try {
@@ -330,13 +470,9 @@ class ShizukuRunner {
                                 "MILLISECONDS"
                             )
                         } catch (t: Throwable) {
-                            try {
-                                process.destroy()
-                            } catch (_: Throwable) {
-                                // The Binder or remote process may be dead.
-                            }
+                            watchdogThread.interrupt()
 
-                            throw IllegalStateException(
+                            deliverErrorOnce(
                                 "Failed while waiting for the Shizuku " +
                                     "command to finish: " +
                                     (
@@ -344,122 +480,52 @@ class ShizukuRunner {
                                             ?: t.javaClass.simpleName
                                         )
                             )
+
+                            requestDestroy()
+                            return@Thread
                         }
 
                     if (!completed) {
                         /*
-                         * Invalidate further partial callbacks before
-                         * destroying the process.
+                         * Try to reserve the timeout via the shared CAS
+                         * gate. If the watchdog has already delivered,
+                         * this call is a no-op.
                          */
-                        terminalCallbackDelivered.set(true)
+                        tryDeliverTimeoutMessage()
 
-                        try {
-                            process.destroy()
-                        } catch (_: Throwable) {
-                            /*
-                             * The process or Binder may already be dead.
-                             * Timeout is still reported to the listener.
-                             */
-                        }
-
-                        /*
-                         * Reader threads are daemon threads and cannot block
-                         * application shutdown. Give them a short opportunity
-                         * to consume remaining buffered output and exit.
-                         */
-                        try {
-                            outputThread.join(
-                                STREAM_JOIN_TIMEOUT_MS
-                            )
-                        } catch (_: InterruptedException) {
-                            Thread.currentThread().interrupt()
-                        }
-
-                        try {
-                            errorThread.join(
-                                STREAM_JOIN_TIMEOUT_MS
-                            )
-                        } catch (_: InterruptedException) {
-                            Thread.currentThread().interrupt()
-                        }
-
-                        val stdout =
-                            synchronized(finalOutput) {
-                                finalOutput.toString()
-                            }
-
-                        val stderr =
-                            synchronized(errorOutput) {
-                                errorOutput.toString()
-                            }
-
-                        /*
-                         * terminalCallbackDelivered was reserved above to
-                         * stop partial callbacks. Deliver the terminal timeout
-                         * error directly while preserving the exactly-once
-                         * guarantee.
-                         */
-                        try {
-                            listener.onCommandError(
-                                buildString {
-                                    append(
-                                        "Shizuku command timed out after "
-                                    )
-
-                                    append(
-                                        safeTimeoutMs
-                                    )
-
-                                    append(
-                                        " ms and was terminated."
-                                    )
-
-                                    if (stderr.isNotBlank()) {
-                                        append(
-                                            "\n\nstderr:\n"
-                                        )
-
-                                        append(stderr)
-                                    }
-
-                                    if (stdout.isNotBlank()) {
-                                        append(
-                                            "\n\nstdout:\n"
-                                        )
-
-                                        append(stdout)
-                                    }
-                                }
-                            )
-                        } catch (_: Throwable) {
-                            // Terminal listener failure is ignored.
-                        }
-
+                        watchdogThread.interrupt()
                         return@Thread
                     }
 
                     /*
-                     * The process exited. Wait briefly for the stream readers
-                     * to consume buffered output. Never allow their joins to
+                     * The process exited. Stop the local watchdog and
+                     * wait briefly for the stream readers to consume
+                     * buffered output. Never allow their joins to
                      * block the lifecycle indefinitely.
                      */
-                    outputThread.join(
-                        STREAM_JOIN_TIMEOUT_MS
-                    )
+                    watchdogThread.interrupt()
 
-                    errorThread.join(
-                        STREAM_JOIN_TIMEOUT_MS
-                    )
+                    try {
+                        outputThread.join(
+                            STREAM_JOIN_TIMEOUT_MS
+                        )
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
+
+                    try {
+                        errorThread.join(
+                            STREAM_JOIN_TIMEOUT_MS
+                        )
+                    } catch (_: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
 
                     if (
                         outputThread.isAlive ||
                         errorThread.isAlive
                     ) {
-                        try {
-                            process.destroy()
-                        } catch (_: Throwable) {
-                            // Process is probably already finished.
-                        }
+                        requestDestroy()
 
                         val stdout =
                             synchronized(finalOutput) {
