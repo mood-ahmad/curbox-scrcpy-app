@@ -1,6 +1,8 @@
 package neth.iecal.curbox.remotecontrol
 
 import android.content.Context
+import android.content.pm.PackageManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -8,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import rikka.shizuku.Shizuku
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -26,6 +29,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *    remains healthy — trigger the Cloudflare-only repair path that
  *    calls RemoteControlManager.repairPublicTunnel(context). That path
  *    never stops Signaling, Agent, Local URL, or the Runtime.
+ *
+ * Shizuku readiness is checked before every health check and at every
+ * decision point inside the repair paths. Shizuku failures are never
+ * treated as engine failures, never consume repair attempt budget,
+ * and never trigger alerts.
  *
  * No notifications and no UI.
  */
@@ -55,6 +63,20 @@ object RemoteControlGuardian {
     private const val MAX_REPAIR_ATTEMPTS =
         3
 
+    private enum class ShizukuReadiness {
+        READY,
+        BINDER_UNAVAILABLE,
+        PERMISSION_DENIED
+    }
+
+    private enum class HealthResult {
+        HEALTHY,
+        UNHEALTHY,
+        SHIZUKU_UNAVAILABLE,
+        SHIZUKU_PERMISSION_DENIED,
+        TIMEOUT
+    }
+
     private val scope =
         CoroutineScope(
             Dispatchers.IO
@@ -63,8 +85,24 @@ object RemoteControlGuardian {
     private val guardianLock =
         Any()
 
+    /*
+     * Serializes Guardian cycle transitions (start/stop) with the final
+     * dispatch of RemoteControlManager.restart() and
+     * RemoteControlManager.repairPublicTunnel().
+     *
+     * Lock order (mandatory everywhere):
+     *   guardianDispatchLock -> guardianLock
+     *
+     * Never the other way around.
+     */
+    private val guardianDispatchLock =
+        Any()
+
     private var job:
         Job? = null
+
+    private var guardianGeneration =
+        0L
 
     private var consecutiveFailures =
         0
@@ -116,77 +154,101 @@ object RemoteControlGuardian {
         val appContext =
             context.applicationContext
 
-        synchronized(guardianLock) {
-            if (job?.isActive == true) {
-                EventLogger.logStage(
-                    stage = "GUARDIAN",
-                    status = "START_SKIPPED",
-                    details = "reason=already_active"
-                )
-
-                EventLogger.log(
-                    "GUARDIAN",
-                    "Start skipped: Guardian is already active"
-                )
-
-                return
-            }
-
-            resetFailureStateLocked()
-            resetCloudflareFailureStateLocked()
-
-            job =
-                scope.launch {
+        synchronized(guardianDispatchLock) {
+            synchronized(guardianLock) {
+                if (job?.isActive == true) {
                     EventLogger.logStage(
                         stage = "GUARDIAN",
-                        status = "STARTED"
+                        status = "START_SKIPPED",
+                        details = "reason=already_active"
                     )
 
                     EventLogger.log(
                         "GUARDIAN",
-                        "Guardian started"
+                        "Start skipped: Guardian is already active"
                     )
 
-                    /*
-                     * Allow the normal application AutoStart enough
-                     * time to finish before the first health check.
-                     */
-                    delay(
-                        INITIAL_SETTLE_MS
-                    )
+                    return
+                }
 
-                    while (isActive) {
-                        try {
-                            tick(
-                                appContext
-                            )
-                        } catch (t: Throwable) {
-                            EventLogger.logStage(
-                                stage = "GUARDIAN_CHECK",
-                                status = "EXCEPTION",
-                                details =
-                                    "reason=" +
-                                    safeLogSummary(
-                                        t.message
-                                            ?: t.javaClass.simpleName
-                                    )
-                            )
+                guardianGeneration++
 
-                            EventLogger.log(
-                                "GUARDIAN",
-                                "Tick exception: " +
-                                    (
-                                        t.message
-                                            ?: t.javaClass.simpleName
-                                    )
+                val startGeneration =
+                    guardianGeneration
+
+                /*
+                 * Ensure atomics from any previous cycle are cleared
+                 * before the new loop begins. This prevents a stale
+                 * cancellation from leaving the new cycle locked out.
+                 */
+                repairInProgress.set(
+                    false
+                )
+
+                cloudflareRepairInProgress.set(
+                    false
+                )
+
+                resetFailureStateLocked()
+                resetCloudflareFailureStateLocked()
+
+                job =
+                    scope.launch {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN",
+                            status = "STARTED",
+                            details = "generation=$startGeneration"
+                        )
+
+                        EventLogger.log(
+                            "GUARDIAN",
+                            "Guardian started"
+                        )
+
+                        /*
+                         * Allow the normal application AutoStart enough
+                         * time to finish before the first health check.
+                         */
+                        delay(
+                            INITIAL_SETTLE_MS
+                        )
+
+                        while (isActive) {
+                            try {
+                                tick(
+                                    appContext,
+                                    startGeneration
+                                )
+                            } catch (cancellation: CancellationException) {
+                                throw cancellation
+                            } catch (t: Throwable) {
+                                EventLogger.logStage(
+                                    stage = "GUARDIAN_CHECK",
+                                    status = "EXCEPTION",
+                                    details =
+                                        "reason=" +
+                                        safeLogSummary(
+                                            t.message
+                                                ?: t.javaClass.simpleName
+                                        )
+                                )
+
+                                EventLogger.log(
+                                    "GUARDIAN",
+                                    "Tick exception: " +
+                                        (
+                                            t.message
+                                                ?: t.javaClass.simpleName
+                                        )
+                                )
+                            }
+
+                            delay(
+                                CHECK_INTERVAL_MS
                             )
                         }
-
-                        delay(
-                            CHECK_INTERVAL_MS
-                        )
                     }
-                }
+            }
         }
     }
 
@@ -195,20 +257,24 @@ object RemoteControlGuardian {
      * launching another recovery attempt.
      */
     fun stop() {
-        synchronized(guardianLock) {
-            job?.cancel()
-            job = null
+        synchronized(guardianDispatchLock) {
+            synchronized(guardianLock) {
+                guardianGeneration++
 
-            repairInProgress.set(
-                false
-            )
+                job?.cancel()
+                job = null
 
-            cloudflareRepairInProgress.set(
-                false
-            )
+                repairInProgress.set(
+                    false
+                )
 
-            resetFailureStateLocked()
-            resetCloudflareFailureStateLocked()
+                cloudflareRepairInProgress.set(
+                    false
+                )
+
+                resetFailureStateLocked()
+                resetCloudflareFailureStateLocked()
+            }
         }
 
         EventLogger.logStage(
@@ -224,9 +290,62 @@ object RemoteControlGuardian {
 
     // -------------------------------------------------------------------------
 
+    private fun isGuardianGenerationCurrent(
+        generation: Long
+    ): Boolean {
+        return synchronized(guardianLock) {
+            guardianGeneration == generation
+        }
+    }
+
+    /**
+     * Probes Shizuku binder and permission without ever requesting
+     * permission from the Guardian.
+     *
+     * Any Throwable during the probe is treated as the binder being
+     * unavailable. checkSelfPermission is only called after a
+     * successful pingBinder().
+     */
+    private fun checkShizukuReadiness(): ShizukuReadiness {
+        val result: ShizukuReadiness =
+            try {
+                if (!Shizuku.pingBinder()) {
+                    ShizukuReadiness.BINDER_UNAVAILABLE
+                } else {
+                    val permission =
+                        Shizuku.checkSelfPermission()
+
+                    if (
+                        permission ==
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        ShizukuReadiness.READY
+                    } else {
+                        ShizukuReadiness.PERMISSION_DENIED
+                    }
+                }
+            } catch (t: Throwable) {
+                ShizukuReadiness.BINDER_UNAVAILABLE
+            }
+
+        EventLogger.logStage(
+            stage = "GUARDIAN_SHIZUKU_CHECK",
+            status = result.name
+        )
+
+        return result
+    }
+
+    // -------------------------------------------------------------------------
+
     private suspend fun tick(
-        context: Context
+        context: Context,
+        generation: Long
     ) {
+        if (!isGuardianGenerationCurrent(generation)) {
+            return
+        }
+
         if (
             !RemoteControlManager.isEnabled(
                 context
@@ -342,6 +461,49 @@ object RemoteControlGuardian {
             else -> Unit
         }
 
+        /*
+         * Shizuku readiness gate.
+         *
+         * If Shizuku is not ready, health checks against
+         * RemoteControlManager cannot produce reliable answers.
+         * We must not mark the engine or the tunnel as unhealthy,
+         * must not consume repair budget, and must not fire alerts.
+         * We also must not reset existing failure counters, because
+         * the previous failure state (if any) still stands.
+         */
+        val readiness =
+            checkShizukuReadiness()
+
+        if (readiness == ShizukuReadiness.BINDER_UNAVAILABLE) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "SKIPPED",
+                details = "reason=shizuku_service_unavailable"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Check skipped: Shizuku binder is unavailable"
+            )
+
+            return
+        }
+
+        if (readiness == ShizukuReadiness.PERMISSION_DENIED) {
+            EventLogger.logStage(
+                stage = "GUARDIAN_CHECK",
+                status = "SKIPPED",
+                details = "reason=shizuku_permission_not_granted"
+            )
+
+            EventLogger.log(
+                "GUARDIAN",
+                "Check skipped: Shizuku permission is not granted"
+            )
+
+            return
+        }
+
         EventLogger.logStage(
             stage = "GUARDIAN_CHECK",
             status = "STARTED"
@@ -352,70 +514,158 @@ object RemoteControlGuardian {
          * priority over the Cloudflare tunnel because Cloudflare repair
          * assumes Signaling, Agent, and Local are healthy.
          */
-        val coreHealthy =
+        val coreResult =
             checkEngineHealth()
 
-        if (!coreHealthy) {
-            handleCoreRepair(
-                context
-            )
+        when (coreResult) {
+            HealthResult.HEALTHY -> Unit
 
+            HealthResult.UNHEALTHY -> {
+                handleCoreRepair(
+                    context = context,
+                    generation = generation,
+                    reason = "health_check_failed"
+                )
+
+                return
+            }
+
+            HealthResult.TIMEOUT -> {
+                handleCoreRepair(
+                    context = context,
+                    generation = generation,
+                    reason = "health_check_timeout"
+                )
+
+                return
+            }
+
+            HealthResult.SHIZUKU_UNAVAILABLE -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=shizuku_service_unavailable"
+                )
+
+                return
+            }
+
+            HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=shizuku_permission_not_granted"
+                )
+
+                return
+            }
+        }
+
+        if (!isGuardianGenerationCurrent(generation)) {
             return
         }
 
         /*
-         * Core is healthy. Reset the Core repair state immediately,
-         * regardless of whether Cloudflare is healthy. A healthy core
-         * means consecutiveFailures / alertSent / automaticRepairSuspended
-         * are no longer meaningful and must not affect future Core
-         * failure handling.
+         * Core is healthy. Capture the previous Core failure count
+         * before resetting, so the recovery log reflects reality.
          */
+        val previousCoreFailures =
+            synchronized(
+                guardianLock
+            ) {
+                consecutiveFailures
+            }
+
         resetFailureState()
+
+        if (previousCoreFailures > 0) {
+            EventLogger.log(
+                "GUARDIAN",
+                "Engine recovered after " +
+                    "$previousCoreFailures failure(s)"
+            )
+        }
 
         /*
          * Core is healthy. Now check whether the public tunnel is
          * still alive. A healthy core with a dead Cloudflare tunnel
          * must never trigger a Full Engine repair.
          */
-        val cloudflareHealthy =
+        val cloudflareResult =
             checkCloudflareHealth()
 
-        if (cloudflareHealthy) {
-            val previousFailures =
-                synchronized(
-                    guardianLock
-                ) {
-                    consecutiveFailures
+        when (cloudflareResult) {
+            HealthResult.HEALTHY -> {
+                val previousCloudflareFailures =
+                    synchronized(
+                        guardianLock
+                    ) {
+                        cloudflareConsecutiveFailures
+                    }
+
+                resetCloudflareFailureState()
+
+                if (previousCloudflareFailures > 0) {
+                    EventLogger.log(
+                        "GUARDIAN",
+                        "Cloudflare tunnel recovered after " +
+                            "$previousCloudflareFailures failure(s)"
+                    )
                 }
 
-            if (previousFailures > 0) {
-                EventLogger.log(
-                    "GUARDIAN",
-                    "Engine recovered after " +
-                        "$previousFailures failure(s)"
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_CHECK",
+                    status = "HEALTHY"
+                )
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "HEALTHY",
+                    details =
+                        "core=true; cloudflare=true; " +
+                        "previousCoreFailures=$previousCoreFailures"
                 )
             }
 
-            EventLogger.logStage(
-                stage = "GUARDIAN_CHECK",
-                status = "HEALTHY",
-                details =
-                    "core=true; cloudflare=true; " +
-                    "previousFailures=$previousFailures"
-            )
+            HealthResult.UNHEALTHY -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_CHECK",
+                    status = "UNHEALTHY"
+                )
 
-            resetCloudflareFailureState()
-            return
+                handleCloudflareRepair(
+                    context = context,
+                    generation = generation
+                )
+            }
+
+            HealthResult.TIMEOUT -> {
+                /*
+                 * TIMEOUT is only returned when Shizuku is READY.
+                 * Treat as a Cloudflare failure.
+                 */
+                handleCloudflareRepair(
+                    context = context,
+                    generation = generation
+                )
+            }
+
+            HealthResult.SHIZUKU_UNAVAILABLE -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=shizuku_service_unavailable"
+                )
+            }
+
+            HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=shizuku_permission_not_granted"
+                )
+            }
         }
-
-        EventLogger.logStage(
-            stage = "GUARDIAN_CLOUDFLARE_CHECK",
-            status = "UNHEALTHY"
-        )
-
-        handleCloudflareRepair(
-            context
-        )
     }
 
     // -------------------------------------------------------------------------
@@ -423,11 +673,18 @@ object RemoteControlGuardian {
     // -------------------------------------------------------------------------
 
     private suspend fun handleCoreRepair(
-        context: Context
+        context: Context,
+        generation: Long,
+        reason: String
     ) {
+        if (!isGuardianGenerationCurrent(generation)) {
+            return
+        }
+
         EventLogger.logStage(
             stage = "GUARDIAN_CHECK",
-            status = "UNHEALTHY"
+            status = "UNHEALTHY",
+            details = "reason=$reason"
         )
 
         /*
@@ -479,7 +736,39 @@ object RemoteControlGuardian {
             return
         }
 
+        var repairAttempt: Int? = null
+        var repairDispatched = false
+
         try {
+            // Shizuku re-check #1: immediately after acquiring the lock.
+            val readiness1 =
+                checkShizukuReadiness()
+
+            if (readiness1 != ShizukuReadiness.READY) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness1
+                        ) +
+                        "_after_lock"
+                )
+
+                return
+            }
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation"
+                )
+
+                return
+            }
+
             /*
              * Re-check Manager ownership after acquiring the repair lock.
              * The state may have changed following the health check.
@@ -537,7 +826,7 @@ object RemoteControlGuardian {
                 else -> Unit
             }
 
-            val repairAttempt =
+            val attempt =
                 synchronized(
                     guardianLock
                 ) {
@@ -545,9 +834,6 @@ object RemoteControlGuardian {
                         consecutiveFailures >=
                             MAX_REPAIR_ATTEMPTS
                     ) {
-                        automaticRepairSuspended =
-                            true
-
                         null
                     } else {
                         consecutiveFailures++
@@ -556,7 +842,71 @@ object RemoteControlGuardian {
                     }
                 }
 
-            if (repairAttempt == null) {
+            if (attempt == null) {
+                /*
+                 * Ceiling reached. Perform a fresh verification with
+                 * Shizuku READY before deciding whether to suspend
+                 * and alert. Shizuku failure must not set
+                 * automaticRepairSuspended=true, and must not fire an
+                 * alert, and must not reset failure state.
+                 */
+                val verify =
+                    checkEngineHealth()
+
+                when (verify) {
+                    HealthResult.HEALTHY -> {
+                        resetFailureState()
+
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_REPAIR",
+                            status = "OK",
+                            details = "reason=recovered_at_max_attempts"
+                        )
+
+                        EventLogger.log(
+                            "GUARDIAN",
+                            "Engine recovered before suspension"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.SHIZUKU_UNAVAILABLE -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_REPAIR",
+                            status = "SKIPPED",
+                            details = "reason=shizuku_service_unavailable_at_max"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_REPAIR",
+                            status = "SKIPPED",
+                            details = "reason=shizuku_permission_not_granted_at_max"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.UNHEALTHY,
+                    HealthResult.TIMEOUT -> Unit
+                }
+
+                /*
+                 * Verification confirmed a real engine failure
+                 * while Shizuku was READY. Only now may we suspend
+                 * automatic repair and fire the alert.
+                 */
+                synchronized(
+                    guardianLock
+                ) {
+                    automaticRepairSuspended =
+                        true
+                }
+
                 EventLogger.logStage(
                     stage = "GUARDIAN_REPAIR",
                     status = "CANCELLED",
@@ -576,32 +926,65 @@ object RemoteControlGuardian {
                 )
 
                 sendAlertOnce()
+
                 return
             }
 
+            repairAttempt =
+                attempt
+
             val backoffMs =
                 repairBackoffFor(
-                    repairAttempt
+                    attempt
                 )
 
             EventLogger.logStage(
                 stage = "GUARDIAN_REPAIR",
                 status = "SCHEDULED",
                 details =
-                    "attempt=$repairAttempt; " +
+                    "attempt=$attempt; " +
                     "backoffMs=$backoffMs"
             )
 
             EventLogger.log(
                 "GUARDIAN",
                 "Engine unhealthy; repair attempt " +
-                    "#$repairAttempt scheduled after " +
+                    "#$attempt scheduled after " +
                     "${backoffMs}ms"
             )
 
             delay(
                 backoffMs
             )
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation_after_backoff"
+                )
+
+                return
+            }
+
+            // Shizuku re-check #2: after backoff.
+            val readiness2 =
+                checkShizukuReadiness()
+
+            if (readiness2 != ShizukuReadiness.READY) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness2
+                        ) +
+                        "_after_backoff"
+                )
+
+                return
+            }
 
             /*
              * Never start a repair if another lifecycle operation began
@@ -643,27 +1026,107 @@ object RemoteControlGuardian {
                 )
 
                 resetFailureState()
+
+                return
+            }
+
+            // Shizuku re-check #3: immediately before dispatch.
+            val readiness3 =
+                checkShizukuReadiness()
+
+            if (readiness3 != ShizukuReadiness.READY) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness3
+                        ) +
+                        "_before_dispatch"
+                )
+
+                return
+            }
+
+            /*
+             * Atomic final dispatch under guardianDispatchLock.
+             *
+             * This closes the race where stop() bumps guardianGeneration
+             * after our last generation check but before the Manager
+             * call actually runs. We verify generation, lifecycle and
+             * feature flag under guardianDispatchLock, and only then
+             * invoke RemoteControlManager.restart(). stop() is likewise
+             * serialized through the same lock, so either the dispatch
+             * happens before stop() (the repair goes out), or it is
+             * rejected because the generation is stale.
+             *
+             * Lock order inside this block:
+             *   guardianDispatchLock (held) -> guardianLock (brief)
+             * which is the single allowed order.
+             */
+            var dispatchAccepted =
+                false
+
+            synchronized(guardianDispatchLock) {
+                val stillCurrent =
+                    synchronized(guardianLock) {
+                        guardianGeneration ==
+                            generation
+                    }
+
+                if (
+                    stillCurrent &&
+                    !RemoteControlManager.isLifecycleBusy() &&
+                    RemoteControlManager.isEnabled(
+                        context
+                    )
+                ) {
+                    repairDispatched =
+                        true
+
+                    dispatchAccepted =
+                        true
+
+                    RemoteControlManager.restart(
+                        context = context,
+                        reason =
+                            RemoteControlManager
+                                .StartReason
+                                .GUARDIAN_REPAIR
+                    )
+                }
+            }
+
+            if (!dispatchAccepted) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "attempt=$attempt; " +
+                        "reason=stale_or_busy_before_dispatch"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Repair dispatch rejected: " +
+                        "stale generation, lifecycle busy, " +
+                        "or feature disabled"
+                )
+
                 return
             }
 
             EventLogger.logStage(
                 stage = "GUARDIAN_REPAIR",
                 status = "STARTED",
-                details = "attempt=$repairAttempt"
+                details = "attempt=$attempt"
             )
 
             EventLogger.log(
                 "GUARDIAN",
                 "Starting Guardian repair attempt " +
-                    "#$repairAttempt"
-            )
-
-            RemoteControlManager.restart(
-                context = context,
-                reason =
-                    RemoteControlManager
-                        .StartReason
-                        .GUARDIAN_REPAIR
+                    "#$attempt"
             )
 
             /*
@@ -673,6 +1136,16 @@ object RemoteControlGuardian {
             delay(
                 REPAIR_SETTLE_MS
             )
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation_after_settle"
+                )
+
+                return
+            }
 
             /*
              * If Manager still owns a lifecycle operation, do not perform
@@ -686,7 +1159,7 @@ object RemoteControlGuardian {
                     stage = "GUARDIAN_REPAIR",
                     status = "PENDING",
                     details =
-                        "attempt=$repairAttempt; " +
+                        "attempt=$attempt; " +
                         "reason=lifecycle_still_active"
                 )
 
@@ -699,40 +1172,90 @@ object RemoteControlGuardian {
                 return
             }
 
-            val recovered =
-                checkEngineHealth()
+            // Shizuku re-check #4: before the post-settle verification.
+            val readiness4 =
+                checkShizukuReadiness()
 
-            if (recovered) {
+            if (readiness4 != ShizukuReadiness.READY) {
                 EventLogger.logStage(
                     stage = "GUARDIAN_REPAIR",
-                    status = "OK",
-                    details = "attempt=$repairAttempt"
+                    status = "PENDING",
+                    details =
+                        "attempt=$attempt; " +
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness4
+                        ) +
+                        "_during_verification"
                 )
 
-                EventLogger.log(
-                    "GUARDIAN",
-                    "Repair successful on attempt " +
-                        "#$repairAttempt"
-                )
-
-                resetFailureState()
                 return
+            }
+
+            val verifyResult =
+                checkEngineHealth()
+
+            when (verifyResult) {
+                HealthResult.HEALTHY -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_REPAIR",
+                        status = "OK",
+                        details = "attempt=$attempt"
+                    )
+
+                    EventLogger.log(
+                        "GUARDIAN",
+                        "Repair successful on attempt " +
+                            "#$attempt"
+                    )
+
+                    resetFailureState()
+
+                    return
+                }
+
+                HealthResult.SHIZUKU_UNAVAILABLE -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_REPAIR",
+                        status = "PENDING",
+                        details =
+                            "attempt=$attempt; " +
+                            "reason=shizuku_service_unavailable_after_settle"
+                    )
+
+                    return
+                }
+
+                HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_REPAIR",
+                        status = "PENDING",
+                        details =
+                            "attempt=$attempt; " +
+                            "reason=shizuku_permission_not_granted_after_settle"
+                    )
+
+                    return
+                }
+
+                HealthResult.UNHEALTHY,
+                HealthResult.TIMEOUT -> Unit
             }
 
             EventLogger.logStage(
                 stage = "GUARDIAN_REPAIR",
                 status = "FAILED",
-                details = "attempt=$repairAttempt"
+                details = "attempt=$attempt"
             )
 
             EventLogger.log(
                 "GUARDIAN",
                 "Repair failed on attempt " +
-                    "#$repairAttempt"
+                    "#$attempt"
             )
 
             if (
-                repairAttempt >=
+                attempt >=
                     MAX_REPAIR_ATTEMPTS
             ) {
                 synchronized(
@@ -758,9 +1281,25 @@ object RemoteControlGuardian {
                 sendAlertOnce()
             }
         } finally {
-            repairInProgress.set(
-                false
-            )
+            /*
+             * Only mutate per-cycle state when this coroutine still
+             * belongs to the current Guardian generation. A stale
+             * finally must not clear locks for a new cycle.
+             */
+            if (isGuardianGenerationCurrent(generation)) {
+                repairInProgress.set(
+                    false
+                )
+
+                val countedAttempt =
+                    repairAttempt
+
+                if (!repairDispatched && countedAttempt != null) {
+                    revertCoreAttemptIfUndispatched(
+                        countedAttempt
+                    )
+                }
+            }
         }
     }
 
@@ -769,8 +1308,13 @@ object RemoteControlGuardian {
     // -------------------------------------------------------------------------
 
     private suspend fun handleCloudflareRepair(
-        context: Context
+        context: Context,
+        generation: Long
     ) {
+        if (!isGuardianGenerationCurrent(generation)) {
+            return
+        }
+
         val repairsSuspended =
             synchronized(
                 guardianLock
@@ -818,7 +1362,39 @@ object RemoteControlGuardian {
             return
         }
 
+        var cloudflareRepairAttempt: Int? = null
+        var repairDispatched = false
+
         try {
+            // Shizuku re-check #1: immediately after acquiring the lock.
+            val readiness1 =
+                checkShizukuReadiness()
+
+            if (readiness1 != ShizukuReadiness.READY) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness1
+                        ) +
+                        "_after_lock"
+                )
+
+                return
+            }
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation"
+                )
+
+                return
+            }
+
             if (
                 RemoteControlManager.isLifecycleBusy()
             ) {
@@ -855,28 +1431,60 @@ object RemoteControlGuardian {
                 )
 
                 resetCloudflareFailureState()
+
                 return
             }
 
-            if (
-                !checkEngineHealth()
-            ) {
+            // Shizuku re-check #2: before the pre-repair core check.
+            val readiness2 =
+                checkShizukuReadiness()
+
+            if (readiness2 != ShizukuReadiness.READY) {
                 EventLogger.logStage(
                     stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                     status = "CANCELLED",
-                    details = "reason=core_became_unhealthy"
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness2
+                        ) +
+                        "_before_core_check"
+                )
+
+                return
+            }
+
+            val coreCheckBeforeRepair =
+                checkEngineHealth()
+
+            if (coreCheckBeforeRepair != HealthResult.HEALTHY) {
+                val reason =
+                    when (coreCheckBeforeRepair) {
+                        HealthResult.SHIZUKU_UNAVAILABLE ->
+                            "shizuku_service_unavailable_before_repair"
+
+                        HealthResult.SHIZUKU_PERMISSION_DENIED ->
+                            "shizuku_permission_not_granted_before_repair"
+
+                        else ->
+                            "core_became_unhealthy"
+                    }
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=$reason"
                 )
 
                 EventLogger.log(
                     "GUARDIAN",
-                    "Cloudflare repair cancelled: " +
-                        "core became unhealthy before repair"
+                    "Cloudflare repair cancelled: $reason"
                 )
 
                 return
             }
 
-            val cloudflareRepairAttempt =
+            val attempt =
                 synchronized(
                     guardianLock
                 ) {
@@ -884,9 +1492,6 @@ object RemoteControlGuardian {
                         cloudflareConsecutiveFailures >=
                             MAX_REPAIR_ATTEMPTS
                     ) {
-                        cloudflareAutomaticRepairSuspended =
-                            true
-
                         null
                     } else {
                         cloudflareConsecutiveFailures++
@@ -895,7 +1500,71 @@ object RemoteControlGuardian {
                     }
                 }
 
-            if (cloudflareRepairAttempt == null) {
+            if (attempt == null) {
+                /*
+                 * Ceiling reached. Perform a fresh verification with
+                 * Shizuku READY before deciding whether to suspend
+                 * and alert. Shizuku failure must not set
+                 * cloudflareAutomaticRepairSuspended=true, and must
+                 * not fire an alert, and must not reset failure state.
+                 */
+                val verify =
+                    checkCloudflareHealth()
+
+                when (verify) {
+                    HealthResult.HEALTHY -> {
+                        resetCloudflareFailureState()
+
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                            status = "OK",
+                            details = "reason=recovered_at_max_attempts"
+                        )
+
+                        EventLogger.log(
+                            "GUARDIAN",
+                            "Cloudflare tunnel recovered before suspension"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.SHIZUKU_UNAVAILABLE -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                            status = "SKIPPED",
+                            details = "reason=shizuku_service_unavailable_at_max"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                            status = "SKIPPED",
+                            details = "reason=shizuku_permission_not_granted_at_max"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.UNHEALTHY,
+                    HealthResult.TIMEOUT -> Unit
+                }
+
+                /*
+                 * Verification confirmed a real tunnel failure
+                 * while Shizuku was READY. Only now may we suspend
+                 * automatic repair and fire the alert.
+                 */
+                synchronized(
+                    guardianLock
+                ) {
+                    cloudflareAutomaticRepairSuspended =
+                        true
+                }
+
                 EventLogger.logStage(
                     stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                     status = "CANCELLED",
@@ -916,32 +1585,65 @@ object RemoteControlGuardian {
                 )
 
                 sendCloudflareAlertOnce()
+
                 return
             }
 
+            cloudflareRepairAttempt =
+                attempt
+
             val backoffMs =
                 repairBackoffFor(
-                    cloudflareRepairAttempt
+                    attempt
                 )
 
             EventLogger.logStage(
                 stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                 status = "SCHEDULED",
                 details =
-                    "attempt=$cloudflareRepairAttempt; " +
+                    "attempt=$attempt; " +
                     "backoffMs=$backoffMs"
             )
 
             EventLogger.log(
                 "GUARDIAN",
                 "Cloudflare tunnel unhealthy; repair attempt " +
-                    "#$cloudflareRepairAttempt scheduled after " +
+                    "#$attempt scheduled after " +
                     "${backoffMs}ms"
             )
 
             delay(
                 backoffMs
             )
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation_after_backoff"
+                )
+
+                return
+            }
+
+            // Shizuku re-check #3: after backoff.
+            val readiness3 =
+                checkShizukuReadiness()
+
+            if (readiness3 != ShizukuReadiness.READY) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness3
+                        ) +
+                        "_after_backoff"
+                )
+
+                return
+            }
 
             if (
                 RemoteControlManager.isLifecycleBusy()
@@ -979,22 +1681,54 @@ object RemoteControlGuardian {
                 )
 
                 resetCloudflareFailureState()
+
                 return
             }
 
-            if (
-                !checkEngineHealth()
-            ) {
+            // Shizuku re-check #4: before the post-backoff core check.
+            val readiness4 =
+                checkShizukuReadiness()
+
+            if (readiness4 != ShizukuReadiness.READY) {
                 EventLogger.logStage(
                     stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                     status = "CANCELLED",
-                    details = "reason=core_unhealthy_after_backoff"
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness4
+                        ) +
+                        "_before_core_check_after_backoff"
+                )
+
+                return
+            }
+
+            val coreCheckAfterBackoff =
+                checkEngineHealth()
+
+            if (coreCheckAfterBackoff != HealthResult.HEALTHY) {
+                val reason =
+                    when (coreCheckAfterBackoff) {
+                        HealthResult.SHIZUKU_UNAVAILABLE ->
+                            "shizuku_service_unavailable_after_backoff"
+
+                        HealthResult.SHIZUKU_PERMISSION_DENIED ->
+                            "shizuku_permission_not_granted_after_backoff"
+
+                        else ->
+                            "core_unhealthy_after_backoff"
+                    }
+
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=$reason"
                 )
 
                 EventLogger.log(
                     "GUARDIAN",
-                    "Cloudflare repair cancelled after backoff: " +
-                        "core became unhealthy"
+                    "Cloudflare repair cancelled after backoff: $reason"
                 )
 
                 return
@@ -1004,44 +1738,154 @@ object RemoteControlGuardian {
              * If the tunnel recovered by itself during the backoff,
              * do not fire an unnecessary repair.
              */
-            if (
+            val cloudflareRecheck =
                 checkCloudflareHealth()
-            ) {
+
+            when (cloudflareRecheck) {
+                HealthResult.HEALTHY -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                        status = "CANCELLED",
+                        details = "reason=cloudflare_recovered_before_repair"
+                    )
+
+                    EventLogger.log(
+                        "GUARDIAN",
+                        "Cloudflare repair cancelled: tunnel recovered " +
+                            "before repair was launched"
+                    )
+
+                    resetCloudflareFailureState()
+
+                    return
+                }
+
+                HealthResult.SHIZUKU_UNAVAILABLE -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                        status = "CANCELLED",
+                        details = "reason=shizuku_service_unavailable_before_dispatch"
+                    )
+
+                    return
+                }
+
+                HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                        status = "CANCELLED",
+                        details = "reason=shizuku_permission_not_granted_before_dispatch"
+                    )
+
+                    return
+                }
+
+                HealthResult.UNHEALTHY,
+                HealthResult.TIMEOUT -> Unit
+            }
+
+            // Shizuku re-check #5: immediately before dispatch.
+            val readiness5 =
+                checkShizukuReadiness()
+
+            if (readiness5 != ShizukuReadiness.READY) {
                 EventLogger.logStage(
                     stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                     status = "CANCELLED",
-                    details = "reason=cloudflare_recovered_before_repair"
+                    details =
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness5
+                        ) +
+                        "_before_dispatch"
+                )
+
+                return
+            }
+
+            /*
+             * Atomic final dispatch under guardianDispatchLock.
+             *
+             * Same rationale as the Core repair dispatch above:
+             * serialize with stop() so that a stop() that bumps the
+             * generation cannot be bypassed by a stale dispatch.
+             *
+             * Lock order inside this block:
+             *   guardianDispatchLock (held) -> guardianLock (brief)
+             */
+            var dispatchAccepted =
+                false
+
+            synchronized(guardianDispatchLock) {
+                val stillCurrent =
+                    synchronized(guardianLock) {
+                        guardianGeneration ==
+                            generation
+                    }
+
+                if (
+                    stillCurrent &&
+                    !RemoteControlManager.isLifecycleBusy() &&
+                    RemoteControlManager.isEnabled(
+                        context
+                    )
+                ) {
+                    repairDispatched =
+                        true
+
+                    dispatchAccepted =
+                        true
+
+                    RemoteControlManager.repairPublicTunnel(
+                        context
+                    )
+                }
+            }
+
+            if (!dispatchAccepted) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details =
+                        "attempt=$attempt; " +
+                        "reason=stale_or_busy_before_dispatch"
                 )
 
                 EventLogger.log(
                     "GUARDIAN",
-                    "Cloudflare repair cancelled: tunnel recovered " +
-                        "before repair was launched"
+                    "Cloudflare repair dispatch rejected: " +
+                        "stale generation, lifecycle busy, " +
+                        "or feature disabled"
                 )
 
-                resetCloudflareFailureState()
                 return
             }
 
             EventLogger.logStage(
                 stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                 status = "STARTED",
-                details = "attempt=$cloudflareRepairAttempt"
+                details = "attempt=$attempt"
             )
 
             EventLogger.log(
                 "GUARDIAN",
                 "Starting Cloudflare-only repair attempt " +
-                    "#$cloudflareRepairAttempt"
-            )
-
-            RemoteControlManager.repairPublicTunnel(
-                context
+                    "#$attempt"
             )
 
             delay(
                 REPAIR_SETTLE_MS
             )
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation_after_settle"
+                )
+
+                return
+            }
 
             if (
                 RemoteControlManager.isLifecycleBusy()
@@ -1050,7 +1894,7 @@ object RemoteControlGuardian {
                     stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                     status = "PENDING",
                     details =
-                        "attempt=$cloudflareRepairAttempt; " +
+                        "attempt=$attempt; " +
                         "reason=lifecycle_still_active"
                 )
 
@@ -1063,62 +1907,140 @@ object RemoteControlGuardian {
                 return
             }
 
-            val coreStillHealthy =
-                checkEngineHealth()
+            // Shizuku re-check #6: before post-settle verification.
+            val readiness6 =
+                checkShizukuReadiness()
 
-            if (!coreStillHealthy) {
+            if (readiness6 != ShizukuReadiness.READY) {
                 EventLogger.logStage(
                     stage = "GUARDIAN_CLOUDFLARE_REPAIR",
-                    status = "FAILED",
+                    status = "PENDING",
                     details =
-                        "attempt=$cloudflareRepairAttempt; " +
-                        "reason=core_unhealthy_after_repair"
-                )
-
-                EventLogger.log(
-                    "GUARDIAN",
-                    "Cloudflare repair attempt " +
-                        "#$cloudflareRepairAttempt failed: " +
-                        "core became unhealthy after repair"
+                        "attempt=$attempt; " +
+                        "reason=" +
+                        shizukuReasonFor(
+                            readiness6
+                        ) +
+                        "_during_verification"
                 )
 
                 return
             }
 
-            val cloudflareRecovered =
+            val coreVerify =
+                checkEngineHealth()
+
+            if (coreVerify != HealthResult.HEALTHY) {
+                when (coreVerify) {
+                    HealthResult.SHIZUKU_UNAVAILABLE -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                            status = "PENDING",
+                            details =
+                                "attempt=$attempt; " +
+                                "reason=shizuku_service_unavailable_during_core_verify"
+                        )
+
+                        return
+                    }
+
+                    HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                            status = "PENDING",
+                            details =
+                                "attempt=$attempt; " +
+                                "reason=shizuku_permission_not_granted_during_core_verify"
+                        )
+
+                        return
+                    }
+
+                    else -> {
+                        EventLogger.logStage(
+                            stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                            status = "FAILED",
+                            details =
+                                "attempt=$attempt; " +
+                                "reason=core_unhealthy_after_repair"
+                        )
+
+                        EventLogger.log(
+                            "GUARDIAN",
+                            "Cloudflare repair attempt " +
+                                "#$attempt failed: " +
+                                "core became unhealthy after repair"
+                        )
+
+                        return
+                    }
+                }
+            }
+
+            val cloudflareVerify =
                 checkCloudflareHealth()
 
-            if (cloudflareRecovered) {
-                EventLogger.logStage(
-                    stage = "GUARDIAN_CLOUDFLARE_REPAIR",
-                    status = "OK",
-                    details = "attempt=$cloudflareRepairAttempt"
-                )
+            when (cloudflareVerify) {
+                HealthResult.HEALTHY -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                        status = "OK",
+                        details = "attempt=$attempt"
+                    )
 
-                EventLogger.log(
-                    "GUARDIAN",
-                    "Cloudflare repair successful on attempt " +
-                        "#$cloudflareRepairAttempt"
-                )
+                    EventLogger.log(
+                        "GUARDIAN",
+                        "Cloudflare repair successful on attempt " +
+                            "#$attempt"
+                    )
 
-                resetCloudflareFailureState()
-                return
+                    resetCloudflareFailureState()
+
+                    return
+                }
+
+                HealthResult.SHIZUKU_UNAVAILABLE -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                        status = "PENDING",
+                        details =
+                            "attempt=$attempt; " +
+                            "reason=shizuku_service_unavailable_after_settle"
+                    )
+
+                    return
+                }
+
+                HealthResult.SHIZUKU_PERMISSION_DENIED -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CLOUDFLARE_REPAIR",
+                        status = "PENDING",
+                        details =
+                            "attempt=$attempt; " +
+                            "reason=shizuku_permission_not_granted_after_settle"
+                    )
+
+                    return
+                }
+
+                HealthResult.UNHEALTHY,
+                HealthResult.TIMEOUT -> Unit
             }
 
             EventLogger.logStage(
                 stage = "GUARDIAN_CLOUDFLARE_REPAIR",
                 status = "FAILED",
-                details = "attempt=$cloudflareRepairAttempt"
+                details = "attempt=$attempt"
             )
 
             EventLogger.log(
                 "GUARDIAN",
                 "Cloudflare repair failed on attempt " +
-                    "#$cloudflareRepairAttempt"
+                    "#$attempt"
             )
 
             if (
-                cloudflareRepairAttempt >=
+                attempt >=
                     MAX_REPAIR_ATTEMPTS
             ) {
                 synchronized(
@@ -1144,17 +2066,46 @@ object RemoteControlGuardian {
                 sendCloudflareAlertOnce()
             }
         } finally {
-            cloudflareRepairInProgress.set(
-                false
-            )
+            if (isGuardianGenerationCurrent(generation)) {
+                cloudflareRepairInProgress.set(
+                    false
+                )
+
+                val countedAttempt =
+                    cloudflareRepairAttempt
+
+                if (!repairDispatched && countedAttempt != null) {
+                    revertCloudflareAttemptIfUndispatched(
+                        countedAttempt
+                    )
+                }
+            }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Health checks
+    // -------------------------------------------------------------------------
 
     /**
      * Runs the process health check with a timeout so a missing Shizuku
      * callback cannot block the Guardian loop indefinitely.
+     *
+     * Any false or timeout result is re-validated against Shizuku
+     * before being classified as a real engine failure.
      */
-    private suspend fun checkEngineHealth(): Boolean {
+    private suspend fun checkEngineHealth(): HealthResult {
+        val preReadiness =
+            checkShizukuReadiness()
+
+        if (preReadiness == ShizukuReadiness.BINDER_UNAVAILABLE) {
+            return HealthResult.SHIZUKU_UNAVAILABLE
+        }
+
+        if (preReadiness == ShizukuReadiness.PERMISSION_DENIED) {
+            return HealthResult.SHIZUKU_PERMISSION_DENIED
+        }
+
         val result =
             withTimeoutOrNull(
                 HEALTH_CHECK_TIMEOUT_MS
@@ -1164,6 +2115,17 @@ object RemoteControlGuardian {
             }
 
         if (result == null) {
+            val recheck =
+                checkShizukuReadiness()
+
+            if (recheck == ShizukuReadiness.BINDER_UNAVAILABLE) {
+                return HealthResult.SHIZUKU_UNAVAILABLE
+            }
+
+            if (recheck == ShizukuReadiness.PERMISSION_DENIED) {
+                return HealthResult.SHIZUKU_PERMISSION_DENIED
+            }
+
             EventLogger.logStage(
                 stage = "GUARDIAN_CHECK",
                 status = "TIMEOUT",
@@ -1176,17 +2138,46 @@ object RemoteControlGuardian {
                 "Engine health check timed out"
             )
 
-            return false
+            return HealthResult.TIMEOUT
         }
 
-        return result
+        if (result) {
+            return HealthResult.HEALTHY
+        }
+
+        val recheck =
+            checkShizukuReadiness()
+
+        if (recheck == ShizukuReadiness.BINDER_UNAVAILABLE) {
+            return HealthResult.SHIZUKU_UNAVAILABLE
+        }
+
+        if (recheck == ShizukuReadiness.PERMISSION_DENIED) {
+            return HealthResult.SHIZUKU_PERMISSION_DENIED
+        }
+
+        return HealthResult.UNHEALTHY
     }
 
     /**
      * Runs the cloudflared health check with a timeout so a missing
      * Shizuku callback cannot block the Guardian loop indefinitely.
+     *
+     * Any false or timeout result is re-validated against Shizuku
+     * before being classified as a real tunnel failure.
      */
-    private suspend fun checkCloudflareHealth(): Boolean {
+    private suspend fun checkCloudflareHealth(): HealthResult {
+        val preReadiness =
+            checkShizukuReadiness()
+
+        if (preReadiness == ShizukuReadiness.BINDER_UNAVAILABLE) {
+            return HealthResult.SHIZUKU_UNAVAILABLE
+        }
+
+        if (preReadiness == ShizukuReadiness.PERMISSION_DENIED) {
+            return HealthResult.SHIZUKU_PERMISSION_DENIED
+        }
+
         val result =
             withTimeoutOrNull(
                 HEALTH_CHECK_TIMEOUT_MS
@@ -1196,6 +2187,17 @@ object RemoteControlGuardian {
             }
 
         if (result == null) {
+            val recheck =
+                checkShizukuReadiness()
+
+            if (recheck == ShizukuReadiness.BINDER_UNAVAILABLE) {
+                return HealthResult.SHIZUKU_UNAVAILABLE
+            }
+
+            if (recheck == ShizukuReadiness.PERMISSION_DENIED) {
+                return HealthResult.SHIZUKU_PERMISSION_DENIED
+            }
+
             EventLogger.logStage(
                 stage = "GUARDIAN_CLOUDFLARE_CHECK",
                 status = "TIMEOUT",
@@ -1208,10 +2210,66 @@ object RemoteControlGuardian {
                 "Cloudflare health check timed out"
             )
 
-            return false
+            return HealthResult.TIMEOUT
         }
 
-        return result
+        if (result) {
+            return HealthResult.HEALTHY
+        }
+
+        val recheck =
+            checkShizukuReadiness()
+
+        if (recheck == ShizukuReadiness.BINDER_UNAVAILABLE) {
+            return HealthResult.SHIZUKU_UNAVAILABLE
+        }
+
+        if (recheck == ShizukuReadiness.PERMISSION_DENIED) {
+            return HealthResult.SHIZUKU_PERMISSION_DENIED
+        }
+
+        return HealthResult.UNHEALTHY
+    }
+
+    // -------------------------------------------------------------------------
+    // Attempt accounting helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Reverts a Core repair attempt reservation iff the same attempt
+     * value is still the current counter. This never drives the counter
+     * below zero and never touches a dispatched attempt.
+     */
+    private fun revertCoreAttemptIfUndispatched(
+        attempt: Int
+    ) {
+        synchronized(
+            guardianLock
+        ) {
+            if (
+                consecutiveFailures ==
+                attempt &&
+                consecutiveFailures > 0
+            ) {
+                consecutiveFailures--
+            }
+        }
+    }
+
+    private fun revertCloudflareAttemptIfUndispatched(
+        attempt: Int
+    ) {
+        synchronized(
+            guardianLock
+        ) {
+            if (
+                cloudflareConsecutiveFailures ==
+                attempt &&
+                cloudflareConsecutiveFailures > 0
+            ) {
+                cloudflareConsecutiveFailures--
+            }
+        }
     }
 
     private fun repairBackoffFor(
@@ -1228,6 +2286,25 @@ object RemoteControlGuardian {
                 THIRD_REPAIR_BACKOFF_MS
         }
     }
+
+    private fun shizukuReasonFor(
+        readiness: ShizukuReadiness
+    ): String {
+        return when (readiness) {
+            ShizukuReadiness.BINDER_UNAVAILABLE ->
+                "shizuku_service_unavailable"
+
+            ShizukuReadiness.PERMISSION_DENIED ->
+                "shizuku_permission_not_granted"
+
+            ShizukuReadiness.READY ->
+                "shizuku_ready"
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Alerts
+    // -------------------------------------------------------------------------
 
     private suspend fun sendAlertOnce() {
         val shouldSend =
@@ -1304,6 +2381,8 @@ object RemoteControlGuardian {
                     "Alert email send returned false"
                 )
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (t: Throwable) {
             EventLogger.logStage(
                 stage = "GUARDIAN_ALERT",
@@ -1403,6 +2482,8 @@ object RemoteControlGuardian {
                     "Cloudflare alert email send returned false"
                 )
             }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (t: Throwable) {
             EventLogger.logStage(
                 stage = "GUARDIAN_CLOUDFLARE_ALERT",
@@ -1425,6 +2506,10 @@ object RemoteControlGuardian {
             )
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Failure state
+    // -------------------------------------------------------------------------
 
     private fun resetFailureState() {
         synchronized(
