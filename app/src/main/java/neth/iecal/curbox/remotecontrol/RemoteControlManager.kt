@@ -4,6 +4,7 @@ import android.content.Context
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +20,18 @@ object RemoteControlManager {
 
     private const val KEY_ENABLED =
         "enabled"
+
+    private const val START_TIMEOUT_MS =
+        210_000L
+
+    private const val STOP_TIMEOUT_MS =
+        75_000L
+
+    private const val RESTART_STOP_TIMEOUT_MS =
+        75_000L
+
+    private const val CLOUDFLARE_REPAIR_TIMEOUT_MS =
+        120_000L
 
     private const val KEY_LAST_LOCAL_URL =
         "last_local_url"
@@ -227,6 +240,20 @@ object RemoteControlManager {
             "Start requested: " +
                 "reason=${reason.label}, " +
                 "generation=$startGeneration"
+        )
+
+        scheduleLifecycleTimeout(
+            generation = startGeneration,
+            expectedOperation = LifecycleOperation.STARTING,
+            timeoutMs = START_TIMEOUT_MS,
+            stage = "START",
+            timeoutMessage =
+                "Remote-control startup timed out",
+            timeoutStateFactory = {
+                RemoteControlState.Error(
+                    "Remote-control startup timed out"
+                )
+            }
         )
 
         scope.launch {
@@ -496,6 +523,20 @@ object RemoteControlManager {
                 "generation=$restartGeneration"
         )
 
+        scheduleLifecycleTimeout(
+            generation = restartGeneration,
+            expectedOperation = LifecycleOperation.RESTARTING,
+            timeoutMs = RESTART_STOP_TIMEOUT_MS,
+            stage = "RESTART",
+            timeoutMessage =
+                "Remote-control restart stop phase timed out",
+            timeoutStateFactory = {
+                RemoteControlState.Error(
+                    "Remote-control restart stop phase timed out"
+                )
+            }
+        )
+
         currentBridge.stop(
             object :
                 RemoteControlServiceBridge.SimpleCallback {
@@ -578,11 +619,17 @@ object RemoteControlManager {
     }
 
     fun stop() {
-        val currentBridge:
-            RemoteControlServiceBridge
+        var convertedRestartToStop =
+            false
 
-        val stopGeneration:
-            Long
+        var convertedRestartGeneration =
+            0L
+
+        var currentBridge:
+            RemoteControlServiceBridge? = null
+
+        var stopGeneration =
+            0L
 
         synchronized(lifecycleLock) {
             val selectedBridge =
@@ -595,78 +642,108 @@ object RemoteControlManager {
              *
              * The existing Bridge stop operation continues, but its
              * callback will no longer start the engine again.
+             *
+             * A Stop Watchdog is scheduled outside the lock so that the
+             * converted STOPPING state is released if the Bridge callback
+             * never arrives.
              */
             if (
                 activeOperation ==
                     LifecycleOperation.RESTARTING
             ) {
+                convertedRestartToStop =
+                    true
+
+                convertedRestartGeneration =
+                    operationGeneration
+
+                activeOperation =
+                    LifecycleOperation.STOPPING
+            } else {
+                /*
+                 * If a Cloudflare-only repair is in progress, do not
+                 * return. Fall through to the normal stop path so the
+                 * engine is actually stopped. operationGeneration++
+                 * below invalidates any pending Cloudflare repair
+                 * callback, and the bridge's stop path cancels its
+                 * internal repair generation as well.
+                 */
+                if (
+                    activeOperation ==
+                        LifecycleOperation.CLOUDFLARE_REPAIRING
+                ) {
+                    EventLogger.log(
+                        "SERVICE",
+                        "Stop requested during Cloudflare repair; " +
+                            "repair callback will be invalidated and " +
+                            "engine will stop normally"
+                    )
+                }
+
+                if (
+                    activeOperation ==
+                        LifecycleOperation.STOPPING ||
+                    _state.value is
+                        RemoteControlState.Stopping
+                ) {
+                    EventLogger.log(
+                        "SERVICE",
+                        "Stop skipped: stop already in progress"
+                    )
+
+                    return
+                }
+
+                if (
+                    activeOperation ==
+                        LifecycleOperation.IDLE &&
+                    _state.value is
+                        RemoteControlState.Idle
+                ) {
+                    return
+                }
+
+                operationGeneration++
+                stopGeneration =
+                    operationGeneration
+
                 activeOperation =
                     LifecycleOperation.STOPPING
 
-                EventLogger.log(
-                    "SERVICE",
-                    "Pending restart cancelled; " +
-                        "stop will complete normally"
-                )
-
-                return
-            }
-
-            /*
-             * If a Cloudflare-only repair is in progress, do not return.
-             * Fall through to the normal stop path so the engine is
-             * actually stopped. operationGeneration++ below invalidates
-             * any pending Cloudflare repair callback, and the bridge's
-             * stop path cancels its internal repair generation as well.
-             */
-            if (
-                activeOperation ==
-                    LifecycleOperation.CLOUDFLARE_REPAIRING
-            ) {
-                EventLogger.log(
-                    "SERVICE",
-                    "Stop requested during Cloudflare repair; " +
-                        "repair callback will be invalidated and " +
-                        "engine will stop normally"
-                )
-            }
-
-            if (
-                activeOperation ==
-                    LifecycleOperation.STOPPING ||
-                _state.value is
+                _state.value =
                     RemoteControlState.Stopping
-            ) {
-                EventLogger.log(
-                    "SERVICE",
-                    "Stop skipped: stop already in progress"
-                )
 
-                return
+                currentBridge =
+                    selectedBridge
             }
-
-            if (
-                activeOperation ==
-                    LifecycleOperation.IDLE &&
-                _state.value is
-                    RemoteControlState.Idle
-            ) {
-                return
-            }
-
-            operationGeneration++
-            stopGeneration =
-                operationGeneration
-
-            activeOperation =
-                LifecycleOperation.STOPPING
-
-            _state.value =
-                RemoteControlState.Stopping
-
-            currentBridge =
-                selectedBridge
         }
+
+        if (convertedRestartToStop) {
+            EventLogger.log(
+                "SERVICE",
+                "Pending restart cancelled; " +
+                    "stop will complete normally"
+            )
+
+            scheduleLifecycleTimeout(
+                generation = convertedRestartGeneration,
+                expectedOperation = LifecycleOperation.STOPPING,
+                timeoutMs = STOP_TIMEOUT_MS,
+                stage = "STOP",
+                timeoutMessage =
+                    "Remote-control stop timed out; shutdown could not be verified",
+                timeoutStateFactory = {
+                    RemoteControlState.Error(
+                        "Remote-control stop timed out; shutdown could not be verified"
+                    )
+                }
+            )
+
+            return
+        }
+
+        val bridgeToUse =
+            currentBridge ?: return
 
         EventLogger.log(
             "SERVICE",
@@ -674,7 +751,21 @@ object RemoteControlManager {
                 "generation=$stopGeneration"
         )
 
-        currentBridge.stop(
+        scheduleLifecycleTimeout(
+            generation = stopGeneration,
+            expectedOperation = LifecycleOperation.STOPPING,
+            timeoutMs = STOP_TIMEOUT_MS,
+            stage = "STOP",
+            timeoutMessage =
+                "Remote-control stop timed out; shutdown could not be verified",
+            timeoutStateFactory = {
+                RemoteControlState.Error(
+                    "Remote-control stop timed out; shutdown could not be verified"
+                )
+            }
+        )
+
+        bridgeToUse.stop(
             object :
                 RemoteControlServiceBridge.SimpleCallback {
 
@@ -835,6 +926,22 @@ object RemoteControlManager {
             stage = "CLOUDFLARE_REPAIR_MANAGER",
             status = "REQUESTED",
             details = "generation=$repairGeneration"
+        )
+
+        scheduleLifecycleTimeout(
+            generation = repairGeneration,
+            expectedOperation =
+                LifecycleOperation.CLOUDFLARE_REPAIRING,
+            timeoutMs = CLOUDFLARE_REPAIR_TIMEOUT_MS,
+            stage = "CLOUDFLARE_REPAIR_MANAGER",
+            timeoutMessage =
+                "Cloudflare public-tunnel repair timed out",
+            timeoutStateFactory = {
+                RemoteControlState.Ready(
+                    localUrl = currentLocalUrl,
+                    publicUrl = currentPublicUrl
+                )
+            }
         )
 
         selectedBridge.restartCloudflaredOnly(
@@ -1185,6 +1292,80 @@ object RemoteControlManager {
             .replace('\r', ' ')
             .trim()
             .take(300)
+    }
+
+    private fun scheduleLifecycleTimeout(
+        generation: Long,
+        expectedOperation: LifecycleOperation,
+        timeoutMs: Long,
+        stage: String,
+        timeoutMessage: String,
+        timeoutStateFactory: () -> RemoteControlState
+    ) {
+        scope.launch {
+            delay(timeoutMs)
+
+            var accepted = false
+
+            synchronized(lifecycleLock) {
+                if (
+                    operationGeneration == generation &&
+                    activeOperation == expectedOperation
+                ) {
+                    operationGeneration++
+
+                    when (expectedOperation) {
+                        LifecycleOperation.STARTING,
+                        LifecycleOperation.STOPPING,
+                        LifecycleOperation.RESTARTING -> {
+                            currentLocalUrl =
+                                null
+
+                            currentPublicUrl =
+                                null
+                        }
+
+                        LifecycleOperation.CLOUDFLARE_REPAIRING -> {
+                            /*
+                             * Core and Local may still be healthy.
+                             * Preserve existing URLs.
+                             */
+                        }
+
+                        LifecycleOperation.IDLE -> {
+                            /*
+                             * No lifecycle operation is active.
+                             */
+                        }
+                    }
+
+                    activeOperation =
+                        LifecycleOperation.IDLE
+
+                    _state.value =
+                        timeoutStateFactory()
+
+                    accepted = true
+                }
+            }
+
+            if (accepted) {
+                EventLogger.logStage(
+                    stage = stage,
+                    status = "TIMEOUT",
+                    details =
+                        "generation=$generation; " +
+                        "operation=$expectedOperation; " +
+                        "timeoutMs=$timeoutMs; " +
+                        "reason=${safeLogSummary(timeoutMessage)}"
+                )
+
+                EventLogger.log(
+                    "SERVICE",
+                    "$timeoutMessage: generation=$generation, timeoutMs=$timeoutMs"
+                )
+            }
+        }
     }
 
     private fun handleSuccessfulLinks(
