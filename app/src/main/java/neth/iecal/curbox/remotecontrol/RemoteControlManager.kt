@@ -1,6 +1,7 @@
 package neth.iecal.curbox.remotecontrol
 
 import android.content.Context
+import android.content.pm.PackageManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import rikka.shizuku.Shizuku
 import java.io.File
 import java.io.FileOutputStream
 
@@ -33,6 +35,12 @@ object RemoteControlManager {
     private const val CLOUDFLARE_REPAIR_TIMEOUT_MS =
         120_000L
 
+    private const val SHIZUKU_AUTO_START_MAX_ATTEMPTS =
+        6
+
+    private const val SHIZUKU_AUTO_START_RETRY_DELAY_MS =
+        2_000L
+
     private const val KEY_LAST_LOCAL_URL =
         "last_local_url"
 
@@ -43,6 +51,9 @@ object RemoteControlManager {
         CoroutineScope(Dispatchers.IO)
 
     private val lifecycleLock =
+        Any()
+
+    private val bridgeDispatchLock =
         Any()
 
     private val _state =
@@ -258,6 +269,111 @@ object RemoteControlManager {
 
         scope.launch {
             try {
+                if (!isCurrentOperation(
+                        generation = startGeneration,
+                        expectedOperation =
+                            LifecycleOperation.STARTING
+                    )
+                ) {
+                    EventLogger.logStage(
+                        stage = "SHIZUKU_READY",
+                        status = "CANCELLED",
+                        details =
+                            "generation=$startGeneration; " +
+                            "reason=stale_before_readiness"
+                    )
+
+                    return@launch
+                }
+
+                val readiness: ShizukuReadiness =
+                    if (reason == StartReason.AUTO_START) {
+                        EventLogger.logStage(
+                            stage = "SHIZUKU_READY",
+                            status = "STARTED",
+                            details =
+                                "generation=$startGeneration; " +
+                                "reason=${reason.label}"
+                        )
+
+                        awaitShizukuReadyForAutoStart(
+                            generation = startGeneration,
+                            reason = reason
+                        )
+                    } else {
+                        EventLogger.logStage(
+                            stage = "SHIZUKU_READY",
+                            status = "STARTED",
+                            details =
+                                "generation=$startGeneration; " +
+                                "reason=${reason.label}"
+                        )
+
+                        val single =
+                            checkShizukuReadiness()
+
+                        EventLogger.logStage(
+                            stage = "SHIZUKU_READY",
+                            status =
+                                if (single ==
+                                    ShizukuReadiness.READY
+                                ) {
+                                    "OK"
+                                } else {
+                                    "FAILED"
+                                },
+                            details =
+                                "generation=$startGeneration; " +
+                                "reason=${reason.label}; " +
+                                "result=${single.name}"
+                        )
+
+                        single
+                    }
+
+                if (!isCurrentOperation(
+                        generation = startGeneration,
+                        expectedOperation =
+                            LifecycleOperation.STARTING
+                    )
+                ) {
+                    EventLogger.logStage(
+                        stage = "SHIZUKU_READY",
+                        status = "CANCELLED",
+                        details =
+                            "generation=$startGeneration; " +
+                            "reason=stale_after_readiness"
+                    )
+
+                    return@launch
+                }
+
+                when (readiness) {
+                    ShizukuReadiness.BINDER_UNAVAILABLE -> {
+                        finishStartWithError(
+                            generation = startGeneration,
+                            message =
+                                "Shizuku service is unavailable"
+                        )
+
+                        return@launch
+                    }
+
+                    ShizukuReadiness.PERMISSION_DENIED -> {
+                        finishStartWithError(
+                            generation = startGeneration,
+                            message =
+                                "Shizuku permission is not granted"
+                        )
+
+                        return@launch
+                    }
+
+                    ShizukuReadiness.READY -> {
+                        // Continue
+                    }
+                }
+
                 EventLogger.logStage(
                     stage = "STAGING",
                     status = "STARTED",
@@ -329,7 +445,24 @@ object RemoteControlManager {
                     return@launch
                 }
 
-                currentBridge.start(
+                if (!isCurrentOperation(
+                        generation = startGeneration,
+                        expectedOperation =
+                            LifecycleOperation.STARTING
+                    )
+                ) {
+                    EventLogger.logStage(
+                        stage = "START",
+                        status = "CANCELLED",
+                        details =
+                            "generation=$startGeneration; " +
+                            "reason=stale_before_bridge_start"
+                    )
+
+                    return@launch
+                }
+
+                val startCallback =
                     object :
                         RemoteControlServiceBridge.StartCallback {
 
@@ -428,7 +561,40 @@ object RemoteControlManager {
                             )
                         }
                     }
-                )
+
+                var bridgeStartDispatched =
+                    false
+
+                synchronized(bridgeDispatchLock) {
+                    val stillCurrent =
+                        synchronized(lifecycleLock) {
+                            operationGeneration ==
+                                startGeneration &&
+                                activeOperation ==
+                                    LifecycleOperation.STARTING
+                        }
+
+                    if (stillCurrent) {
+                        currentBridge.start(
+                            startCallback
+                        )
+
+                        bridgeStartDispatched =
+                            true
+                    }
+                }
+
+                if (!bridgeStartDispatched) {
+                    EventLogger.logStage(
+                        stage = "START",
+                        status = "CANCELLED",
+                        details =
+                            "generation=$startGeneration; " +
+                            "reason=stale_before_bridge_start"
+                    )
+
+                    return@launch
+                }
             } catch (t: Throwable) {
                 finishStartWithError(
                     generation =
@@ -457,36 +623,25 @@ object RemoteControlManager {
         val appContext =
             context.applicationContext
 
-        val currentBridge:
-            RemoteControlServiceBridge
+        var currentBridge:
+            RemoteControlServiceBridge? = null
 
-        val restartGeneration:
-            Long
+        var restartGeneration =
+            0L
+
+        var bridgeMissing =
+            false
+
+        var restartAccepted =
+            false
 
         synchronized(lifecycleLock) {
             val selectedBridge =
                 bridge
 
             if (selectedBridge == null) {
-                EventLogger.log(
-                    "SERVICE",
-                    "Restart converted to start: " +
-                        "bridge unavailable, " +
-                        "reason=${reason.label}"
-                )
-
-                activeOperation =
-                    LifecycleOperation.IDLE
-
-                start(
-                    context = appContext,
-                    reason = reason
-                )
-
-                return
-            }
-
-            if (
+                bridgeMissing = true
+            } else if (
                 activeOperation != LifecycleOperation.IDLE ||
                 _state.value is RemoteControlState.Starting ||
                 _state.value is RemoteControlState.Stopping
@@ -500,31 +655,60 @@ object RemoteControlManager {
                 )
 
                 return
+            } else {
+                operationGeneration++
+                restartGeneration =
+                    operationGeneration
+
+                activeOperation =
+                    LifecycleOperation.RESTARTING
+
+                _state.value =
+                    RemoteControlState.Stopping
+
+                currentBridge =
+                    selectedBridge
+
+                restartAccepted =
+                    true
             }
-
-            operationGeneration++
-            restartGeneration =
-                operationGeneration
-
-            activeOperation =
-                LifecycleOperation.RESTARTING
-
-            _state.value =
-                RemoteControlState.Stopping
-
-            currentBridge =
-                selectedBridge
         }
+
+        if (bridgeMissing) {
+            EventLogger.log(
+                "SERVICE",
+                "Restart converted to start: " +
+                    "bridge unavailable, " +
+                    "reason=${reason.label}"
+            )
+
+            start(
+                context = appContext,
+                reason = reason
+            )
+
+            return
+        }
+
+        if (!restartAccepted) {
+            return
+        }
+
+        val bridgeToUse =
+            currentBridge ?: return
+
+        val restartGen =
+            restartGeneration
 
         EventLogger.log(
             "SERVICE",
             "Restart requested: " +
                 "reason=${reason.label}, " +
-                "generation=$restartGeneration"
+                "generation=$restartGen"
         )
 
         scheduleLifecycleTimeout(
-            generation = restartGeneration,
+            generation = restartGen,
             expectedOperation = LifecycleOperation.RESTARTING,
             timeoutMs = RESTART_STOP_TIMEOUT_MS,
             stage = "RESTART",
@@ -537,7 +721,7 @@ object RemoteControlManager {
             }
         )
 
-        currentBridge.stop(
+        val restartCallback =
             object :
                 RemoteControlServiceBridge.SimpleCallback {
 
@@ -545,77 +729,199 @@ object RemoteControlManager {
                     success: Boolean,
                     message: String?
                 ) {
-                    val shouldRestart =
-                        synchronized(
-                            lifecycleLock
+                    var action =
+                        RestartCallbackAction.IGNORE
+
+                    var errorText:
+                        String? = null
+
+                    synchronized(lifecycleLock) {
+                        if (
+                            operationGeneration ==
+                                restartGen
                         ) {
-                            if (
-                                operationGeneration !=
-                                    restartGeneration
-                            ) {
-                                false
-                            } else {
-                                val restartStillRequested =
-                                    activeOperation ==
-                                        LifecycleOperation.RESTARTING
+                            when (activeOperation) {
+                                LifecycleOperation.RESTARTING -> {
+                                    if (success) {
+                                        currentLocalUrl =
+                                            null
 
-                                currentLocalUrl =
-                                    null
+                                        currentPublicUrl =
+                                            null
 
-                                currentPublicUrl =
-                                    null
+                                        activeOperation =
+                                            LifecycleOperation.IDLE
 
-                                _state.value =
-                                    RemoteControlState.Idle
+                                        _state.value =
+                                            RemoteControlState.Idle
 
-                                activeOperation =
-                                    LifecycleOperation.IDLE
+                                        action =
+                                            RestartCallbackAction.START
+                                    } else {
+                                        currentLocalUrl =
+                                            null
 
-                                restartStillRequested
+                                        currentPublicUrl =
+                                            null
+
+                                        activeOperation =
+                                            LifecycleOperation.IDLE
+
+                                        errorText =
+                                            message
+                                                ?: "Failed to stop engine before restart"
+
+                                        _state.value =
+                                            RemoteControlState.Error(
+                                                errorText!!
+                                            )
+
+                                        action =
+                                            RestartCallbackAction.STOP_FAILED
+                                    }
+                                }
+
+                                LifecycleOperation.STOPPING -> {
+                                    if (success) {
+                                        currentLocalUrl =
+                                            null
+
+                                        currentPublicUrl =
+                                            null
+
+                                        activeOperation =
+                                            LifecycleOperation.IDLE
+
+                                        _state.value =
+                                            RemoteControlState.Idle
+
+                                        action =
+                                            RestartCallbackAction.CONVERTED_STOP_OK
+                                    } else {
+                                        currentLocalUrl =
+                                            null
+
+                                        currentPublicUrl =
+                                            null
+
+                                        activeOperation =
+                                            LifecycleOperation.IDLE
+
+                                        errorText =
+                                            message
+                                                ?: "Failed to stop remote-control engine"
+
+                                        _state.value =
+                                            RemoteControlState.Error(
+                                                errorText!!
+                                            )
+
+                                        action =
+                                            RestartCallbackAction.CONVERTED_STOP_FAILED
+                                    }
+                                }
+
+                                else -> {
+                                    // Stale operation - ignore.
+                                }
                             }
                         }
-
-                    if (!shouldRestart) {
-                        EventLogger.log(
-                            "SERVICE",
-                            "Restart continuation skipped: " +
-                                "generation=$restartGeneration"
-                        )
-
-                        return
                     }
 
-                    if (!success) {
-                        EventLogger.log(
-                            "SERVICE",
-                            "Restart stop phase reported failure: " +
-                                (message ?: "No details")
-                        )
+                    when (action) {
+                        RestartCallbackAction.START -> {
+                            EventLogger.logStage(
+                                stage = "RESTART",
+                                status = "STOP_OK",
+                                details =
+                                    "generation=$restartGen; " +
+                                    "reason=${reason.label}"
+                            )
 
-                        synchronized(lifecycleLock) {
-                            _state.value =
-                                RemoteControlState.Error(
-                                    message
-                                        ?: "Failed to stop engine before restart"
-                                )
+                            start(
+                                context = appContext,
+                                reason = reason
+                            )
                         }
 
-                        return
+                        RestartCallbackAction.STOP_FAILED -> {
+                            EventLogger.logStage(
+                                stage = "RESTART",
+                                status = "STOP_FAILED",
+                                details =
+                                    "generation=$restartGen; " +
+                                    "reason=${safeLogSummary(
+                                        errorText ?: "unknown"
+                                    )}"
+                            )
+
+                            EventLogger.log(
+                                "SERVICE",
+                                "Restart stop phase reported failure: " +
+                                    (errorText ?: "No details")
+                            )
+                        }
+
+                        RestartCallbackAction.CONVERTED_STOP_OK -> {
+                            EventLogger.logStage(
+                                stage = "RESTART",
+                                status = "CONVERTED_TO_STOP",
+                                details =
+                                    "generation=$restartGen; " +
+                                    "result=success"
+                            )
+
+                            EventLogger.log(
+                                "SERVICE",
+                                "Pending restart cancelled; " +
+                                    "stop completed successfully"
+                            )
+                        }
+
+                        RestartCallbackAction.CONVERTED_STOP_FAILED -> {
+                            EventLogger.logStage(
+                                stage = "RESTART",
+                                status = "CONVERTED_TO_STOP",
+                                details =
+                                    "generation=$restartGen; " +
+                                    "result=failure; " +
+                                    "reason=${safeLogSummary(
+                                        errorText ?: "unknown"
+                                    )}"
+                            )
+
+                            EventLogger.log(
+                                "SERVICE",
+                                "Pending restart cancelled; " +
+                                    "stop failed: " +
+                                    (errorText ?: "No details")
+                            )
+                        }
+
+                        RestartCallbackAction.IGNORE -> {
+                            EventLogger.logStage(
+                                stage = "RESTART",
+                                status = "CANCELLED",
+                                details =
+                                    "generation=$restartGen; " +
+                                    "reason=stale_callback"
+                            )
+
+                            EventLogger.log(
+                                "SERVICE",
+                                "Restart continuation skipped: " +
+                                    "generation=$restartGen"
+                            )
+                        }
                     }
-
-                    EventLogger.log(
-                        "SERVICE",
-                        "Restart stop phase completed: " +
-                            "generation=$restartGeneration"
-                    )
-
-                    start(
-                        context = appContext,
-                        reason = reason
-                    )
                 }
             }
-        )
+
+        synchronized(bridgeDispatchLock) {
+            bridgeToUse.stop(
+                restartCallback
+            )
+        }
     }
 
     fun stop() {
@@ -630,6 +936,9 @@ object RemoteControlManager {
 
         var stopGeneration =
             0L
+
+        var shouldScheduleBridgeStop =
+            false
 
         synchronized(lifecycleLock) {
             val selectedBridge =
@@ -715,6 +1024,9 @@ object RemoteControlManager {
 
                 currentBridge =
                     selectedBridge
+
+                shouldScheduleBridgeStop =
+                    true
             }
         }
 
@@ -742,17 +1054,24 @@ object RemoteControlManager {
             return
         }
 
+        if (!shouldScheduleBridgeStop) {
+            return
+        }
+
         val bridgeToUse =
             currentBridge ?: return
+
+        val stopGen =
+            stopGeneration
 
         EventLogger.log(
             "SERVICE",
             "Stop requested: " +
-                "generation=$stopGeneration"
+                "generation=$stopGen"
         )
 
         scheduleLifecycleTimeout(
-            generation = stopGeneration,
+            generation = stopGen,
             expectedOperation = LifecycleOperation.STOPPING,
             timeoutMs = STOP_TIMEOUT_MS,
             stage = "STOP",
@@ -765,7 +1084,7 @@ object RemoteControlManager {
             }
         )
 
-        bridgeToUse.stop(
+        val stopCallback =
             object :
                 RemoteControlServiceBridge.SimpleCallback {
 
@@ -779,7 +1098,7 @@ object RemoteControlManager {
                         ) {
                             if (
                                 operationGeneration !=
-                                    stopGeneration ||
+                                    stopGen ||
                                 activeOperation !=
                                     LifecycleOperation.STOPPING
                             ) {
@@ -812,7 +1131,7 @@ object RemoteControlManager {
                         EventLogger.log(
                             "SERVICE",
                             "Stop callback ignored: " +
-                                "stale generation=$stopGeneration"
+                                "stale generation=$stopGen"
                         )
 
                         return
@@ -822,7 +1141,7 @@ object RemoteControlManager {
                         EventLogger.log(
                             "SERVICE",
                             "Stopped successfully: " +
-                                "generation=$stopGeneration"
+                                "generation=$stopGen"
                         )
                     } else {
                         EventLogger.log(
@@ -833,7 +1152,12 @@ object RemoteControlManager {
                     }
                 }
             }
-        )
+
+        synchronized(bridgeDispatchLock) {
+            bridgeToUse.stop(
+                stopCallback
+            )
+        }
     }
 
     /**
@@ -944,7 +1268,7 @@ object RemoteControlManager {
             }
         )
 
-        selectedBridge.restartCloudflaredOnly(
+        val repairCallback =
             object :
                 RemoteControlServiceBridge.CloudflareRepairCallback {
 
@@ -1065,29 +1389,78 @@ object RemoteControlManager {
                     )
                 }
             }
-        )
+
+        var repairDispatched =
+            false
+
+        synchronized(bridgeDispatchLock) {
+            val stillCurrent =
+                synchronized(lifecycleLock) {
+                    operationGeneration ==
+                        repairGeneration &&
+                        activeOperation ==
+                            LifecycleOperation.CLOUDFLARE_REPAIRING
+                }
+
+            if (stillCurrent) {
+                selectedBridge.restartCloudflaredOnly(
+                    repairCallback
+                )
+
+                repairDispatched =
+                    true
+            }
+        }
+
+        if (!repairDispatched) {
+            EventLogger.logStage(
+                stage = "CLOUDFLARE_REPAIR_MANAGER",
+                status = "CANCELLED",
+                details =
+                    "generation=$repairGeneration; " +
+                    "reason=stale_before_bridge_dispatch"
+            )
+
+            return
+        }
     }
 
     fun refresh() {
-        val currentBridge =
-            synchronized(lifecycleLock) {
-                if (
-                    activeOperation !=
-                        LifecycleOperation.IDLE
-                ) {
-                    null
-                } else {
-                    bridge
-                }
-            } ?: return
+        val refreshGeneration: Long
+        val currentBridge: RemoteControlServiceBridge
+
+        synchronized(lifecycleLock) {
+            if (
+                activeOperation !=
+                    LifecycleOperation.IDLE
+            ) {
+                return
+            }
+
+            val bridgeOrNull =
+                bridge ?: return
+
+            refreshGeneration =
+                operationGeneration
+
+            currentBridge =
+                bridgeOrNull
+        }
 
         currentBridge.isRunning { running ->
             synchronized(lifecycleLock) {
                 if (
+                    operationGeneration !=
+                        refreshGeneration
+                ) {
+                    return@synchronized
+                }
+
+                if (
                     activeOperation !=
                         LifecycleOperation.IDLE
                 ) {
-                    return@isRunning
+                    return@synchronized
                 }
 
                 val currentState =
@@ -1167,8 +1540,10 @@ object RemoteControlManager {
             CompletableDeferred<Boolean>()
 
         currentBridge.isRunning { running ->
-            if (!deferred.isCompleted) {
+            try {
                 deferred.complete(running)
+            } catch (_: Throwable) {
+                // Ignore duplicate or late completions.
             }
         }
 
@@ -1193,8 +1568,10 @@ object RemoteControlManager {
             CompletableDeferred<Boolean>()
 
         currentBridge.isCloudflaredRunning { running ->
-            if (!deferred.isCompleted) {
+            try {
                 deferred.complete(running)
+            } catch (_: Throwable) {
+                // Ignore duplicate or late completions.
             }
         }
 
@@ -1218,6 +1595,158 @@ object RemoteControlManager {
                 activeOperation ==
                     expectedOperation
         }
+    }
+
+    private fun checkShizukuReadiness():
+        ShizukuReadiness {
+        val binderReady =
+            try {
+                Shizuku.pingBinder()
+            } catch (_: Throwable) {
+                return ShizukuReadiness.BINDER_UNAVAILABLE
+            }
+
+        if (!binderReady) {
+            return ShizukuReadiness.BINDER_UNAVAILABLE
+        }
+
+        return try {
+            val permission =
+                Shizuku.checkSelfPermission()
+
+            if (
+                permission ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                ShizukuReadiness.READY
+            } else {
+                ShizukuReadiness.PERMISSION_DENIED
+            }
+        } catch (_: Throwable) {
+            ShizukuReadiness.BINDER_UNAVAILABLE
+        }
+    }
+
+    private suspend fun awaitShizukuReadyForAutoStart(
+        generation: Long,
+        reason: StartReason
+    ): ShizukuReadiness {
+        var attempt = 0
+
+        while (
+            attempt <
+            SHIZUKU_AUTO_START_MAX_ATTEMPTS
+        ) {
+            attempt++
+
+            val readiness =
+                checkShizukuReadiness()
+
+            if (
+                readiness ==
+                ShizukuReadiness.READY
+            ) {
+                EventLogger.logStage(
+                    stage = "SHIZUKU_READY",
+                    status = "OK",
+                    details =
+                        "generation=$generation; " +
+                        "reason=${reason.label}; " +
+                        "attempt=$attempt"
+                )
+
+                return readiness
+            }
+
+            if (
+                readiness ==
+                ShizukuReadiness.PERMISSION_DENIED
+            ) {
+                EventLogger.logStage(
+                    stage = "SHIZUKU_READY",
+                    status = "FAILED",
+                    details =
+                        "generation=$generation; " +
+                        "reason=${reason.label}; " +
+                        "attempt=$attempt; " +
+                        "result=permission_denied"
+                )
+
+                return readiness
+            }
+
+            // BINDER_UNAVAILABLE
+            if (
+                attempt >=
+                SHIZUKU_AUTO_START_MAX_ATTEMPTS
+            ) {
+                EventLogger.logStage(
+                    stage = "SHIZUKU_READY",
+                    status = "FAILED",
+                    details =
+                        "generation=$generation; " +
+                        "reason=${reason.label}; " +
+                        "attempt=$attempt; " +
+                        "result=binder_unavailable"
+                )
+
+                return readiness
+            }
+
+            if (!isCurrentOperation(
+                    generation = generation,
+                    expectedOperation =
+                        LifecycleOperation.STARTING
+                )
+            ) {
+                EventLogger.logStage(
+                    stage = "SHIZUKU_READY",
+                    status = "CANCELLED",
+                    details =
+                        "generation=$generation; " +
+                        "reason=${reason.label}; " +
+                        "attempt=$attempt; " +
+                        "stage=before_delay"
+                )
+
+                return ShizukuReadiness.BINDER_UNAVAILABLE
+            }
+
+            EventLogger.logStage(
+                stage = "SHIZUKU_READY",
+                status = "RETRY",
+                details =
+                    "generation=$generation; " +
+                    "reason=${reason.label}; " +
+                    "attempt=$attempt; " +
+                    "delayMs=$SHIZUKU_AUTO_START_RETRY_DELAY_MS"
+            )
+
+            delay(
+                SHIZUKU_AUTO_START_RETRY_DELAY_MS
+            )
+
+            if (!isCurrentOperation(
+                    generation = generation,
+                    expectedOperation =
+                        LifecycleOperation.STARTING
+                )
+            ) {
+                EventLogger.logStage(
+                    stage = "SHIZUKU_READY",
+                    status = "CANCELLED",
+                    details =
+                        "generation=$generation; " +
+                        "reason=${reason.label}; " +
+                        "attempt=$attempt; " +
+                        "stage=after_delay"
+                )
+
+                return ShizukuReadiness.BINDER_UNAVAILABLE
+            }
+        }
+
+        return ShizukuReadiness.BINDER_UNAVAILABLE
     }
 
     private fun finishStartWithError(
@@ -1302,6 +1831,22 @@ object RemoteControlManager {
         timeoutMessage: String,
         timeoutStateFactory: () -> RemoteControlState
     ) {
+        if (
+            expectedOperation ==
+            LifecycleOperation.STARTING
+        ) {
+            scheduleStartTimeout(
+                generation = generation,
+                timeoutMs = timeoutMs,
+                stage = stage,
+                timeoutMessage = timeoutMessage,
+                timeoutStateFactory =
+                    timeoutStateFactory
+            )
+
+            return
+        }
+
         scope.launch {
             delay(timeoutMs)
 
@@ -1315,7 +1860,6 @@ object RemoteControlManager {
                     operationGeneration++
 
                     when (expectedOperation) {
-                        LifecycleOperation.STARTING,
                         LifecycleOperation.STOPPING,
                         LifecycleOperation.RESTARTING -> {
                             currentLocalUrl =
@@ -1329,6 +1873,12 @@ object RemoteControlManager {
                             /*
                              * Core and Local may still be healthy.
                              * Preserve existing URLs.
+                             */
+                        }
+
+                        LifecycleOperation.STARTING -> {
+                            /*
+                             * Handled by scheduleStartTimeout.
                              */
                         }
 
@@ -1363,6 +1913,260 @@ object RemoteControlManager {
                 EventLogger.log(
                     "SERVICE",
                     "$timeoutMessage: generation=$generation, timeoutMs=$timeoutMs"
+                )
+            }
+        }
+    }
+
+    private fun scheduleStartTimeout(
+        generation: Long,
+        timeoutMs: Long,
+        stage: String,
+        timeoutMessage: String,
+        timeoutStateFactory: () -> RemoteControlState
+    ) {
+        scope.launch {
+            delay(timeoutMs)
+
+            var bridgeForCleanup:
+                RemoteControlServiceBridge? = null
+
+            var cleanupGeneration =
+                0L
+
+            var accepted =
+                false
+
+            synchronized(lifecycleLock) {
+                if (
+                    operationGeneration == generation &&
+                    activeOperation ==
+                        LifecycleOperation.STARTING
+                ) {
+                    operationGeneration++
+
+                    cleanupGeneration =
+                        operationGeneration
+
+                    currentLocalUrl =
+                        null
+
+                    currentPublicUrl =
+                        null
+
+                    /*
+                     * Transition to STOPPING rather than IDLE so that
+                     * no new Start can begin while the Bridge cleanup
+                     * is still running.
+                     */
+                    activeOperation =
+                        LifecycleOperation.STOPPING
+
+                    _state.value =
+                        timeoutStateFactory()
+
+                    bridgeForCleanup =
+                        bridge
+
+                    accepted =
+                        true
+                }
+            }
+
+            if (!accepted) {
+                return@launch
+            }
+
+            EventLogger.logStage(
+                stage = stage,
+                status = "TIMEOUT",
+                details =
+                    "generation=$generation; " +
+                    "operation=STARTING; " +
+                    "timeoutMs=$timeoutMs; " +
+                    "reason=${safeLogSummary(timeoutMessage)}"
+            )
+
+            EventLogger.log(
+                "SERVICE",
+                "$timeoutMessage: generation=$generation, timeoutMs=$timeoutMs"
+            )
+
+            EventLogger.logStage(
+                stage = "START_TIMEOUT_CLEANUP",
+                status = "STARTED",
+                details =
+                    "generation=$cleanupGeneration"
+            )
+
+            scheduleStartTimeoutCleanupWatchdog(
+                cleanupGeneration =
+                    cleanupGeneration
+            )
+
+            val bridgeRef =
+                bridgeForCleanup
+
+            if (bridgeRef == null) {
+                var released =
+                    false
+
+                synchronized(lifecycleLock) {
+                    if (
+                        operationGeneration ==
+                        cleanupGeneration &&
+                        activeOperation ==
+                            LifecycleOperation.STOPPING
+                    ) {
+                        operationGeneration++
+
+                        activeOperation =
+                            LifecycleOperation.IDLE
+
+                        released =
+                            true
+                    }
+                }
+
+                if (released) {
+                    EventLogger.logStage(
+                        stage =
+                            "START_TIMEOUT_CLEANUP",
+                        status = "OK",
+                        details =
+                            "generation=$cleanupGeneration; " +
+                            "reason=bridge_unavailable"
+                    )
+                }
+
+                return@launch
+            }
+
+            val cleanupCallback =
+                object :
+                    RemoteControlServiceBridge.SimpleCallback {
+
+                    override fun onComplete(
+                        success: Boolean,
+                        message: String?
+                    ) {
+                        var acceptedCleanup =
+                            false
+
+                        synchronized(lifecycleLock) {
+                            if (
+                                operationGeneration ==
+                                    cleanupGeneration &&
+                                activeOperation ==
+                                    LifecycleOperation.STOPPING
+                            ) {
+                                operationGeneration++
+
+                                activeOperation =
+                                    LifecycleOperation.IDLE
+
+                                /*
+                                 * Keep the Error state from the
+                                 * startup timeout.
+                                 */
+
+                                acceptedCleanup =
+                                    true
+                            }
+                        }
+
+                        if (acceptedCleanup) {
+                            if (success) {
+                                EventLogger.logStage(
+                                    stage =
+                                        "START_TIMEOUT_CLEANUP",
+                                    status = "OK",
+                                    details =
+                                        "generation=$cleanupGeneration"
+                                )
+                            } else {
+                                EventLogger.logStage(
+                                    stage =
+                                        "START_TIMEOUT_CLEANUP",
+                                    status = "FAILED",
+                                    details =
+                                        "generation=$cleanupGeneration; " +
+                                        "reason=${safeLogSummary(
+                                            message ?: "unknown"
+                                        )}"
+                                )
+
+                                EventLogger.log(
+                                    "SERVICE",
+                                    "Start timeout cleanup stop failed: " +
+                                        (message ?: "No details")
+                                )
+                            }
+                        } else {
+                            EventLogger.logStage(
+                                stage =
+                                    "START_TIMEOUT_CLEANUP",
+                                status = "CANCELLED",
+                                details =
+                                    "generation=$cleanupGeneration; " +
+                                    "reason=stale_cleanup_callback"
+                            )
+                        }
+                    }
+                }
+
+            synchronized(bridgeDispatchLock) {
+                bridgeRef.stop(
+                    cleanupCallback
+                )
+            }
+        }
+    }
+
+    private fun scheduleStartTimeoutCleanupWatchdog(
+        cleanupGeneration: Long
+    ) {
+        scope.launch {
+            delay(STOP_TIMEOUT_MS)
+
+            var accepted =
+                false
+
+            synchronized(lifecycleLock) {
+                if (
+                    operationGeneration ==
+                        cleanupGeneration &&
+                    activeOperation ==
+                        LifecycleOperation.STOPPING
+                ) {
+                    operationGeneration++
+
+                    activeOperation =
+                        LifecycleOperation.IDLE
+
+                    /*
+                     * Preserve the Error state produced by the startup
+                     * timeout.
+                     */
+
+                    accepted =
+                        true
+                }
+            }
+
+            if (accepted) {
+                EventLogger.logStage(
+                    stage = "START_TIMEOUT_CLEANUP",
+                    status = "TIMEOUT",
+                    details =
+                        "generation=$cleanupGeneration; " +
+                        "reason=cleanup_timeout"
+                )
+
+                EventLogger.log(
+                    "SERVICE",
+                    "Start timeout cleanup could not be verified: " +
+                        "generation=$cleanupGeneration"
                 )
             }
         }
@@ -1704,5 +2508,19 @@ object RemoteControlManager {
         STOPPING,
         RESTARTING,
         CLOUDFLARE_REPAIRING
+    }
+
+    private enum class ShizukuReadiness {
+        READY,
+        BINDER_UNAVAILABLE,
+        PERMISSION_DENIED
+    }
+
+    private enum class RestartCallbackAction {
+        IGNORE,
+        START,
+        STOP_FAILED,
+        CONVERTED_STOP_OK,
+        CONVERTED_STOP_FAILED
     }
 }
