@@ -1,5 +1,6 @@
 package neth.iecal.curbox.utils
 
+import android.content.pm.PackageManager
 import moe.shizuku.server.IShizukuService
 import rikka.shizuku.Shizuku
 import java.io.BufferedReader
@@ -114,6 +115,31 @@ class ShizukuRunner {
                 try {
                     val safeLineBundle =
                         lineBundle.coerceAtLeast(1)
+
+                    /*
+                     * A Binder being available and CurBox being
+                     * authorised are two separate requirements.
+                     *
+                     * Check both before calling newProcess so permission
+                     * failures are reported immediately and clearly.
+                     */
+                    if (!Shizuku.pingBinder()) {
+                        throw IllegalStateException(
+                            "Shizuku service is not running or " +
+                                "its Binder is unavailable"
+                        )
+                    }
+
+                    if (
+                        Shizuku.checkSelfPermission() !=
+                        PackageManager.PERMISSION_GRANTED
+                    ) {
+                        throw SecurityException(
+                            "CurBox does not have Shizuku permission. " +
+                                "Open Shizuku and authorize CurBox, " +
+                                "then try again."
+                        )
+                    }
 
                     val service =
                         IShizukuService.Stub.asInterface(
