@@ -1171,7 +1171,9 @@ class RemoteControlServiceBridge(
 
             : > cloudflared.log
 
-            nohup ./cloudflared tunnel \
+            nohup env \
+                GODEBUG=netdns=cgo+1 \
+                ./cloudflared tunnel \
                 --url "https://127.0.0.1:$port" \
                 --no-tls-verify \
                 --no-autoupdate \
@@ -2738,7 +2740,9 @@ class RemoteControlServiceBridge(
             echo "CLOUDFLARED_STARTING=1" \
                 >> launch.log
 
-            nohup ./cloudflared tunnel \
+            nohup env \
+                GODEBUG=netdns=cgo+1 \
+                ./cloudflared tunnel \
                 --url "https://127.0.0.1:$port" \
                 --no-tls-verify \
                 --no-autoupdate \
