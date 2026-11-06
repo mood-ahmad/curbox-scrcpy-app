@@ -13,6 +13,7 @@ import neth.iecal.curbox.R
 import neth.iecal.curbox.databinding.FragmentEngineDiagnosticsBinding
 import neth.iecal.curbox.remotecontrol.EventLogger
 import neth.iecal.curbox.utils.ShizukuRunner
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Diagnostics for the CurBox remote-control engine.
@@ -32,6 +33,9 @@ class EngineDiagnosticsFragment : Fragment() {
 
     private var isRunning =
         false
+
+    private val diagnosticGeneration =
+        AtomicLong(0L)
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -105,104 +109,177 @@ class EngineDiagnosticsFragment : Fragment() {
                     ip route 2>&1 || true
                     ip -6 route 2>&1 || true
 
+                    HAVE_GETENT=0
+                    HAVE_NSLOOKUP=0
+                    HAVE_PING=0
+                    HAVE_CURL=0
+                    HAVE_WGET=0
+                    HAVE_TIMEOUT=0
+                    HAVE_SS=0
+                    HAVE_NETSTAT=0
+                    HAVE_TOYBOX=0
+                    HAVE_TOYBOX_NSLOOKUP=0
+
                     echo ""
                     echo "=== DNS TOOL AVAILABILITY ==="
 
-                    for TOOL in getent nslookup ping curl wget toybox; do
+                    for TOOL in getent nslookup ping curl wget timeout ss netstat toybox; do
                         TOOL_PATH=${'$'}(command -v "${'$'}TOOL" 2>/dev/null)
                         if [ -n "${'$'}TOOL_PATH" ]; then
                             echo "${'$'}TOOL: AVAILABLE (${'$'}TOOL_PATH)"
+                            case "${'$'}TOOL" in
+                                getent) HAVE_GETENT=1 ;;
+                                nslookup) HAVE_NSLOOKUP=1 ;;
+                                ping) HAVE_PING=1 ;;
+                                curl) HAVE_CURL=1 ;;
+                                wget) HAVE_WGET=1 ;;
+                                timeout) HAVE_TIMEOUT=1 ;;
+                                ss) HAVE_SS=1 ;;
+                                netstat) HAVE_NETSTAT=1 ;;
+                                toybox) HAVE_TOYBOX=1 ;;
+                            esac
                         else
                             echo "${'$'}TOOL: MISSING"
                         fi
                     done
 
+                    if [ "${'$'}HAVE_TOYBOX" -eq 1 ]; then
+                        if toybox --long 2>/dev/null \
+                            | tr ' \t' '\n\n' \
+                            | sed 's#.*/##' \
+                            | grep -qx 'nslookup'
+                        then
+                            HAVE_TOYBOX_NSLOOKUP=1
+                        elif toybox 2>/dev/null \
+                            | tr ' ,\t' '\n\n\n' \
+                            | grep -qx 'nslookup'
+                        then
+                            HAVE_TOYBOX_NSLOOKUP=1
+                        fi
+
+                        if [ "${'$'}HAVE_TOYBOX_NSLOOKUP" -eq 1 ]; then
+                            echo "toybox nslookup: AVAILABLE (applet present)"
+                        else
+                            echo "toybox nslookup: MISSING (applet not available)"
+                        fi
+                    else
+                        echo "toybox nslookup: MISSING (toybox binary not found)"
+                    fi
+
                     echo ""
                     echo "=== DNS RESOLUTION TEST ==="
+                    echo "TARGET=api.trycloudflare.com"
+                    echo "TARGET_TYPE=Cloudflare_API_endpoint"
+                    echo "NOTE=This is a DNS resolution probe only. Success does NOT mean a Quick Tunnel URL exists."
 
-                    HAS_TIMEOUT=0
-                    if command -v timeout >/dev/null 2>&1; then
-                        HAS_TIMEOUT=1
-                    fi
+                    DNS_TEST_ATTEMPTED=0
+                    DNS_TEST_RESULT=NOT_RUN
+                    DNS_TEST_RC=NONE
 
-                    DNS_TEST_DONE=0
-
-                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
-                       command -v getent >/dev/null 2>&1; then
-                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
-                            echo "Trying: timeout 10 getent hosts api.trycloudflare.com"
-                            timeout 10 getent hosts api.trycloudflare.com 2>&1
-                            DNS_TEST_DONE=1
+                    if [ "${'$'}DNS_TEST_ATTEMPTED" -eq 0 ] &&
+                       [ "${'$'}HAVE_GETENT" -eq 1 ] &&
+                       [ "${'$'}HAVE_TIMEOUT" -eq 1 ]; then
+                        echo "Trying: timeout 10 getent hosts api.trycloudflare.com"
+                        timeout 10 getent hosts api.trycloudflare.com 2>&1
+                        DNS_TEST_RC=${'$'}?
+                        DNS_TEST_ATTEMPTED=1
+                        if [ "${'$'}DNS_TEST_RC" -eq 0 ]; then
+                            DNS_TEST_RESULT=SUCCESS
                         else
-                            echo "Skipping getent because the timeout command is unavailable"
+                            DNS_TEST_RESULT=FAILED
                         fi
                     fi
 
-                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
-                       command -v nslookup >/dev/null 2>&1; then
-                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
-                            echo "Trying: timeout 10 nslookup api.trycloudflare.com"
-                            timeout 10 nslookup api.trycloudflare.com 2>&1
-                            DNS_TEST_DONE=1
+                    if [ "${'$'}DNS_TEST_ATTEMPTED" -eq 0 ] &&
+                       [ "${'$'}HAVE_NSLOOKUP" -eq 1 ] &&
+                       [ "${'$'}HAVE_TIMEOUT" -eq 1 ]; then
+                        echo "Trying: timeout 10 nslookup api.trycloudflare.com"
+                        timeout 10 nslookup api.trycloudflare.com 2>&1
+                        DNS_TEST_RC=${'$'}?
+                        DNS_TEST_ATTEMPTED=1
+                        if [ "${'$'}DNS_TEST_RC" -eq 0 ]; then
+                            DNS_TEST_RESULT=SUCCESS
                         else
-                            echo "Skipping nslookup because the timeout command is unavailable"
+                            DNS_TEST_RESULT=FAILED
                         fi
                     fi
 
-                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
-                       command -v toybox >/dev/null 2>&1; then
-                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
-                            echo "Trying: timeout 10 toybox nslookup api.trycloudflare.com"
-                            timeout 10 toybox nslookup api.trycloudflare.com 2>&1
-                            DNS_TEST_DONE=1
+                    if [ "${'$'}DNS_TEST_ATTEMPTED" -eq 0 ] &&
+                       [ "${'$'}HAVE_TOYBOX_NSLOOKUP" -eq 1 ] &&
+                       [ "${'$'}HAVE_TIMEOUT" -eq 1 ]; then
+                        echo "Trying: timeout 10 toybox nslookup api.trycloudflare.com"
+                        timeout 10 toybox nslookup api.trycloudflare.com 2>&1
+                        DNS_TEST_RC=${'$'}?
+                        DNS_TEST_ATTEMPTED=1
+                        if [ "${'$'}DNS_TEST_RC" -eq 0 ]; then
+                            DNS_TEST_RESULT=SUCCESS
                         else
-                            echo "Skipping toybox nslookup because the timeout command is unavailable"
+                            DNS_TEST_RESULT=FAILED
                         fi
                     fi
 
-                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
-                       command -v ping >/dev/null 2>&1; then
+                    if [ "${'$'}DNS_TEST_ATTEMPTED" -eq 0 ] &&
+                       [ "${'$'}HAVE_PING" -eq 1 ]; then
                         echo "Trying: ping -c 1 -W 3 api.trycloudflare.com"
                         ping -c 1 -W 3 api.trycloudflare.com 2>&1
-                        DNS_TEST_DONE=1
+                        DNS_TEST_RC=${'$'}?
+                        DNS_TEST_ATTEMPTED=1
+                        if [ "${'$'}DNS_TEST_RC" -eq 0 ]; then
+                            DNS_TEST_RESULT=SUCCESS
+                        else
+                            DNS_TEST_RESULT=FAILED
+                        fi
                     fi
 
-                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ]; then
+                    if [ "${'$'}DNS_TEST_ATTEMPTED" -eq 0 ]; then
                         echo "No bounded DNS diagnostic tool is available"
                     fi
 
+                    echo "DNS_TEST_ATTEMPTED=${'$'}DNS_TEST_ATTEMPTED"
+                    echo "DNS_TEST_RESULT=${'$'}DNS_TEST_RESULT"
+                    echo "DNS_TEST_RC=${'$'}DNS_TEST_RC"
+
                     echo ""
                     echo "=== HTTPS CONNECTIVITY TEST ==="
+                    echo "HTTPS_TARGET_TYPE=Cloudflare_API_endpoint"
+                    echo "HTTPS_TARGET_URL=https://api.trycloudflare.com/"
+                    echo "NOTE=This tests connectivity to the Cloudflare API endpoint. It does NOT prove a Quick Tunnel URL is active."
 
                     HTTPS_TEST_DONE=0
+                    HTTPS_TEST_RC=NONE
 
-                    if command -v curl >/dev/null 2>&1; then
+                    if [ "${'$'}HAVE_CURL" -eq 1 ]; then
                         echo "Trying: curl -I -sS --connect-timeout 5 --max-time 10 https://api.trycloudflare.com/"
                         curl -I -sS --connect-timeout 5 --max-time 10 https://api.trycloudflare.com/ 2>&1
+                        HTTPS_TEST_RC=${'$'}?
                         HTTPS_TEST_DONE=1
                     fi
 
                     if [ "${'$'}HTTPS_TEST_DONE" -eq 0 ] &&
-                       command -v wget >/dev/null 2>&1; then
+                       [ "${'$'}HAVE_WGET" -eq 1 ]; then
                         echo "Trying: wget bounded"
-                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
+                        if [ "${'$'}HAVE_TIMEOUT" -eq 1 ]; then
                             timeout 10 wget -q -S -O /dev/null --timeout=5 https://api.trycloudflare.com/ 2>&1
                         else
                             wget -q -S -O /dev/null --timeout=5 https://api.trycloudflare.com/ 2>&1
                         fi
+                        HTTPS_TEST_RC=${'$'}?
                         HTTPS_TEST_DONE=1
                     fi
 
                     if [ "${'$'}HTTPS_TEST_DONE" -eq 0 ]; then
                         echo "No HTTPS diagnostic tool is available"
+                        HTTPS_TEST_RC=NOT_RUN
                     fi
+
+                    echo "HTTPS_TEST_RC=${'$'}HTTPS_TEST_RC"
 
                     echo ""
                     echo "=== LOOPBACK DNS PORT 53 ==="
 
                     PORT53_REPORTED=0
 
-                    if command -v ss >/dev/null 2>&1; then
+                    if [ "${'$'}HAVE_SS" -eq 1 ]; then
                         ss -ltnup 2>/dev/null | grep ':53 ' && PORT53_REPORTED=1 || true
                         if [ "${'$'}PORT53_REPORTED" -eq 0 ]; then
                             echo "ss: no listener found on port 53"
@@ -210,16 +287,15 @@ class EngineDiagnosticsFragment : Fragment() {
                     fi
 
                     if [ "${'$'}PORT53_REPORTED" -eq 0 ] &&
-                       command -v netstat >/dev/null 2>&1; then
+                       [ "${'$'}HAVE_NETSTAT" -eq 1 ]; then
                         netstat -ltnup 2>/dev/null | grep ':53 ' && PORT53_REPORTED=1 || true
                         if [ "${'$'}PORT53_REPORTED" -eq 0 ]; then
                             echo "netstat: no listener found on port 53"
                         fi
                     fi
 
-                    if [ "${'$'}PORT53_REPORTED" -eq 0 ] &&
-                       ! command -v ss >/dev/null 2>&1 &&
-                       ! command -v netstat >/dev/null 2>&1; then
+                    if [ "${'$'}HAVE_SS" -eq 0 ] &&
+                       [ "${'$'}HAVE_NETSTAT" -eq 0 ]; then
                         echo "Neither ss nor netstat is available"
                     fi
 
@@ -353,6 +429,24 @@ class EngineDiagnosticsFragment : Fragment() {
                     return 1
                 fi
 
+                case "${'$'}PID" in
+                    ""|*[!0-9]*)
+                        echo \
+                            "${'$'}NAME: STOPPED " \
+                            "(invalid non-numeric PID='${'$'}PID')"
+
+                        return 1
+                        ;;
+                esac
+
+                if [ "${'$'}PID" -le 1 ]; then
+                    echo \
+                        "${'$'}NAME: STOPPED " \
+                        "(invalid PID=${'$'}PID, must be > 1)"
+
+                    return 1
+                fi
+
                 if ! kill -0 \
                     "${'$'}PID" \
                     2>/dev/null; then
@@ -400,6 +494,7 @@ class EngineDiagnosticsFragment : Fragment() {
             SIGNALING_RUNNING=0
             AGENT_RUNNING=0
             CLOUDFLARED_RUNNING=0
+            CORE_RUNNING=0
 
             if check_pid \
                 "Signaling" \
@@ -425,12 +520,15 @@ class EngineDiagnosticsFragment : Fragment() {
                 CLOUDFLARED_RUNNING=1
             fi
 
+            if [ "${'$'}SIGNALING_RUNNING" -eq 1 ] &&
+               [ "${'$'}AGENT_RUNNING" -eq 1 ]; then
+                CORE_RUNNING=1
+            fi
+
             echo ""
             echo "Health summary:"
 
-            if [ "${'$'}SIGNALING_RUNNING" -eq 1 ] &&
-               [ "${'$'}AGENT_RUNNING" -eq 1 ]; then
-
+            if [ "${'$'}CORE_RUNNING" -eq 1 ]; then
                 echo "Core engine: HEALTHY"
             else
                 echo "Core engine: STOPPED OR INCOMPLETE"
@@ -467,15 +565,66 @@ class EngineDiagnosticsFragment : Fragment() {
             done
 
             echo ""
+            echo "=== ENGINE DIAGNOSTIC SUMMARY ==="
 
-            if [ "${'$'}SIGNALING_RUNNING" -eq 1 ] &&
-               [ "${'$'}AGENT_RUNNING" -eq 1 ]; then
-
-                echo "Current launch state:"
+            if [ "${'$'}SIGNALING_RUNNING" -eq 1 ]; then
+                echo "SIGNALING_STATUS=RUNNING"
             else
-                echo \
-                    "Stored launch state " \
-                    "(engine is not currently running):"
+                echo "SIGNALING_STATUS=STOPPED"
+            fi
+
+            if [ "${'$'}AGENT_RUNNING" -eq 1 ]; then
+                echo "AGENT_STATUS=RUNNING"
+            else
+                echo "AGENT_STATUS=STOPPED"
+            fi
+
+            if [ "${'$'}CORE_RUNNING" -eq 1 ]; then
+                echo "CORE_STATUS=RUNNING"
+            else
+                echo "CORE_STATUS=STOPPED_OR_INCOMPLETE"
+            fi
+
+            if [ "${'$'}CLOUDFLARED_RUNNING" -eq 1 ]; then
+                echo "CLOUDFLARED_STATUS=RUNNING"
+            else
+                echo "CLOUDFLARED_STATUS=STOPPED"
+            fi
+
+            if [ "${'$'}CORE_RUNNING" -eq 1 ]; then
+                echo "LOG_FRESHNESS=CURRENT"
+            else
+                echo "LOG_FRESHNESS=STALE"
+            fi
+
+            echo ""
+            echo "=== LOG FRESHNESS ==="
+
+            if [ "${'$'}CORE_RUNNING" -eq 1 ]; then
+                echo "launch.log=CURRENT"
+                echo "signaling.log=CURRENT"
+                echo "agent.log=CURRENT"
+            else
+                echo "launch.log=STALE"
+                echo "signaling.log=STALE"
+                echo "agent.log=STALE"
+            fi
+
+            if [ "${'$'}CLOUDFLARED_RUNNING" -eq 1 ]; then
+                echo "cloudflared.log=CURRENT"
+            else
+                echo "cloudflared.log=STALE"
+            fi
+
+            echo ""
+
+            if [ "${'$'}CORE_RUNNING" -eq 1 ]; then
+                echo "=== CURRENT LAUNCH LOG ==="
+                echo "LOG_FRESHNESS=CURRENT"
+            else
+                echo "=== STORED LAUNCH LOG ==="
+                echo "LOG_FRESHNESS=STALE"
+                echo "WARNING=engine_not_currently_running"
             fi
 
             if [ -s "${'$'}WORK/launch.log" ]; then
@@ -524,9 +673,12 @@ class EngineDiagnosticsFragment : Fragment() {
         )
     }
 
-    private fun appendGeneralEventLog() {
+    private fun appendGeneralEventLog(
+        runGeneration: Long
+    ) {
         appendOutput(
-            "\n══════ General Event Log ══════\n"
+            "\n══════ General Event Log ══════\n",
+            runGeneration
         )
 
         val events =
@@ -534,16 +686,19 @@ class EngineDiagnosticsFragment : Fragment() {
 
         if (events.isBlank()) {
             appendOutput(
-                "[No general remote-control events recorded yet]\n"
+                "[No general remote-control events recorded yet]\n",
+                runGeneration
             )
         } else {
             appendOutput(
-                events
+                events,
+                runGeneration
             )
 
             if (!events.endsWith("\n")) {
                 appendOutput(
-                    "\n"
+                    "\n",
+                    runGeneration
                 )
             }
         }
@@ -566,8 +721,17 @@ class EngineDiagnosticsFragment : Fragment() {
             false
         )
 
+        val runGeneration =
+            diagnosticGeneration.incrementAndGet()
+
+        val doneText =
+            getString(
+                R.string.engine_done
+            )
+
         appendOutput(
-            "\n══════ $label ══════\n"
+            "\n══════ $label ══════\n",
+            runGeneration
         )
 
         ShizukuRunner.executeCommand(
@@ -579,41 +743,61 @@ class EngineDiagnosticsFragment : Fragment() {
                     output: String,
                     done: Boolean
                 ) {
+                    if (runGeneration != diagnosticGeneration.get()) {
+                        return
+                    }
+
                     if (output.isNotEmpty()) {
                         appendOutput(
-                            output
+                            output,
+                            runGeneration
                         )
                     }
 
                     if (done) {
                         if (includeGeneralEvents) {
-                            appendGeneralEventLog()
+                            appendGeneralEventLog(
+                                runGeneration
+                            )
                         }
 
                         appendOutput(
-                            "\n[${getString(R.string.engine_done)}]\n"
+                            "\n[$doneText]\n",
+                            runGeneration
                         )
 
-                        finishRun()
+                        finishRun(
+                            runGeneration
+                        )
                     }
                 }
 
                 override fun onCommandError(
                     error: String
                 ) {
-                    appendOutput(
-                        "\n[ERROR]\n$error\n"
-                    )
-
-                    if (includeGeneralEvents) {
-                        appendGeneralEventLog()
+                    if (runGeneration != diagnosticGeneration.get()) {
+                        return
                     }
 
                     appendOutput(
-                        "\n[${getString(R.string.engine_done)}]\n"
+                        "\n[ERROR]\n$error\n",
+                        runGeneration
                     )
 
-                    finishRun()
+                    if (includeGeneralEvents) {
+                        appendGeneralEventLog(
+                            runGeneration
+                        )
+                    }
+
+                    appendOutput(
+                        "\n[$doneText]\n",
+                        runGeneration
+                    )
+
+                    finishRun(
+                        runGeneration
+                    )
                 }
             },
             lineBundle =
@@ -631,11 +815,17 @@ class EngineDiagnosticsFragment : Fragment() {
         ).show()
     }
 
-    private fun finishRun() {
-        isRunning =
-            false
-
+    private fun finishRun(
+        runGeneration: Long
+    ) {
         view?.post {
+            if (runGeneration != diagnosticGeneration.get()) {
+                return@post
+            }
+
+            isRunning =
+                false
+
             setButtonsEnabled(
                 true
             )
@@ -695,6 +885,37 @@ class EngineDiagnosticsFragment : Fragment() {
         }
     }
 
+    private fun appendOutput(
+        text: String,
+        runGeneration: Long
+    ) {
+        view?.post {
+            if (runGeneration != diagnosticGeneration.get()) {
+                return@post
+            }
+
+            val b =
+                _binding ?: return@post
+
+            b.outputText.append(
+                text
+            )
+
+            b.outputScroll.post {
+                if (runGeneration != diagnosticGeneration.get()) {
+                    return@post
+                }
+
+                val currentBinding =
+                    _binding ?: return@post
+
+                currentBinding.outputScroll.fullScroll(
+                    View.FOCUS_DOWN
+                )
+            }
+        }
+    }
+
     private fun copyOutput() {
         val b =
             _binding ?: return
@@ -722,6 +943,11 @@ class EngineDiagnosticsFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        diagnosticGeneration.incrementAndGet()
+
+        isRunning =
+            false
+
         _binding =
             null
 
