@@ -73,11 +73,159 @@ class EngineDiagnosticsFragment : Fragment() {
         binding.btnCheckShizuku.setOnClickListener {
             runDiagnostic(
                 label =
-                    "Check Shizuku & Files",
-                command =
-                    "id 2>&1 ; " +
-                        "echo '---' ; " +
-                        "ls -la /data/local/tmp/android/ 2>&1"
+                    "Check Shizuku, Files & DNS",
+                command = """
+                    set +e
+
+                    echo "=== IDENTITY ==="
+                    id 2>&1
+
+                    echo ""
+                    echo "=== WORKDIR FILES ==="
+                    ls -la /data/local/tmp/android/ 2>&1
+
+                    echo ""
+                    echo "=== ANDROID DNS PROPERTIES ==="
+                    getprop 2>&1 | grep -iE 'dns|net\.|private_dns' || true
+
+                    echo ""
+                    echo "=== RESOLV.CONF ==="
+                    if [ -r /etc/resolv.conf ]; then
+                        cat /etc/resolv.conf 2>&1
+                    else
+                        echo "/etc/resolv.conf is unavailable"
+                    fi
+
+                    echo ""
+                    echo "=== NETWORK INTERFACES ==="
+                    ip addr 2>&1 || true
+
+                    echo ""
+                    echo "=== ROUTES ==="
+                    ip route 2>&1 || true
+                    ip -6 route 2>&1 || true
+
+                    echo ""
+                    echo "=== DNS TOOL AVAILABILITY ==="
+
+                    for TOOL in getent nslookup ping curl wget toybox; do
+                        TOOL_PATH=${'$'}(command -v "${'$'}TOOL" 2>/dev/null)
+                        if [ -n "${'$'}TOOL_PATH" ]; then
+                            echo "${'$'}TOOL: AVAILABLE (${'$'}TOOL_PATH)"
+                        else
+                            echo "${'$'}TOOL: MISSING"
+                        fi
+                    done
+
+                    echo ""
+                    echo "=== DNS RESOLUTION TEST ==="
+
+                    HAS_TIMEOUT=0
+                    if command -v timeout >/dev/null 2>&1; then
+                        HAS_TIMEOUT=1
+                    fi
+
+                    DNS_TEST_DONE=0
+
+                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
+                       command -v getent >/dev/null 2>&1; then
+                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
+                            echo "Trying: timeout 10 getent hosts api.trycloudflare.com"
+                            timeout 10 getent hosts api.trycloudflare.com 2>&1
+                            DNS_TEST_DONE=1
+                        else
+                            echo "Skipping getent because the timeout command is unavailable"
+                        fi
+                    fi
+
+                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
+                       command -v nslookup >/dev/null 2>&1; then
+                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
+                            echo "Trying: timeout 10 nslookup api.trycloudflare.com"
+                            timeout 10 nslookup api.trycloudflare.com 2>&1
+                            DNS_TEST_DONE=1
+                        else
+                            echo "Skipping nslookup because the timeout command is unavailable"
+                        fi
+                    fi
+
+                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
+                       command -v toybox >/dev/null 2>&1; then
+                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
+                            echo "Trying: timeout 10 toybox nslookup api.trycloudflare.com"
+                            timeout 10 toybox nslookup api.trycloudflare.com 2>&1
+                            DNS_TEST_DONE=1
+                        else
+                            echo "Skipping toybox nslookup because the timeout command is unavailable"
+                        fi
+                    fi
+
+                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ] &&
+                       command -v ping >/dev/null 2>&1; then
+                        echo "Trying: ping -c 1 -W 3 api.trycloudflare.com"
+                        ping -c 1 -W 3 api.trycloudflare.com 2>&1
+                        DNS_TEST_DONE=1
+                    fi
+
+                    if [ "${'$'}DNS_TEST_DONE" -eq 0 ]; then
+                        echo "No bounded DNS diagnostic tool is available"
+                    fi
+
+                    echo ""
+                    echo "=== HTTPS CONNECTIVITY TEST ==="
+
+                    HTTPS_TEST_DONE=0
+
+                    if command -v curl >/dev/null 2>&1; then
+                        echo "Trying: curl -I -sS --connect-timeout 5 --max-time 10 https://api.trycloudflare.com/"
+                        curl -I -sS --connect-timeout 5 --max-time 10 https://api.trycloudflare.com/ 2>&1
+                        HTTPS_TEST_DONE=1
+                    fi
+
+                    if [ "${'$'}HTTPS_TEST_DONE" -eq 0 ] &&
+                       command -v wget >/dev/null 2>&1; then
+                        echo "Trying: wget bounded"
+                        if [ "${'$'}HAS_TIMEOUT" -eq 1 ]; then
+                            timeout 10 wget -q -S -O /dev/null --timeout=5 https://api.trycloudflare.com/ 2>&1
+                        else
+                            wget -q -S -O /dev/null --timeout=5 https://api.trycloudflare.com/ 2>&1
+                        fi
+                        HTTPS_TEST_DONE=1
+                    fi
+
+                    if [ "${'$'}HTTPS_TEST_DONE" -eq 0 ]; then
+                        echo "No HTTPS diagnostic tool is available"
+                    fi
+
+                    echo ""
+                    echo "=== LOOPBACK DNS PORT 53 ==="
+
+                    PORT53_REPORTED=0
+
+                    if command -v ss >/dev/null 2>&1; then
+                        ss -ltnup 2>/dev/null | grep ':53 ' && PORT53_REPORTED=1 || true
+                        if [ "${'$'}PORT53_REPORTED" -eq 0 ]; then
+                            echo "ss: no listener found on port 53"
+                        fi
+                    fi
+
+                    if [ "${'$'}PORT53_REPORTED" -eq 0 ] &&
+                       command -v netstat >/dev/null 2>&1; then
+                        netstat -ltnup 2>/dev/null | grep ':53 ' && PORT53_REPORTED=1 || true
+                        if [ "${'$'}PORT53_REPORTED" -eq 0 ]; then
+                            echo "netstat: no listener found on port 53"
+                        fi
+                    fi
+
+                    if [ "${'$'}PORT53_REPORTED" -eq 0 ] &&
+                       ! command -v ss >/dev/null 2>&1 &&
+                       ! command -v netstat >/dev/null 2>&1; then
+                        echo "Neither ss nor netstat is available"
+                    fi
+
+                    echo ""
+                    echo "DONE"
+                """.trimIndent()
             )
         }
 
