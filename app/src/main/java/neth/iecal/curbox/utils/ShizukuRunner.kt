@@ -587,8 +587,9 @@ class ShizukuRunner {
                         errorReadFailure.get()
 
                     if (
-                        stdoutFailure != null ||
-                        stderrFailure != null
+                        (stdoutFailure != null ||
+                            stderrFailure != null) &&
+                        exitCode != 0
                     ) {
                         val readerErrors =
                             buildString {
