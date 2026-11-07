@@ -2657,12 +2657,22 @@ class RemoteControlServiceBridge(
 
             # ==================================================
             # Stage 12: VERIFY_PROCESSES
+            #
+            # Perform one final targeted rediscovery before
+            # declaring cleanup successful. Discovery itself
+            # never sends signals; it only adds strictly verified
+            # CurBox candidates to COLLECTED_LIST.
             # ==================================================
             cleanup_stage VERIFY_PROCESSES
 
+            CC_SCAN_NAME="VERIFY_PROCESSES"
+            collect_curbox_processes
+
             REMAINING=""
+
             for VER_ENTRY in ${'$'}COLLECTED_LIST; do
                 VER_PID="${'$'}{VER_ENTRY%%:*}"
+
                 if collected_pid_still_alive "${'$'}VER_PID"; then
                     REMAINING="${'$'}REMAINING ${'$'}VER_ENTRY"
                 fi
