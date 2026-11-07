@@ -1726,7 +1726,6 @@ class RemoteControlServiceBridge(
             CTT_VALID=0
             CTS_CURRENT=""
             CTS_START_MS=""
-            CC_SCAN_NAME=""
 
             cleanup_now_ms() {
                 CNM_RAW=${'$'}(date +%s%3N 2>/dev/null || true)
