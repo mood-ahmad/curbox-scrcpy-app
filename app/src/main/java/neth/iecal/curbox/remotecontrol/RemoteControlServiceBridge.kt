@@ -2322,12 +2322,7 @@ class RemoteControlServiceBridge(
                     CC_COLLECTED_AFTER=${'$'}((CC_COLLECTED_AFTER + 1))
                 done
 
-                CC_COLLECTED=${'$'}(
-                    (
-                        CC_COLLECTED_AFTER -
-                        CC_COLLECTED_BEFORE
-                    )
-                )
+                CC_COLLECTED=${'$'}((CC_COLLECTED_AFTER -CC_COLLECTED_BEFORE))
 
                 echo "CLEANUP_DISCOVERY_SUMMARY stage=${'$'}{CC_SCAN_NAME} method=${'$'}DISCOVERY_METHOD nativeCandidates=${'$'}CC_NATIVE_CANDIDATES coreCandidates=${'$'}CC_CORE_CANDIDATES verified=${'$'}CC_VERIFIED collected=${'$'}CC_COLLECTED"
             }
