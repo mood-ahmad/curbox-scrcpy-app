@@ -24,13 +24,13 @@ object RemoteControlManager {
         "enabled"
 
     private const val START_TIMEOUT_MS =
-        210_000L
+        600_000L
 
     private const val STOP_TIMEOUT_MS =
-        75_000L
+        270_000L
 
     private const val RESTART_STOP_TIMEOUT_MS =
-        75_000L
+        270_000L
 
     private const val CLOUDFLARE_REPAIR_TIMEOUT_MS =
         120_000L
