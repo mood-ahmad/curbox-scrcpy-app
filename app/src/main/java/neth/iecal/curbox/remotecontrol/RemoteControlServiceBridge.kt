@@ -2140,8 +2140,8 @@ class RemoteControlServiceBridge(
                     DISCOVERY_METHOD="pidof"
                     return 0
                 fi
-
-                if command -v toybox >/dev/null 2>&1; then
+                                if command -v toybox >/dev/null 2>&1 &&
+                   toybox pidof --help >/dev/null 2>&1; then
                     DISCOVERY_METHOD="toybox_pidof"
                     return 0
                 fi
