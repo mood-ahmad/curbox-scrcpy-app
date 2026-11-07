@@ -366,7 +366,8 @@ class RemoteControlServiceBridge(
                     )
                 }
             },
-            lineBundle = 200
+            lineBundle = 200,
+            timeoutMs = HEALTH_CHECK_TIMEOUT_MS
         )
     }
 
@@ -476,7 +477,8 @@ class RemoteControlServiceBridge(
                     )
                 }
             },
-            lineBundle = 200
+            lineBundle = 200,
+            timeoutMs = HEALTH_CHECK_TIMEOUT_MS
         )
     }
 
@@ -568,7 +570,8 @@ class RemoteControlServiceBridge(
                     completeOnce(false)
                 }
             },
-            lineBundle = 200
+            lineBundle = 200,
+            timeoutMs = HEALTH_CHECK_TIMEOUT_MS
         )
     }
 
@@ -864,7 +867,8 @@ class RemoteControlServiceBridge(
                         )
                     }
                 },
-                lineBundle = 3600
+                lineBundle = 3600,
+                timeoutMs = CLOUDFLARE_REPAIR_TIMEOUT_MS
             )
         }
     }
@@ -1411,7 +1415,8 @@ class RemoteControlServiceBridge(
                     )
                 }
             },
-            lineBundle = 1600
+            lineBundle = 1600,
+            timeoutMs = WORKDIR_TIMEOUT_MS
         )
     }
 
@@ -3092,7 +3097,8 @@ class RemoteControlServiceBridge(
                     )
                 }
             },
-            lineBundle = 3600
+            lineBundle = 3600,
+            timeoutMs = LAUNCH_TIMEOUT_MS
         )
     }
 
