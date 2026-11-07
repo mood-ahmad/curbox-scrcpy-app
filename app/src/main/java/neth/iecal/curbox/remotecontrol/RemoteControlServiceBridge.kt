@@ -1102,8 +1102,7 @@ class RemoteControlServiceBridge(
                 cleanup_repair_token
                 echo "CLOUDFLARE_REPAIR_ERROR=core_not_healthy"
                 exit 0
-            fi
-            
+            fi 
             # ---------------------------------------------------
             # Step 1: Stop any cloudflared instance only.
             #
@@ -1144,8 +1143,13 @@ class RemoteControlServiceBridge(
                 list_matching_executable \
                     "$target/cloudflared"
             ); do
-                kill -15 "${'$'}PID" \
-                    2>/dev/null || true
+                if pid_matches_executable \
+                    "${'$'}PID" \
+                    "$target/cloudflared"; then
+
+                    kill -15 "${'$'}PID" \
+                        2>/dev/null || true
+                fi
             done
 
             for i in ${'$'}(seq 1 5); do
@@ -1165,8 +1169,13 @@ class RemoteControlServiceBridge(
                 list_matching_executable \
                     "$target/cloudflared"
             ); do
-                kill -9 "${'$'}PID" \
-                    2>/dev/null || true
+                if pid_matches_executable \
+                    "${'$'}PID" \
+                    "$target/cloudflared"; then
+
+                    kill -9 "${'$'}PID" \
+                        2>/dev/null || true
+                fi
             done
 
             sleep 1
