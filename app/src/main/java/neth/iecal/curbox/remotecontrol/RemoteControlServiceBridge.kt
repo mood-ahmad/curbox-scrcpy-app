@@ -2575,7 +2575,7 @@ class RemoteControlServiceBridge(
             load_verified_agent_group || true
 
             # ==================================================
-            # Stage 6: COLLECT_ORPHANS (first full /proc scan)
+            # Stage 6: COLLECT_ORPHANS (targeted rediscovery)
             # ==================================================
             cleanup_stage COLLECT_ORPHANS
             CC_SCAN_NAME="COLLECT_ORPHANS"
@@ -2642,7 +2642,7 @@ class RemoteControlServiceBridge(
             sleep 2
 
             # ==================================================
-            # Stage 11: FINAL_ORPHAN_SCAN (second full /proc scan)
+            # Stage 11: FINAL_ORPHAN_SCAN (targeted rediscovery)
             # ==================================================
             cleanup_stage FINAL_ORPHAN_SCAN
             CC_SCAN_NAME="FINAL_ORPHAN_SCAN"
