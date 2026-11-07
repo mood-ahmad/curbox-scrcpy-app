@@ -4114,7 +4114,7 @@ class RemoteControlServiceBridge(
     companion object {
 
         private const val CLEANUP_TIMEOUT_MS =
-            45_000L
+            240_000L
 
         private const val HEALTH_CHECK_TIMEOUT_MS =
             15_000L
