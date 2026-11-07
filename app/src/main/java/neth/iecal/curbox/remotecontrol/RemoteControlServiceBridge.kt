@@ -3687,7 +3687,7 @@ class RemoteControlServiceBridge(
                 fi
 
                 # --------------------------------------------------
-                # CoreService children cleanup (single /proc scan).
+                # CoreService children cleanup (targeted discovery).
                 # --------------------------------------------------
                 if [ "${'$'}SP_AGENT_METADATA_VALID" = "1" ]; then
                     kill_verified_agent_core_children \
