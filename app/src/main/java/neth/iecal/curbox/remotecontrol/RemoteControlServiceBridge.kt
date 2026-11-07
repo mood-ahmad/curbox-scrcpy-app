@@ -2571,7 +2571,7 @@ class RemoteControlServiceBridge(
             load_verified_agent_group || true
 
             # ==================================================
-            # Stage 6: COLLECT_ORPHANS (targeted rediscovery)
+            # Stage 6: COLLECT_ORPHANS (targeted discovery)
             # ==================================================
             cleanup_stage COLLECT_ORPHANS
             CC_SCAN_NAME="COLLECT_ORPHANS"
