@@ -1103,7 +1103,7 @@ class RemoteControlServiceBridge(
                 echo "CLOUDFLARE_REPAIR_ERROR=core_not_healthy"
                 exit 0
             fi
-
+            
             # ---------------------------------------------------
             # Step 1: Stop any cloudflared instance only.
             #
@@ -1112,6 +1112,17 @@ class RemoteControlServiceBridge(
             # ---------------------------------------------------
             if ! repair_token_is_valid; then
                 abort_repair_cancelled
+            fi
+
+            if command -v pidof >/dev/null 2>&1; then
+                :
+            elif command -v toybox >/dev/null 2>&1 &&
+                 toybox pidof --help >/dev/null 2>&1; then
+                :
+            else
+                cleanup_repair_token
+                echo "CLOUDFLARE_REPAIR_ERROR=targeted_discovery_unavailable"
+                exit 0
             fi
 
             if [ -s "$target/cloudflared.pid" ]; then
