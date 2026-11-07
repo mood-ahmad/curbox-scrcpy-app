@@ -910,27 +910,48 @@ class RemoteControlServiceBridge(
                 [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
             }
 
-            list_matching_executable() {
+                     list_matching_executable() {
                 EXPECTED_EXE="${'$'}1"
 
-                for PROC_DIR in /proc/[0-9]*; do
-                    [ -d "${'$'}PROC_DIR" ] || continue
+                [ "${'$'}EXPECTED_EXE" = "$target/cloudflared" ] ||
+                    return 1
 
-                    PID=${'$'}{PROC_DIR##*/}
+                MATCHING_CANDIDATES=""
 
-                    ACTUAL_EXE=${'$'}(
-                        readlink "${'$'}PROC_DIR/exe" \
+                if command -v pidof >/dev/null 2>&1; then
+                    MATCHING_CANDIDATES=${'$'}(
+                        pidof cloudflared \
                             2>/dev/null || true
                     )
-
-                    ACTUAL_EXE=${'$'}(
-                        normalise_exe "${'$'}ACTUAL_EXE"
+                elif command -v toybox >/dev/null 2>&1 &&
+                     toybox pidof --help >/dev/null 2>&1; then
+                    MATCHING_CANDIDATES=${'$'}(
+                        toybox pidof cloudflared \
+                            2>/dev/null || true
                     )
+                else
+                  return 1
+                fi
 
-                    if [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]; then
+                for PID in ${'$'}MATCHING_CANDIDATES; do
+                    case "${'$'}PID" in
+                        ""|*[!0-9]*)
+                            continue
+                            ;;
+                    esac
+
+                    [ "${'$'}PID" -gt 1 ] 2>/dev/null ||
+                        continue
+
+                    if pid_matches_executable \
+                        "${'$'}PID" \
+                        "${'$'}EXPECTED_EXE"; then
+
                         echo "${'$'}PID"
                     fi
                 done
+
+                return 0
             }
 
             repair_token_is_valid() {
