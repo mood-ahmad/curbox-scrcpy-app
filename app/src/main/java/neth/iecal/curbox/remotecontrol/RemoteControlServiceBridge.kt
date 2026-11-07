@@ -2123,15 +2123,82 @@ class RemoteControlServiceBridge(
 
                 return 0
             }
+            
+                        # --------------------------------------------------
+            # Targeted CurBox process discovery.
+            #
+            # Process names produce candidates only. A candidate
+            # is never collected until its identity has been
+            # verified using the existing strict checks.
+            #
+            # This deliberately avoids a full /proc traversal.
+            # --------------------------------------------------
+            DISCOVERY_METHOD=""
 
-            # --------------------------------------------------
-            # Full /proc scan (used exactly twice).
-            # Counters are diagnostic only and never change
-            # the collection logic.
-            # --------------------------------------------------
+            select_discovery_method() {
+                if command -v pidof >/dev/null 2>&1; then
+                    DISCOVERY_METHOD="pidof"
+                    return 0
+                fi
+
+                if command -v toybox >/dev/null 2>&1; then
+                    DISCOVERY_METHOD="toybox_pidof"
+                    return 0
+                fi
+
+                DISCOVERY_METHOD=""
+                return 1
+            }
+
+            discover_named_pids() {
+                case "${'$'}DISCOVERY_METHOD" in
+                    pidof)
+                        pidof "${'$'}@" \
+                            2>/dev/null || true
+                        ;;
+                    toybox_pidof)
+                        toybox pidof "${'$'}@" \
+                            2>/dev/null || true
+                        ;;
+                    *)
+                        return 1
+                        ;;
+                esac
+
+                return 0
+            }
+
+            core_discovery_metadata_available() {
+                [ "${'$'}CLEANUP_SHELL_METADATA_OK" = "1" ] ||
+                    return 1
+
+                if valid_numeric_id "${'$'}VERIFIED_AGENT_PGID" &&
+                   [ "${'$'}VERIFIED_AGENT_PGID" != "${'$'}CLEANUP_PGID" ]; then
+                    return 0
+                fi
+
+                if valid_numeric_id "${'$'}VERIFIED_AGENT_SID" &&
+                   [ "${'$'}VERIFIED_AGENT_SID" != "${'$'}CLEANUP_SID" ]; then
+                    return 0
+                fi
+
+                if valid_numeric_id "${'$'}STORED_AGENT_PGID" &&
+                   [ "${'$'}STORED_AGENT_PGID" != "${'$'}CLEANUP_PGID" ]; then
+                    return 0
+                fi
+
+                if valid_numeric_id "${'$'}STORED_AGENT_SID" &&
+                   [ "${'$'}STORED_AGENT_SID" != "${'$'}CLEANUP_SID" ]; then
+                    return 0
+                fi
+
+                return 1
+            }
+
             collect_curbox_processes() {
-                CC_SCANNED=0
-                CC_CANDIDATES=0
+                CC_NATIVE_CANDIDATES=0
+                CC_CORE_CANDIDATES=0
+                CC_VERIFIED=0
                 CC_COLLECTED_BEFORE=0
                 CC_COLLECTED_AFTER=0
 
@@ -2139,52 +2206,129 @@ class RemoteControlServiceBridge(
                     CC_COLLECTED_BEFORE=${'$'}((CC_COLLECTED_BEFORE + 1))
                 done
 
-                for PROC_DIR in /proc/[0-9]*; do
-                    CC_SCANNED=${'$'}((CC_SCANNED + 1))
-                    [ -d "${'$'}PROC_DIR" ] || continue
+                if [ -z "${'$'}DISCOVERY_METHOD" ]; then
+                    if ! select_discovery_method; then
+                        echo "CLEANUP_FAILED=targeted_discovery_unavailable"
+                        cleanup_close_current_stage
+                        exit 1
+                    fi
+                fi
 
-                    SCAN_PID=${'$'}{PROC_DIR##*/}
+                # ----------------------------------------------
+                # Native CurBox processes.
+                #
+                # pidof only discovers candidate PIDs. Each PID
+                # must still match one of our exact executable
+                # paths before it can enter COLLECTED_LIST.
+                # ----------------------------------------------
+                NATIVE_CANDIDATES=${'$'}(
+                    discover_named_pids \
+                        webrtc-signaling \
+                        cloudphone-agent \
+                        cloudflared
+                )
 
-                    case "${'$'}SCAN_PID" in
-                        ""|*[!0-9]*) continue ;;
-                    esac
+                for SCAN_PID in ${'$'}NATIVE_CANDIDATES; do
+                    if ! valid_numeric_id "${'$'}SCAN_PID"; then
+                        continue
+                    fi
 
-                    [ "${'$'}SCAN_PID" = "${'$'}${'$'}" ] && continue
-                    [ "${'$'}SCAN_PID" = "${'$'}CLEANUP_SHELL_PID" ] && continue
+                    if [ "${'$'}SCAN_PID" = "${'$'}CLEANUP_SHELL_PID" ]; then
+                        continue
+                    fi
 
-                    CC_CANDIDATES=${'$'}((CC_CANDIDATES + 1))
+                    CC_NATIVE_CANDIDATES=${'$'}((CC_NATIVE_CANDIDATES + 1))
 
-                    SCAN_EXE=${'$'}(
-                        readlink "${'$'}PROC_DIR/exe" \
-                            2>/dev/null || true
-                    )
-                    SCAN_EXE=${'$'}(normalise_exe "${'$'}SCAN_EXE")
+                    if pid_matches_executable \
+                        "${'$'}SCAN_PID" \
+                        "$target/webrtc-signaling"; then
 
-                    case "${'$'}SCAN_EXE" in
-                        "$target/cloudflared")
-                            add_collected "${'$'}SCAN_PID" "cloudflared"
-                            continue
-                            ;;
-                        "$target/cloudphone-agent")
-                            add_collected "${'$'}SCAN_PID" "agent"
-                            continue
-                            ;;
-                        "$target/webrtc-signaling")
-                            add_collected "${'$'}SCAN_PID" "signaling"
-                            continue
-                            ;;
-                    esac
+                        add_collected \
+                            "${'$'}SCAN_PID" \
+                            "signaling"
 
-                    if pid_is_verified_curbox_core_service "${'$'}SCAN_PID"; then
-                        add_collected "${'$'}SCAN_PID" "core"
+                        CC_VERIFIED=${'$'}((CC_VERIFIED + 1))
+                        continue
+                    fi
+
+                    if pid_matches_executable \
+                        "${'$'}SCAN_PID" \
+                        "$target/cloudphone-agent"; then
+
+                        add_collected \
+                            "${'$'}SCAN_PID" \
+                            "agent"
+
+                        CC_VERIFIED=${'$'}((CC_VERIFIED + 1))
+                        continue
+                    fi
+
+                    if pid_matches_executable \
+                        "${'$'}SCAN_PID" \
+                        "$target/cloudflared"; then
+
+                        add_collected \
+                            "${'$'}SCAN_PID" \
+                            "cloudflared"
+
+                        CC_VERIFIED=${'$'}((CC_VERIFIED + 1))
+                        continue
                     fi
                 done
+
+                # ----------------------------------------------
+                # CoreService.
+                #
+                # CoreService runs through app_process, so process
+                # name alone is never enough. Discovery is skipped
+                # completely when no trusted Agent group/session
+                # metadata exists.
+                # ----------------------------------------------
+                if core_discovery_metadata_available; then
+                    CORE_CANDIDATES=${'$'}(
+                        discover_named_pids \
+                            app_process \
+                            app_process32 \
+                            app_process64
+                    )
+
+                    for SCAN_PID in ${'$'}CORE_CANDIDATES; do
+                        if ! valid_numeric_id "${'$'}SCAN_PID"; then
+                            continue
+                        fi
+
+                        if [ "${'$'}SCAN_PID" = "${'$'}CLEANUP_SHELL_PID" ]; then
+                            continue
+                        fi
+
+                        CC_CORE_CANDIDATES=${'$'}((CC_CORE_CANDIDATES + 1))
+
+                        if pid_is_verified_curbox_core_service \
+                            "${'$'}SCAN_PID"; then
+
+                            add_collected \
+                                "${'$'}SCAN_PID" \
+                                "core"
+
+                            CC_VERIFIED=${'$'}((CC_VERIFIED + 1))
+                        fi
+                    done
+                else
+                    echo "CORE_DISCOVERY_SKIPPED reason=no_agent_group_metadata"
+                fi
 
                 for CC_ENTRY in ${'$'}COLLECTED_LIST; do
                     CC_COLLECTED_AFTER=${'$'}((CC_COLLECTED_AFTER + 1))
                 done
-                CC_COLLECTED=${'$'}((CC_COLLECTED_AFTER - CC_COLLECTED_BEFORE))
-                echo "CLEANUP_SCAN_SUMMARY scan=${'$'}{CC_SCAN_NAME} scanned=${'$'}CC_SCANNED candidates=${'$'}CC_CANDIDATES collected=${'$'}CC_COLLECTED"
+
+                CC_COLLECTED=${'$'}(
+                    (
+                        CC_COLLECTED_AFTER -
+                        CC_COLLECTED_BEFORE
+                    )
+                )
+
+                echo "CLEANUP_DISCOVERY_SUMMARY stage=${'$'}{CC_SCAN_NAME} method=${'$'}DISCOVERY_METHOD nativeCandidates=${'$'}CC_NATIVE_CANDIDATES coreCandidates=${'$'}CC_CORE_CANDIDATES verified=${'$'}CC_VERIFIED collected=${'$'}CC_COLLECTED"
             }
 
             # --------------------------------------------------
