@@ -910,7 +910,7 @@ class RemoteControlServiceBridge(
                 [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
             }
 
-                     list_matching_executable() {
+            list_matching_executable() {
                 EXPECTED_EXE="${'$'}1"
 
                 [ "${'$'}EXPECTED_EXE" = "$target/cloudflared" ] ||
@@ -930,7 +930,7 @@ class RemoteControlServiceBridge(
                             2>/dev/null || true
                     )
                 else
-                  return 1
+                    return 1
                 fi
 
                 for PID in ${'$'}MATCHING_CANDIDATES; do
@@ -3320,25 +3320,6 @@ class RemoteControlServiceBridge(
                             app_process64 \
                             com.android.helper.CoreService \
                             2>/dev/null || true
-                    )
-                elif command -v ps >/dev/null 2>&1; then
-                    KC_DISCOVERY_METHOD="ps"
-
-                    KC_CANDIDATES=${'$'}(
-                        ps -A -o PID,NAME \
-                            2>/dev/null \
-                            | awk \
-                                '
-                                NR > 1 &&
-                                (
-                                    ${'$'}2 == "app_process" ||
-                                    ${'$'}2 == "app_process32" ||
-                                    ${'$'}2 == "app_process64" ||
-                                    ${'$'}2 == "com.android.helper.CoreService"
-                                ) {
-                                    print ${'$'}1
-                                }
-                                '
                     )
                 else
                     echo "STARTUP_CORE_DISCOVERY_SKIPPED reason=targeted_discovery_unavailable"
