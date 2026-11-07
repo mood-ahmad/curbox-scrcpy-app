@@ -3321,7 +3321,165 @@ class RemoteControlServiceBridge(
                         readlink "/proc/${'$'}KC_PID/exe" \
                             2>/dev/null || true
                     )
-                    KC_EXE=${'$'}(normalise_exe "${'$'}KC_EXE")
+            kill_verified_agent_core_children() {
+                KC_SIGNAL="${'$'}1"
+                KC_EXPECTED_PGID="${'$'}2"
+                KC_EXPECTED_SID="${'$'}3"
+
+                [ "${'$'}STARTUP_SHELL_METADATA_OK" = "1" ] ||
+                    return 0
+
+                case "${'$'}KC_SIGNAL" in
+                    9|15)
+                        ;;
+                    *)
+                        return 0
+                        ;;
+                esac
+
+                case "${'$'}KC_EXPECTED_PGID" in
+                    ""|*[!0-9]*)
+                        return 0
+                        ;;
+                esac
+
+                case "${'$'}KC_EXPECTED_SID" in
+                    ""|*[!0-9]*)
+                        return 0
+                        ;;
+                esac
+
+                [ "${'$'}KC_EXPECTED_PGID" -gt 1 ] 2>/dev/null ||
+                    return 0
+
+                [ "${'$'}KC_EXPECTED_SID" -gt 1 ] 2>/dev/null ||
+                    return 0
+
+                [ "${'$'}KC_EXPECTED_PGID" != "${'$'}STARTUP_SHELL_PGID" ] ||
+                    return 0
+
+                [ "${'$'}KC_EXPECTED_SID" != "${'$'}STARTUP_SHELL_SID" ] ||
+                    return 0
+
+                KC_CANDIDATES=""
+                KC_DISCOVERY_METHOD=""
+
+                if command -v pidof >/dev/null 2>&1; then
+                    KC_DISCOVERY_METHOD="pidof"
+
+                    KC_CANDIDATES=${'$'}(
+                        pidof \
+                            app_process \
+                            app_process32 \
+                            app_process64 \
+                            com.android.helper.CoreService \
+                            2>/dev/null || true
+                    )
+                elif command -v toybox >/dev/null 2>&1 &&
+                     toybox pidof --help >/dev/null 2>&1; then
+
+                    KC_DISCOVERY_METHOD="toybox_pidof"
+
+                    KC_CANDIDATES=${'$'}(
+                        toybox pidof \
+                            app_process \
+                            app_process32 \
+                            app_process64 \
+                            com.android.helper.CoreService \
+                            2>/dev/null || true
+                    )
+                elif command -v ps >/dev/null 2>&1; then
+                    KC_DISCOVERY_METHOD="ps"
+
+                    KC_CANDIDATES=${'$'}(
+                        ps -A -o PID,NAME \
+                            2>/dev/null \
+                            | awk \
+                                '
+                                NR > 1 &&
+                                (
+                                    ${'$'}2 == "app_process" ||
+                                    ${'$'}2 == "app_process32" ||
+                                    ${'$'}2 == "app_process64" ||
+                                    ${'$'}2 == "com.android.helper.CoreService"
+                                ) {
+                                    print ${'$'}1
+                                }
+                                '
+                    )
+                else
+                    echo "STARTUP_CORE_DISCOVERY_SKIPPED reason=targeted_discovery_unavailable"
+                    return 0
+                fi
+
+                KC_CANDIDATE_COUNT=0
+                KC_VERIFIED_COUNT=0
+
+                for KC_PID in ${'$'}KC_CANDIDATES; do
+                    case "${'$'}KC_PID" in
+                        ""|*[!0-9]*)
+                            continue
+                            ;;
+                    esac
+
+                    [ "${'$'}KC_PID" -gt 1 ] 2>/dev/null ||
+                        continue
+
+                    [ "${'$'}KC_PID" = "${'$'}${'$'}" ] &&
+                        continue
+
+                    [ "${'$'}KC_PID" = "${'$'}STARTUP_SHELL_PID" ] &&
+                        continue
+
+                    KC_CANDIDATE_COUNT=${'$'}((KC_CANDIDATE_COUNT + 1))
+
+                    kill -0 "${'$'}KC_PID" 2>/dev/null ||
+                        continue
+
+                    KC_COMM_FILE="/proc/${'$'}KC_PID/comm"
+                    [ -r "${'$'}KC_COMM_FILE" ] ||
+                        continue
+
+                    KC_COMM=${'$'}(
+                        cat "${'$'}KC_COMM_FILE" \
+                            2>/dev/null || true
+                    )
+
+                    case "${'$'}KC_COMM" in
+                        app_process|app_process32|app_process64)
+                            ;;
+                        *)
+                            continue
+                            ;;
+                    esac
+
+                    KC_STATUS_FILE="/proc/${'$'}KC_PID/status"
+                    [ -r "${'$'}KC_STATUS_FILE" ] ||
+                        continue
+
+                    KC_UID_LINE=${'$'}(
+                        grep '^Uid:' "${'$'}KC_STATUS_FILE" \
+                            2>/dev/null \
+                            | head -n 1
+                    )
+
+                    [ -n "${'$'}KC_UID_LINE" ] ||
+                        continue
+
+                    set -- ${'$'}KC_UID_LINE
+                    KC_REAL_UID="${'$'}2"
+
+                    [ "${'$'}KC_REAL_UID" = "2000" ] ||
+                        continue
+
+                    KC_EXE=${'$'}(
+                        readlink "/proc/${'$'}KC_PID/exe" \
+                            2>/dev/null || true
+                    )
+
+                    KC_EXE=${'$'}(
+                        normalise_exe "${'$'}KC_EXE"
+                    )
 
                     case "${'$'}KC_EXE" in
                         /system/bin/app_process|\
@@ -3337,38 +3495,95 @@ class RemoteControlServiceBridge(
                     esac
 
                     KC_CMDLINE_FILE="/proc/${'$'}KC_PID/cmdline"
-                    [ -r "${'$'}KC_CMDLINE_FILE" ] || continue
+                    [ -r "${'$'}KC_CMDLINE_FILE" ] ||
+                        continue
 
                     tr '\000' '\n' \
                         < "${'$'}KC_CMDLINE_FILE" \
                         2>/dev/null \
-                        | grep -Fxq 'com.android.helper.CoreService' \
+                        | grep -Fxq \
+                            'com.android.helper.CoreService' \
                         || continue
 
-                    read_process_group_metadata "${'$'}KC_PID" \
-                        || continue
+                    read_process_group_metadata "${'$'}KC_PID" ||
+                        continue
 
                     case "${'$'}PROCESS_PGID" in
-                        ""|*[!0-9]*) continue ;;
+                        ""|*[!0-9]*)
+                            continue
+                            ;;
                     esac
+
                     case "${'$'}PROCESS_SID" in
-                        ""|*[!0-9]*) continue ;;
+                        ""|*[!0-9]*)
+                            continue
+                            ;;
                     esac
 
-                    [ "${'$'}PROCESS_PGID" -gt 1 ] 2>/dev/null || continue
-                    [ "${'$'}PROCESS_SID" -gt 1 ] 2>/dev/null || continue
+                    [ "${'$'}PROCESS_PGID" -gt 1 ] 2>/dev/null ||
+                        continue
 
-                    [ "${'$'}PROCESS_PGID" != "${'$'}STARTUP_SHELL_PGID" ] || continue
-                    [ "${'$'}PROCESS_SID" != "${'$'}STARTUP_SHELL_SID" ] || continue
+                    [ "${'$'}PROCESS_SID" -gt 1 ] 2>/dev/null ||
+                        continue
+
+                    [ "${'$'}PROCESS_PGID" != "${'$'}STARTUP_SHELL_PGID" ] ||
+                        continue
+
+                    [ "${'$'}PROCESS_SID" != "${'$'}STARTUP_SHELL_SID" ] ||
+                        continue
 
                     if [ "${'$'}PROCESS_PGID" != "${'$'}KC_EXPECTED_PGID" ] &&
                        [ "${'$'}PROCESS_SID" != "${'$'}KC_EXPECTED_SID" ]; then
                         continue
                     fi
 
+                    /*
+                     * Re-check process existence immediately before
+                     * signalling to reduce the PID-reuse race window.
+                     */
+                    kill -0 "${'$'}KC_PID" 2>/dev/null ||
+                        continue
+
+                    KC_FINAL_EXE=${'$'}(
+                        readlink "/proc/${'$'}KC_PID/exe" \
+                            2>/dev/null || true
+                    )
+
+                    KC_FINAL_EXE=${'$'}(
+                        normalise_exe "${'$'}KC_FINAL_EXE"
+                    )
+
+                    [ "${'$'}KC_FINAL_EXE" = "${'$'}KC_EXE" ] ||
+                        continue
+
+                    tr '\000' '\n' \
+                        < "/proc/${'$'}KC_PID/cmdline" \
+                        2>/dev/null \
+                        | grep -Fxq \
+                            'com.android.helper.CoreService' \
+                        || continue
+
+                    read_process_group_metadata "${'$'}KC_PID" ||
+                        continue
+
+                    if [ "${'$'}PROCESS_PGID" != "${'$'}KC_EXPECTED_PGID" ] &&
+                       [ "${'$'}PROCESS_SID" != "${'$'}KC_EXPECTED_SID" ]; then
+                        continue
+                    fi
+
+                    [ "${'$'}PROCESS_PGID" != "${'$'}STARTUP_SHELL_PGID" ] ||
+                        continue
+
+                    [ "${'$'}PROCESS_SID" != "${'$'}STARTUP_SHELL_SID" ] ||
+                        continue
+
                     kill "-${'$'}KC_SIGNAL" "${'$'}KC_PID" \
                         2>/dev/null || true
+
+                    KC_VERIFIED_COUNT=${'$'}((KC_VERIFIED_COUNT + 1))
                 done
+
+                echo "STARTUP_CORE_DISCOVERY_SUMMARY method=${'$'}KC_DISCOVERY_METHOD candidates=${'$'}KC_CANDIDATE_COUNT verified=${'$'}KC_VERIFIED_COUNT"
 
                 return 0
             }
