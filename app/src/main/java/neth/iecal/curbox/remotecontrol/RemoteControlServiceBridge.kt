@@ -1713,8 +1713,90 @@ class RemoteControlServiceBridge(
         val script = """
             set +e
 
+            # --------------------------------------------------
+            # Timing instrumentation (diagnostic only).
+            #
+            # cleanup_now_ms returns current epoch time in
+            # milliseconds when the platform supports a reliable
+            # millisecond clock, otherwise it falls back to
+            # epoch seconds * 1000. If neither is numeric, it
+            # prints nothing and never fails the cleanup.
+            # --------------------------------------------------
+            CTT_START_MS=""
+            CTT_VALID=0
+            CTS_CURRENT=""
+            CTS_START_MS=""
+            CC_SCAN_NAME=""
+
+            cleanup_now_ms() {
+                CNM_RAW=${'$'}(date +%s%3N 2>/dev/null || true)
+                case "${'$'}CNM_RAW" in
+                    ""|*[!0-9]*) CNM_RAW="" ;;
+                esac
+                if [ -n "${'$'}CNM_RAW" ]; then
+                    CNM_LEN=${'$'}{#CNM_RAW}
+                    if [ "${'$'}CNM_LEN" -lt 13 ] ||
+                       [ "${'$'}CNM_LEN" -gt 14 ]; then
+                        CNM_RAW=""
+                    fi
+                fi
+                if [ -n "${'$'}CNM_RAW" ]; then
+                    printf '%s' "${'$'}CNM_RAW"
+                    return 0
+                fi
+                CNM_SECS=${'$'}(date +%s 2>/dev/null || true)
+                case "${'$'}CNM_SECS" in
+                    ""|*[!0-9]*) return 0 ;;
+                esac
+                printf '%s' "${'$'}((CNM_SECS * 1000))"
+                return 0
+            }
+
+            cleanup_close_current_stage() {
+                if [ -z "${'$'}CTS_CURRENT" ]; then
+                    return 0
+                fi
+                CTS_NOW_MS=${'$'}(cleanup_now_ms)
+                case "${'$'}CTS_NOW_MS" in
+                    ""|*[!0-9]*) CTS_END_VALID=0 ;;
+                    *) CTS_END_VALID=1 ;;
+                esac
+                case "${'$'}CTS_START_MS" in
+                    ""|*[!0-9]*) CTS_START_VALID=0 ;;
+                    *) CTS_START_VALID=1 ;;
+                esac
+                if [ "${'$'}CTS_END_VALID" = "1" ] &&
+                   [ "${'$'}CTS_START_VALID" = "1" ] &&
+                   [ "${'$'}CTT_VALID" = "1" ]; then
+                    CTS_DUR=${'$'}((CTS_NOW_MS - CTS_START_MS))
+                    CTS_ELAPSED=${'$'}((CTS_NOW_MS - CTT_START_MS))
+                    echo "CLEANUP_TIMING_END stage=${'$'}CTS_CURRENT durationMs=${'$'}CTS_DUR elapsedMs=${'$'}CTS_ELAPSED"
+                else
+                    echo "CLEANUP_TIMING_END stage=${'$'}CTS_CURRENT durationMs=UNAVAILABLE elapsedMs=UNAVAILABLE"
+                fi
+                CTS_CURRENT=""
+                CTS_START_MS=""
+                return 0
+            }
+
             cleanup_stage() {
+                cleanup_close_current_stage
+                CTS_CURRENT="${'$'}1"
+                CTS_START_MS=${'$'}(cleanup_now_ms)
                 echo "CLEANUP_STAGE=${'$'}1"
+                case "${'$'}CTS_START_MS" in
+                    ""|*[!0-9]*)
+                        echo "CLEANUP_TIMING_START stage=${'$'}1 elapsedMs=UNAVAILABLE"
+                        ;;
+                    *)
+                        if [ "${'$'}CTT_VALID" = "1" ]; then
+                            CTS_START_ELAPSED=${'$'}((CTS_START_MS - CTT_START_MS))
+                            echo "CLEANUP_TIMING_START stage=${'$'}1 elapsedMs=${'$'}CTS_START_ELAPSED"
+                        else
+                            echo "CLEANUP_TIMING_START stage=${'$'}1 elapsedMs=UNAVAILABLE"
+                        fi
+                        ;;
+                esac
             }
 
             normalise_exe() {
@@ -2045,9 +2127,21 @@ class RemoteControlServiceBridge(
 
             # --------------------------------------------------
             # Full /proc scan (used exactly twice).
+            # Counters are diagnostic only and never change
+            # the collection logic.
             # --------------------------------------------------
             collect_curbox_processes() {
+                CC_SCANNED=0
+                CC_CANDIDATES=0
+                CC_COLLECTED_BEFORE=0
+                CC_COLLECTED_AFTER=0
+
+                for CC_ENTRY in ${'$'}COLLECTED_LIST; do
+                    CC_COLLECTED_BEFORE=${'$'}((CC_COLLECTED_BEFORE + 1))
+                done
+
                 for PROC_DIR in /proc/[0-9]*; do
+                    CC_SCANNED=${'$'}((CC_SCANNED + 1))
                     [ -d "${'$'}PROC_DIR" ] || continue
 
                     SCAN_PID=${'$'}{PROC_DIR##*/}
@@ -2058,6 +2152,8 @@ class RemoteControlServiceBridge(
 
                     [ "${'$'}SCAN_PID" = "${'$'}${'$'}" ] && continue
                     [ "${'$'}SCAN_PID" = "${'$'}CLEANUP_SHELL_PID" ] && continue
+
+                    CC_CANDIDATES=${'$'}((CC_CANDIDATES + 1))
 
                     SCAN_EXE=${'$'}(
                         readlink "${'$'}PROC_DIR/exe" \
@@ -2084,6 +2180,12 @@ class RemoteControlServiceBridge(
                         add_collected "${'$'}SCAN_PID" "core"
                     fi
                 done
+
+                for CC_ENTRY in ${'$'}COLLECTED_LIST; do
+                    CC_COLLECTED_AFTER=${'$'}((CC_COLLECTED_AFTER + 1))
+                done
+                CC_COLLECTED=${'$'}((CC_COLLECTED_AFTER - CC_COLLECTED_BEFORE))
+                echo "CLEANUP_SCAN_SUMMARY scan=${'$'}{CC_SCAN_NAME} scanned=${'$'}CC_SCANNED candidates=${'$'}CC_CANDIDATES collected=${'$'}CC_COLLECTED"
             }
 
             # --------------------------------------------------
@@ -2206,6 +2308,16 @@ class RemoteControlServiceBridge(
             }
 
             # ==================================================
+            # Timing: initialize total start.
+            # ==================================================
+            CTT_START_MS=${'$'}(cleanup_now_ms)
+            case "${'$'}CTT_START_MS" in
+                ""|*[!0-9]*) CTT_VALID=0 ;;
+                *) CTT_VALID=1 ;;
+            esac
+            echo "CLEANUP_TIMING_TOTAL_START elapsedMs=0"
+
+            # ==================================================
             # Stage 1: INVALIDATE_TOKENS
             # ==================================================
             cleanup_stage INVALIDATE_TOKENS
@@ -2323,6 +2435,7 @@ class RemoteControlServiceBridge(
             # Stage 6: COLLECT_ORPHANS (first full /proc scan)
             # ==================================================
             cleanup_stage COLLECT_ORPHANS
+            CC_SCAN_NAME="COLLECT_ORPHANS"
             collect_curbox_processes
 
             # ==================================================
@@ -2389,6 +2502,7 @@ class RemoteControlServiceBridge(
             # Stage 11: FINAL_ORPHAN_SCAN (second full /proc scan)
             # ==================================================
             cleanup_stage FINAL_ORPHAN_SCAN
+            CC_SCAN_NAME="FINAL_ORPHAN_SCAN"
             collect_curbox_processes
 
             for FIN_ENTRY in ${'$'}COLLECTED_LIST; do
@@ -2455,6 +2569,7 @@ class RemoteControlServiceBridge(
                     fi
                 done
 
+                cleanup_close_current_stage
                 exit 1
             fi
 
@@ -2472,6 +2587,7 @@ class RemoteControlServiceBridge(
                         || true
                 fi
 
+                cleanup_close_current_stage
                 exit 1
             fi
 
@@ -2492,6 +2608,21 @@ class RemoteControlServiceBridge(
             # Stage 15: COMPLETE
             # ==================================================
             cleanup_stage COMPLETE
+
+            cleanup_close_current_stage
+            CTT_NOW_MS=${'$'}(cleanup_now_ms)
+            case "${'$'}CTT_NOW_MS" in
+                ""|*[!0-9]*) CTT_NOW_VALID=0 ;;
+                *) CTT_NOW_VALID=1 ;;
+            esac
+            if [ "${'$'}CTT_VALID" = "1" ] &&
+               [ "${'$'}CTT_NOW_VALID" = "1" ]; then
+                CTT_DUR=${'$'}((CTT_NOW_MS - CTT_START_MS))
+                echo "CLEANUP_TIMING_TOTAL_END durationMs=${'$'}CTT_DUR"
+            else
+                echo "CLEANUP_TIMING_TOTAL_END durationMs=UNAVAILABLE"
+            fi
+
             echo CLEANUP_OK
         """.trimIndent()
 
