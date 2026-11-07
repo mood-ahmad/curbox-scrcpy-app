@@ -49,7 +49,7 @@ object RemoteControlGuardian {
         30_000L
 
     private const val HEALTH_CHECK_TIMEOUT_MS =
-        12_000L
+        20_000L
 
     private const val FIRST_REPAIR_BACKOFF_MS =
         5_000L
