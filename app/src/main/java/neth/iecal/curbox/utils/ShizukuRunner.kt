@@ -668,52 +668,20 @@ class ShizukuRunner {
                                 }
                             }
 
-                        val stdoutLines =
-                            stdout
-                                .lineSequence()
-                                .filter {
-                                    it.isNotEmpty()
-                                }
-                                .toList()
-
-                        val trailingLineCount =
-                            stdoutLines.size %
-                                safeLineBundle
-
-                        val terminalOutput =
-                            if (
-                                safeLineBundle ==
-                                Int.MAX_VALUE ||
-                                stdoutLines.size <
-                                safeLineBundle
-                            ) {
-                                completeOutput
-                            } else {
-                                buildString {
-                                    if (
-                                        trailingLineCount >
-                                        0
-                                    ) {
-                                        append(
-                                            stdoutLines
-                                                .takeLast(
-                                                    trailingLineCount
-                                                )
-                                                .joinToString(
-                                                    separator = "\n",
-                                                    postfix = "\n"
-                                                )
-                                        )
-                                    }
-
-                                    if (stderr.isNotBlank()) {
-                                        append(stderr)
-                                    }
-                                }
-                            }
-
+                        /*
+                         * The terminal callback must always contain the
+                         * complete captured output. Partial callbacks are
+                         * informational streaming only and consumers may
+                         * intentionally ignore them until done == true.
+                         *
+                         * Returning only the modulo/trailing stdout lines
+                         * here can produce an empty terminal result when
+                         * stdout line count is an exact multiple of
+                         * lineBundle. That made a successful launch look
+                         * like it returned no output.
+                         */
                         deliverResultOnce(
-                            terminalOutput
+                            completeOutput
                         )
                     } else {
                         deliverErrorOnce(
