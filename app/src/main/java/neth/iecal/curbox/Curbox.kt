@@ -7,6 +7,7 @@ import android.net.Network
 import android.os.Build
 import com.google.android.material.color.DynamicColors
 import neth.iecal.curbox.data.sync.SyncGateway
+import neth.iecal.curbox.remotecontrol.EmailCommandReceiver
 import neth.iecal.curbox.remotecontrol.EventLogger
 import neth.iecal.curbox.remotecontrol.RemoteControlGuardian
 import neth.iecal.curbox.remotecontrol.RemoteControlManager
@@ -75,6 +76,8 @@ class Curbox : Application() {
         RemoteControlManager.autoStartIfEnabled(this)
 
         RemoteControlGuardian.start(this)
+
+        EmailCommandReceiver.start(this)
     }
 
     private fun registerNetworkMonitor() {
