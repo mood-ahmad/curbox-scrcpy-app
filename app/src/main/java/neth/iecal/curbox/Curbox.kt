@@ -19,6 +19,8 @@ class Curbox : Application() {
 
     private var activeNetwork: Network? =
         null
+    private var networkWasLost =
+        false
 
     override fun onCreate() {
         DynamicColors.applyToActivitiesIfAvailable(this)
@@ -93,39 +95,49 @@ class Curbox : Application() {
                     override fun onAvailable(
                         network: Network
                     ) {
-                        val networkChanged =
+                        val networkEvent =
                             synchronized(networkLock) {
-                                val previousNetwork =
-                                    activeNetwork
-
+                                val previousNetwork = activeNetwork
                                 if (previousNetwork == network) {
-                                    false
+                                    NetworkEvent.NONE
                                 } else {
-                                    activeNetwork =
-                                        network
-
-                                    true
+                                    val event = if (networkWasLost) {
+                                        NetworkEvent.RECONNECTED
+                                    } else {
+                                        NetworkEvent.CHANGED
+                                    }
+                                    activeNetwork = network
+                                    networkWasLost = false
+                                    event
                                 }
                             }
 
-                        if (!networkChanged) {
+                        if (networkEvent == NetworkEvent.NONE) {
                             EventLogger.log(
                                 "NETWORK",
                                 "Initial/current network reported; restart skipped"
                             )
-
                             return
                         }
 
                         when (RemoteControlManager.state.value) {
                             is RemoteControlState.Ready -> {
+                                val reason = if (networkEvent == NetworkEvent.RECONNECTED) {
+                                    RemoteControlManager.StartReason.NETWORK_RECONNECTED
+                                } else {
+                                    RemoteControlManager.StartReason.NETWORK_CHANGE
+                                }
                                 EventLogger.log(
                                     "NETWORK",
-                                    "Active network changed; restarting service"
+                                    if (networkEvent == NetworkEvent.RECONNECTED) {
+                                        "Active network reconnected; restarting service"
+                                    } else {
+                                        "Active network changed; restarting service"
+                                    }
                                 )
-
                                 RemoteControlManager.restart(
-                                    this@Curbox
+                                    context = this@Curbox,
+                                    reason = reason
                                 )
                             }
 
@@ -166,6 +178,8 @@ class Curbox : Application() {
                             if (activeNetwork == network) {
                                 activeNetwork =
                                     null
+                                networkWasLost =
+                                    true
                             }
                         }
 
@@ -186,6 +200,12 @@ class Curbox : Application() {
                     )
             )
         }
+    }
+
+    private enum class NetworkEvent {
+        NONE,
+        CHANGED,
+        RECONNECTED
     }
 
     private fun isMainProcess(): Boolean {
