@@ -15,6 +15,15 @@ val smtpPassword = providers.gradleProperty("CURBOX_SMTP_PASSWORD")
 val targetEmail = providers.gradleProperty("CURBOX_TARGET_EMAIL")
     .orElse(providers.environmentVariable("CURBOX_TARGET_EMAIL"))
     .getOrElse("")
+val commandEmail = providers.gradleProperty("CURBOX_COMMAND_EMAIL")
+    .orElse(providers.environmentVariable("CURBOX_COMMAND_EMAIL"))
+    .getOrElse("")
+val commandPassword = providers.gradleProperty("CURBOX_COMMAND_PASSWORD")
+    .orElse(providers.environmentVariable("CURBOX_COMMAND_PASSWORD"))
+    .getOrElse("")
+val authorizedCommandSender = providers.gradleProperty("CURBOX_AUTHORIZED_COMMAND_SENDER")
+    .orElse(providers.environmentVariable("CURBOX_AUTHORIZED_COMMAND_SENDER"))
+    .getOrElse("")
 
 val buildTimestamp = providers.gradleProperty("BUILD_TIMESTAMP")
     .orElse(providers.environmentVariable("BUILD_TIMESTAMP"))
@@ -133,6 +142,21 @@ android {
             "String",
             "TARGET_EMAIL",
             targetEmail.asBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "COMMAND_EMAIL",
+            commandEmail.asBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "COMMAND_PASSWORD",
+            commandPassword.asBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "AUTHORIZED_COMMAND_SENDER",
+            authorizedCommandSender.asBuildConfigString()
         )
 
         buildConfigField(
