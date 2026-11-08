@@ -374,6 +374,9 @@ jobs:
           CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
           CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
+          CURBOX_COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          CURBOX_COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+          CURBOX_AUTHORIZED_COMMAND_SENDER: ${{ secrets.CURBOX_AUTHORIZED_COMMAND_SENDER }}
         run: |
           set -euo pipefail
 
