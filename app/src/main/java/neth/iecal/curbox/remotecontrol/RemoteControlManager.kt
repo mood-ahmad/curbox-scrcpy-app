@@ -542,8 +542,9 @@ object RemoteControlManager {
                                     "publicAvailable=${publicUrl != null}"
                             )
 
-                            handleSuccessfulLinks(
+                            handleSuccessfulStartEmail(
                                 appContext = appContext,
+                                reason = reason,
                                 localUrl = localUrl,
                                 publicUrl = publicUrl,
                                 networkType = networkType
@@ -1327,11 +1328,9 @@ object RemoteControlManager {
                             "publicAvailable=true"
                     )
 
-                    handleSuccessfulLinks(
-                        appContext = appContext,
-                        localUrl = localUrl,
-                        publicUrl = publicUrl,
-                        networkType = "Cloudflare Repair"
+                    EventLogger.log(
+                        "EMAIL",
+                        "Automatic links email skipped: reason=CLOUDFLARE_REPAIR"
                     )
                 }
 
@@ -2172,6 +2171,140 @@ object RemoteControlManager {
         }
     }
 
+    private fun handleSuccessfulStartEmail(
+        appContext: Context,
+        reason: StartReason,
+        localUrl: String?,
+        publicUrl: String?,
+        networkType: String
+    ) {
+        when (reason) {
+            StartReason.AUTO_START -> {
+                /*
+                 * AUTO_START must prove that both access paths were created
+                 * before announcing readiness. The Ready email itself is sent
+                 * by EmailSender and intentionally contains no access URLs.
+                 */
+                if (localUrl == null || publicUrl == null) {
+                    EventLogger.log(
+                        "EMAIL",
+                        "Ready email skipped: startup did not produce both links"
+                    )
+                    return
+                }
+
+                scope.launch {
+                    try {
+                        val sent = EmailSender.sendReadyStatus(
+                            networkType = networkType
+                        )
+                        EventLogger.log(
+                            "EMAIL",
+                            if (sent) {
+                                "Ready status email sent"
+                            } else {
+                                "Ready status email failed"
+                            }
+                        )
+                    } catch (t: Throwable) {
+                        EventLogger.log(
+                            "EMAIL",
+                            "Ready status email failed with exception: " +
+                                (t.message ?: t.javaClass.simpleName)
+                        )
+                    }
+                }
+            }
+
+            StartReason.NETWORK_CHANGE,
+            StartReason.NETWORK_RECONNECTED -> {
+                handleSuccessfulLinks(
+                    appContext = appContext,
+                    localUrl = localUrl,
+                    publicUrl = publicUrl,
+                    networkType = networkType
+                )
+            }
+
+            StartReason.USER_START,
+            StartReason.FEATURE_ENABLED,
+            StartReason.GUARDIAN_REPAIR -> {
+                EventLogger.log(
+                    "EMAIL",
+                    "Automatic links email skipped: reason=${reason.label}"
+                )
+            }
+        }
+    }
+
+    /**
+     * Sends the currently active links on an explicit external SEND request.
+     * This method never starts, stops, restarts, cleans, or repairs the engine.
+     */
+    fun sendCurrentLinksOnRequest(
+        context: Context
+    ) {
+        init(context)
+        val snapshot = synchronized(lifecycleLock) {
+            if (
+                activeOperation != LifecycleOperation.IDLE ||
+                _state.value !is RemoteControlState.Ready
+            ) {
+                null
+            } else {
+                Pair(currentLocalUrl, currentPublicUrl)
+            }
+        }
+
+        if (snapshot == null) {
+            EventLogger.logStage(
+                stage = "MANUAL_SEND",
+                status = "SKIPPED",
+                details = "reason=engine_not_ready"
+            )
+            return
+        }
+
+        val localUrl = snapshot.first
+        val publicUrl = snapshot.second
+        if (localUrl == null && publicUrl == null) {
+            EventLogger.logStage(
+                stage = "MANUAL_SEND",
+                status = "SKIPPED",
+                details = "reason=no_current_links"
+            )
+            return
+        }
+
+        EventLogger.logStage(
+            stage = "MANUAL_SEND",
+            status = "REQUESTED",
+            details =
+                "localAvailable=${localUrl != null}; " +
+                "publicAvailable=${publicUrl != null}"
+        )
+
+        scope.launch {
+            try {
+                val sent = EmailSender.sendLinks(
+                    localUrl = localUrl,
+                    publicUrl = publicUrl,
+                    networkType = "Manual SEND"
+                )
+                EventLogger.logStage(
+                    stage = "MANUAL_SEND",
+                    status = if (sent) "OK" else "FAILED"
+                )
+            } catch (t: Throwable) {
+                EventLogger.logStage(
+                    stage = "MANUAL_SEND",
+                    status = "FAILED",
+                    details = "reason=${safeLogSummary(t.message ?: t.javaClass.simpleName)}"
+                )
+            }
+        }
+    }
+
     private fun handleSuccessfulLinks(
         appContext: Context,
         localUrl: String?,
@@ -2499,6 +2632,7 @@ object RemoteControlManager {
         USER_START("USER_START"),
         FEATURE_ENABLED("FEATURE_ENABLED"),
         NETWORK_CHANGE("NETWORK_CHANGE"),
+        NETWORK_RECONNECTED("NETWORK_RECONNECTED"),
         GUARDIAN_REPAIR("GUARDIAN_REPAIR")
     }
 
