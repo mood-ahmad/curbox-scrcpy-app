@@ -164,6 +164,42 @@ object EmailSender {
     }
 
     /**
+     * Sends the startup readiness notification after both the local and
+     * public access paths have already been created and verified by the
+     * RemoteControlManager. The access URLs are deliberately not included.
+     */
+    suspend fun sendReadyStatus(
+        networkType: String = "Unknown"
+    ): Boolean = withContext(Dispatchers.IO) {
+        val device =
+            DeviceIdentity.getName()
+        val subject =
+            "[CurBox] $device - Remote Control Ready"
+        val body = """
+            CurBox remote control is ready.
+            Device: $device
+            Network: $networkType
+
+            All remote-control services are running correctly.
+            Local access: Ready
+            Public access: Ready
+
+            Send the SEND command to request the current access links.
+        """.trimIndent()
+
+        EventLogger.logEmail(
+            event = "READY_SEND_REQUESTED",
+            details = "network=$networkType"
+        )
+
+        send(
+            subject = subject,
+            body = body,
+            diagnosticType = "READY"
+        )
+    }
+
+    /**
      * Sends an alert when Guardian cannot restore the engine.
      */
     suspend fun sendAlert(
