@@ -67,6 +67,7 @@ object EmailCommandReceiver {
                     stage = "EMAIL_COMMAND_RECEIVER",
                     status = "STARTED"
                 )
+                logSafeConfiguration()
 
                 while (isActive) {
                     try {
@@ -104,6 +105,25 @@ object EmailCommandReceiver {
         return BuildConfig.COMMAND_EMAIL.isNotBlank() &&
             BuildConfig.COMMAND_PASSWORD.isNotBlank() &&
             BuildConfig.AUTHORIZED_COMMAND_SENDER.isNotBlank()
+    }
+
+    private fun logSafeConfiguration() {
+        val commandEmail = BuildConfig.COMMAND_EMAIL.trim()
+        val commandPassword = BuildConfig.COMMAND_PASSWORD.trim()
+        val authorizedSender =
+            BuildConfig.AUTHORIZED_COMMAND_SENDER.trim()
+
+        EventLogger.logStage(
+            stage = "EMAIL_COMMAND_CONFIG",
+            status = "CHECKED",
+            details =
+                "commandEmail=${safeLogSummary(commandEmail)}; " +
+                "commandEmailPresent=${commandEmail.isNotEmpty()}; " +
+                "commandPasswordPresent=${commandPassword.isNotEmpty()}; " +
+                "commandPasswordLength=${commandPassword.length}; " +
+                "authorizedSender=${safeLogSummary(authorizedSender)}; " +
+                "authorizedSenderPresent=${authorizedSender.isNotEmpty()}"
+        )
     }
 
     private fun pollInbox(
