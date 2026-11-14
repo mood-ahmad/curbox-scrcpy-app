@@ -50,6 +50,10 @@ object RemoteControlGuardian {
 
     private const val HEALTH_CHECK_TIMEOUT_MS =
         20_000L
+    private const val CORE_CONFIRMATION_ATTEMPTS =
+        3
+    private const val CORE_CONFIRMATION_DELAY_MS =
+        2_000L
 
     private const val FIRST_REPAIR_BACKOFF_MS =
         5_000L
@@ -514,8 +518,17 @@ object RemoteControlGuardian {
          * priority over the Cloudflare tunnel because Cloudflare repair
          * assumes Signaling, Agent, and Local are healthy.
          */
-        val coreResult =
+        val initialCoreResult =
             checkEngineHealth()
+
+        val coreResult =
+            if (initialCoreResult == HealthResult.UNHEALTHY) {
+                confirmCoreFailure(
+                    generation = generation
+                )
+            } else {
+                initialCoreResult
+            }
 
         when (coreResult) {
             HealthResult.HEALTHY -> Unit
@@ -524,17 +537,27 @@ object RemoteControlGuardian {
                 handleCoreRepair(
                     context = context,
                     generation = generation,
-                    reason = "health_check_failed"
+                    reason = "health_check_confirmed_failed"
                 )
 
                 return
             }
 
             HealthResult.TIMEOUT -> {
-                handleCoreRepair(
-                    context = context,
-                    generation = generation,
-                    reason = "health_check_timeout"
+                /*
+                 * TIMEOUT also represents an indeterminate Bridge health
+                 * check. It is not proof that Core stopped, so preserve the
+                 * current engine, cloudflared process, URLs and repair budget.
+                 */
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "SKIPPED",
+                    details = "reason=core_health_check_indeterminate"
+                )
+
+                EventLogger.log(
+                    "GUARDIAN",
+                    "Core health check was indeterminate; restart skipped"
                 )
 
                 return
@@ -2088,11 +2111,11 @@ object RemoteControlGuardian {
     // -------------------------------------------------------------------------
 
     /**
-     * Runs the process health check with a timeout so a missing Shizuku
-     * callback cannot block the Guardian loop indefinitely.
+     * Runs the rich Core process health check with a timeout.
      *
-     * Any false or timeout result is re-validated against Shizuku
-     * before being classified as a real engine failure.
+     * A Bridge CHECK_FAILED result or a timeout is indeterminate and is
+     * represented as TIMEOUT. Callers must not treat TIMEOUT as proof that
+     * Signaling or Agent stopped.
      */
     private suspend fun checkEngineHealth(): HealthResult {
         val preReadiness =
@@ -2111,7 +2134,7 @@ object RemoteControlGuardian {
                 HEALTH_CHECK_TIMEOUT_MS
             ) {
                 RemoteControlManager
-                    .isAgentRunningBlocking()
+                    .checkAgentRunningBlocking()
             }
 
         if (result == null) {
@@ -2128,33 +2151,115 @@ object RemoteControlGuardian {
 
             EventLogger.logStage(
                 stage = "GUARDIAN_CHECK",
-                status = "TIMEOUT",
+                status = "INDETERMINATE",
                 details =
+                    "reason=timeout; " +
                     "timeoutMs=$HEALTH_CHECK_TIMEOUT_MS"
-            )
-
-            EventLogger.log(
-                "GUARDIAN",
-                "Engine health check timed out"
             )
 
             return HealthResult.TIMEOUT
         }
 
-        if (result) {
-            return HealthResult.HEALTHY
+        return when (result.status) {
+            RemoteControlServiceBridge.ProcessHealthStatus.RUNNING ->
+                HealthResult.HEALTHY
+
+            RemoteControlServiceBridge.ProcessHealthStatus.STOPPED ->
+                HealthResult.UNHEALTHY
+
+            RemoteControlServiceBridge.ProcessHealthStatus.CHECK_FAILED -> {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CHECK",
+                    status = "INDETERMINATE",
+                    details =
+                        "reason=bridge_check_failed; " +
+                        "details=${safeLogSummary(result.reason ?: "unknown")}" 
+                )
+
+                HealthResult.TIMEOUT
+            }
+        }
+    }
+
+    /**
+     * Confirms a reported stopped Core before allowing Full Engine repair.
+     * The initial failed check counts as attempt 1. Any healthy retry cancels
+     * repair. Any indeterminate or Shizuku result also cancels repair without
+     * consuming the repair-attempt budget.
+     */
+    private suspend fun confirmCoreFailure(
+        generation: Long
+    ): HealthResult {
+        EventLogger.logStage(
+            stage = "GUARDIAN_CORE_CONFIRM",
+            status = "STARTED",
+            details =
+                "attempt=1; " +
+                "required=$CORE_CONFIRMATION_ATTEMPTS"
+        )
+
+        for (attempt in 2..CORE_CONFIRMATION_ATTEMPTS) {
+            delay(
+                CORE_CONFIRMATION_DELAY_MS
+            )
+
+            if (!isGuardianGenerationCurrent(generation)) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CORE_CONFIRM",
+                    status = "CANCELLED",
+                    details = "reason=stale_generation"
+                )
+
+                return HealthResult.TIMEOUT
+            }
+
+            if (RemoteControlManager.isLifecycleBusy()) {
+                EventLogger.logStage(
+                    stage = "GUARDIAN_CORE_CONFIRM",
+                    status = "CANCELLED",
+                    details = "reason=lifecycle_became_active"
+                )
+
+                return HealthResult.TIMEOUT
+            }
+
+            val result =
+                checkEngineHealth()
+
+            EventLogger.logStage(
+                stage = "GUARDIAN_CORE_CONFIRM",
+                status = result.name,
+                details =
+                    "attempt=$attempt; " +
+                    "required=$CORE_CONFIRMATION_ATTEMPTS"
+            )
+
+            when (result) {
+                HealthResult.HEALTHY -> {
+                    EventLogger.logStage(
+                        stage = "GUARDIAN_CORE_CONFIRM",
+                        status = "RECOVERED",
+                        details = "attempt=$attempt"
+                    )
+
+                    return HealthResult.HEALTHY
+                }
+
+                HealthResult.UNHEALTHY -> Unit
+
+                HealthResult.TIMEOUT,
+                HealthResult.SHIZUKU_UNAVAILABLE,
+                HealthResult.SHIZUKU_PERMISSION_DENIED ->
+                    return result
+            }
         }
 
-        val recheck =
-            checkShizukuReadiness()
-
-        if (recheck == ShizukuReadiness.BINDER_UNAVAILABLE) {
-            return HealthResult.SHIZUKU_UNAVAILABLE
-        }
-
-        if (recheck == ShizukuReadiness.PERMISSION_DENIED) {
-            return HealthResult.SHIZUKU_PERMISSION_DENIED
-        }
+        EventLogger.logStage(
+            stage = "GUARDIAN_CORE_CONFIRM",
+            status = "CONFIRMED",
+            details =
+                "attempts=$CORE_CONFIRMATION_ATTEMPTS"
+        )
 
         return HealthResult.UNHEALTHY
     }
