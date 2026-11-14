@@ -1446,7 +1446,7 @@ object RemoteControlManager {
                 bridgeOrNull
         }
 
-        currentBridge.isRunning { running ->
+        currentBridge.checkRunning { health ->
             synchronized(lifecycleLock) {
                 if (
                     operationGeneration !=
@@ -1465,41 +1465,58 @@ object RemoteControlManager {
                 val currentState =
                     _state.value
 
-                when {
-                    running &&
-                        currentState !is
-                            RemoteControlState.Ready -> {
-
-                        val localUrl =
-                            currentLocalUrl
-
-                        val publicUrl =
-                            currentPublicUrl
-
+                when (health.status) {
+                    RemoteControlServiceBridge.ProcessHealthStatus.RUNNING -> {
                         if (
-                            localUrl != null ||
-                            publicUrl != null
+                            currentState !is
+                                RemoteControlState.Ready
                         ) {
-                            _state.value =
-                                RemoteControlState.Ready(
-                                    localUrl = localUrl,
-                                    publicUrl = publicUrl
-                                )
+                            val localUrl =
+                                currentLocalUrl
+
+                            val publicUrl =
+                                currentPublicUrl
+
+                            if (
+                                localUrl != null ||
+                                publicUrl != null
+                            ) {
+                                _state.value =
+                                    RemoteControlState.Ready(
+                                        localUrl = localUrl,
+                                        publicUrl = publicUrl
+                                    )
+                            }
                         }
                     }
 
-                    !running &&
-                        currentState is
-                            RemoteControlState.Ready -> {
+                    RemoteControlServiceBridge.ProcessHealthStatus.STOPPED -> {
+                        if (
+                            currentState is
+                                RemoteControlState.Ready
+                        ) {
+                            _state.value =
+                                RemoteControlState.Idle
+                            currentLocalUrl =
+                                null
+                            currentPublicUrl =
+                                null
+                        }
+                    }
 
-                        _state.value =
-                            RemoteControlState.Idle
-
-                        currentLocalUrl =
-                            null
-
-                        currentPublicUrl =
-                            null
+                    RemoteControlServiceBridge.ProcessHealthStatus.CHECK_FAILED -> {
+                        /*
+                         * A failed diagnostic is not proof that the engine
+                         * stopped. Preserve state and URLs. Guardian performs
+                         * its own policy decision using the same rich result.
+                         */
+                        EventLogger.logStage(
+                            stage = "REFRESH_CORE_CHECK",
+                            status = "SKIPPED",
+                            details =
+                                "reason=check_failed; " +
+                                "details=${safeLogSummary(health.reason ?: "unknown")}" 
+                        )
                     }
                 }
             }
@@ -1529,24 +1546,47 @@ object RemoteControlManager {
         }
     }
 
-    suspend fun isAgentRunningBlocking(): Boolean {
+    /**
+     * Returns the rich Core-health result used by Guardian.
+     *
+     * CHECK_FAILED means the diagnostic itself could not be completed;
+     * it must never be interpreted as proof that the engine stopped.
+     */
+    suspend fun checkAgentRunningBlocking():
+        RemoteControlServiceBridge.ProcessHealthCheck {
+
         val currentBridge =
             synchronized(lifecycleLock) {
                 bridge
-            } ?: return false
+            } ?: return RemoteControlServiceBridge.ProcessHealthCheck(
+                status =
+                    RemoteControlServiceBridge.ProcessHealthStatus.CHECK_FAILED,
+                reason = "bridge_unavailable"
+            )
 
         val deferred =
-            CompletableDeferred<Boolean>()
+            CompletableDeferred<
+                RemoteControlServiceBridge.ProcessHealthCheck
+            >()
 
-        currentBridge.isRunning { running ->
+        currentBridge.checkRunning { result ->
             try {
-                deferred.complete(running)
+                deferred.complete(result)
             } catch (_: Throwable) {
                 // Ignore duplicate or late completions.
             }
         }
 
         return deferred.await()
+    }
+
+    /**
+     * Compatibility Boolean wrapper for call sites not yet migrated.
+     * Guardian must use checkAgentRunningBlocking() instead.
+     */
+    suspend fun isAgentRunningBlocking(): Boolean {
+        return checkAgentRunningBlocking().status ==
+            RemoteControlServiceBridge.ProcessHealthStatus.RUNNING
     }
 
     /**
