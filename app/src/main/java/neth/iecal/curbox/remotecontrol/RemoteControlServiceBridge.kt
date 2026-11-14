@@ -3049,6 +3049,13 @@ class RemoteControlServiceBridge(
         )
     }
 
+    /**
+     * Launches the runtime. If Shizuku delivers an empty, truncated, or
+     * error callback after the native processes have already started, the
+     * callback result alone is not treated as proof of startup failure.
+     * A second command verifies the exact PIDs and reads this operation's
+     * launch.log before the final success/error decision is made.
+     */
     private fun launchServices(
         operationId: Long,
         callback: StartCallback
@@ -3059,7 +3066,6 @@ class RemoteControlServiceBridge(
                 status = "CANCELLED",
                 details = "operationId=$operationId"
             )
-
             finishStart()
             return
         }
@@ -3073,10 +3079,14 @@ class RemoteControlServiceBridge(
         val callbackDelivered =
             AtomicBoolean(false)
 
+        val fallbackRequested =
+            AtomicBoolean(false)
+
         fun finishWithSuccess(
             localUrl: String?,
             publicUrl: String?,
-            networkType: String
+            networkType: String,
+            source: String = "launch_output"
         ) {
             if (
                 !callbackDelivered.compareAndSet(
@@ -3093,7 +3103,6 @@ class RemoteControlServiceBridge(
                     status = "CANCELLED",
                     details = "operationId=$operationId"
                 )
-
                 finishStart()
                 return
             }
@@ -3104,7 +3113,8 @@ class RemoteControlServiceBridge(
                 details = "operationId=$operationId; " +
                     "network=$networkType; " +
                     "localAvailable=${localUrl != null}; " +
-                    "publicAvailable=${publicUrl != null}"
+                    "publicAvailable=${publicUrl != null}; " +
+                    "source=$source"
             )
 
             finishStart()
@@ -3134,7 +3144,6 @@ class RemoteControlServiceBridge(
                     status = "CANCELLED",
                     details = "operationId=$operationId"
                 )
-
                 finishStart()
                 return
             }
@@ -3152,6 +3161,146 @@ class RemoteControlServiceBridge(
             )
         }
 
+        fun verifyRuntimeBeforeFailure(
+            primaryOutput: String,
+            primaryError: String?
+        ) {
+            if (
+                !fallbackRequested.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                return
+            }
+
+            if (!isCurrentOperation(operationId)) {
+                finishWithError(
+                    "Service startup result belongs to a stale operation"
+                )
+                return
+            }
+
+            EventLogger.logStage(
+                stage = "LAUNCH_FALLBACK_VERIFY",
+                status = "STARTED",
+                details =
+                    "operationId=$operationId; " +
+                    "primaryOutputBlank=${primaryOutput.isBlank()}; " +
+                    "primaryErrorPresent=${!primaryError.isNullOrBlank()}"
+            )
+
+            verifyLaunchedRuntime(
+                operationId = operationId
+            ) { verified, verificationOutput, verificationError ->
+                if (!isCurrentOperation(operationId)) {
+                    EventLogger.logStage(
+                        stage = "LAUNCH_FALLBACK_VERIFY",
+                        status = "CANCELLED",
+                        details =
+                            "operationId=$operationId; " +
+                            "reason=stale_operation"
+                    )
+                    finishStart()
+                    return@verifyLaunchedRuntime
+                }
+
+                val combinedOutput =
+                    buildString {
+                        if (primaryOutput.isNotBlank()) {
+                            appendLine(primaryOutput)
+                        }
+                        if (verificationOutput.isNotBlank()) {
+                            append(verificationOutput)
+                        }
+                    }
+
+                val localUrl =
+                    extractLocalUrl(combinedOutput)
+
+                val publicUrl =
+                    extractPublicUrl(combinedOutput)
+
+                val networkType =
+                    extractNetwork(combinedOutput)
+                        .takeIf {
+                            it != "Unknown"
+                        }
+                        ?: networkMode.label
+
+                if (
+                    verified &&
+                    (localUrl != null || publicUrl != null)
+                ) {
+                    EventLogger.logStage(
+                        stage = "LAUNCH_FALLBACK_VERIFY",
+                        status = "OK",
+                        details =
+                            "operationId=$operationId; " +
+                            "localAvailable=${localUrl != null}; " +
+                            "publicAvailable=${publicUrl != null}"
+                    )
+
+                    finishWithSuccess(
+                        localUrl = localUrl,
+                        publicUrl = publicUrl,
+                        networkType = networkType,
+                        source = "runtime_verification"
+                    )
+                    return@verifyLaunchedRuntime
+                }
+
+                EventLogger.logStage(
+                    stage = "LAUNCH_FALLBACK_VERIFY",
+                    status = "FAILED",
+                    details =
+                        "operationId=$operationId; " +
+                        "verified=$verified; " +
+                        "localAvailable=${localUrl != null}; " +
+                        "publicAvailable=${publicUrl != null}; " +
+                        "reason=${safeLogSummary(verificationError)}"
+                )
+
+                finishWithError(
+                    buildString {
+                        appendLine(
+                            "Service startup finished without a verified usable link."
+                        )
+
+                        if (!primaryError.isNullOrBlank()) {
+                            appendLine()
+                            appendLine(
+                                primaryError.take(1200)
+                            )
+                        }
+
+                        if (primaryOutput.isNotBlank()) {
+                            appendLine()
+                            appendLine("Launch output:")
+                            appendLine(
+                                primaryOutput.takeLast(1800)
+                            )
+                        }
+
+                        if (verificationOutput.isNotBlank()) {
+                            appendLine()
+                            appendLine("Runtime verification:")
+                            appendLine(
+                                verificationOutput.takeLast(2200)
+                            )
+                        }
+
+                        if (!verificationError.isNullOrBlank()) {
+                            appendLine()
+                            append(
+                                verificationError.take(1200)
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
         ShizukuRunner.executeCommand(
             buildLaunchScript(
                 networkMode = networkMode,
@@ -3164,58 +3313,36 @@ class RemoteControlServiceBridge(
                     output: String,
                     done: Boolean
                 ) {
-                    accumulated.append(
-                        output
-                    )
+                    synchronized(accumulated) {
+                        accumulated.append(output)
+                    }
 
                     if (!done) {
                         return
                     }
 
                     val fullOutput =
-                        accumulated.toString()
+                        synchronized(accumulated) {
+                            accumulated.toString()
+                        }
 
                     val localUrl =
-                        extractLocalUrl(
-                            fullOutput
-                        )
+                        extractLocalUrl(fullOutput)
 
                     val publicUrl =
-                        extractPublicUrl(
-                            fullOutput
-                        )
+                        extractPublicUrl(fullOutput)
 
                     if (localUrl != null || publicUrl != null) {
                         finishWithSuccess(
                             localUrl = localUrl,
                             publicUrl = publicUrl,
                             networkType =
-                                extractNetwork(
-                                    fullOutput
-                                )
+                                extractNetwork(fullOutput)
                         )
                     } else {
-                        finishWithError(
-                            buildString {
-                                appendLine(
-                                    "Service startup finished without a usable link."
-                                )
-
-                                appendLine()
-
-                                if (fullOutput.isBlank()) {
-                                    append(
-                                        "The launch script returned no output. " +
-                                            "Check Launch Log."
-                                    )
-                                } else {
-                                    append(
-                                        fullOutput.takeLast(
-                                            2600
-                                        )
-                                    )
-                                }
-                            }
+                        verifyRuntimeBeforeFailure(
+                            primaryOutput = fullOutput,
+                            primaryError = null
                         )
                     }
                 }
@@ -3223,13 +3350,274 @@ class RemoteControlServiceBridge(
                 override fun onCommandError(
                     error: String
                 ) {
-                    finishWithError(
-                        error.take(1800)
+                    val fullOutput =
+                        synchronized(accumulated) {
+                            accumulated.toString()
+                        }
+
+                    verifyRuntimeBeforeFailure(
+                        primaryOutput = fullOutput,
+                        primaryError = error
                     )
                 }
             },
             lineBundle = 3600,
             timeoutMs = LAUNCH_TIMEOUT_MS
+        )
+    }
+
+    /**
+     * Verifies the runtime created by one specific launch operation.
+     * Success requires the matching launch.log operation ID, verified
+     * Signaling and Agent executables, and at least one usable URL.
+     * A public URL is exposed only while the recorded cloudflared PID
+     * still resolves to the exact CurBox cloudflared executable.
+     */
+    private fun verifyLaunchedRuntime(
+        operationId: Long,
+        callback: (
+            verified: Boolean,
+            output: String,
+            error: String?
+        ) -> Unit
+    ) {
+        val target =
+            RemoteControlConfig.WORK_DIR
+
+        val command = """
+            set +e
+            cd "$target" || {
+                echo "VERIFY_ERROR=cannot_enter_workdir"
+                echo "VERIFY_FAILED"
+                exit 0
+            }
+
+            normalise_exe() {
+                printf '%s' "${'$'}1" \
+                    | sed 's/ (deleted)${'$'}//'
+            }
+
+            valid_pid() {
+                case "${'$'}1" in
+                    ""|*[!0-9]*) return 1 ;;
+                esac
+                [ "${'$'}1" -gt 1 ] 2>/dev/null
+            }
+
+            pid_matches_executable() {
+                PID="${'$'}1"
+                EXPECTED_EXE="${'$'}2"
+
+                valid_pid "${'$'}PID" || return 1
+                kill -0 "${'$'}PID" 2>/dev/null || return 1
+
+                ACTUAL_EXE=${'$'}(
+                    readlink "/proc/${'$'}PID/exe" 2>/dev/null || true
+                )
+                ACTUAL_EXE=${'$'}(
+                    normalise_exe "${'$'}ACTUAL_EXE"
+                )
+
+                [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
+            }
+
+            if [ ! -s launch.log ]; then
+                echo "VERIFY_ERROR=launch_log_missing"
+                echo "VERIFY_FAILED"
+                exit 0
+            fi
+
+            LOG_OPERATION_ID=${'$'}(
+                sed -n 's/^START_OPERATION_ID=//p' launch.log \
+                    | tail -n 1
+            )
+
+            if [ "${'$'}LOG_OPERATION_ID" != "$operationId" ]; then
+                echo "VERIFY_ERROR=operation_id_mismatch"
+                echo "VERIFY_EXPECTED_OPERATION=$operationId"
+                echo "VERIFY_ACTUAL_OPERATION=${'$'}LOG_OPERATION_ID"
+                echo "VERIFY_FAILED"
+                exit 0
+            fi
+
+            SIGNALING_OK=0
+            AGENT_OK=0
+            CLOUDFLARED_OK=0
+
+            if [ -s signaling.pid ]; then
+                SIGNALING_PID=${'$'}(
+                    cat signaling.pid 2>/dev/null || true
+                )
+                if pid_matches_executable \
+                    "${'$'}SIGNALING_PID" \
+                    "$target/webrtc-signaling"; then
+                    SIGNALING_OK=1
+                fi
+            fi
+
+            if [ -s agent.pid ]; then
+                AGENT_PID=${'$'}(
+                    cat agent.pid 2>/dev/null || true
+                )
+                if pid_matches_executable \
+                    "${'$'}AGENT_PID" \
+                    "$target/cloudphone-agent"; then
+                    AGENT_OK=1
+                fi
+            fi
+
+            if [ -s cloudflared.pid ]; then
+                CLOUDFLARED_PID=${'$'}(
+                    cat cloudflared.pid 2>/dev/null || true
+                )
+                if pid_matches_executable \
+                    "${'$'}CLOUDFLARED_PID" \
+                    "$target/cloudflared"; then
+                    CLOUDFLARED_OK=1
+                fi
+            fi
+
+            echo "VERIFY_SIGNALING_OK=${'$'}SIGNALING_OK"
+            echo "VERIFY_AGENT_OK=${'$'}AGENT_OK"
+            echo "VERIFY_CLOUDFLARED_OK=${'$'}CLOUDFLARED_OK"
+
+            NETWORK_VALUE=${'$'}(
+                sed -n 's/^NETWORK_MODE=//p' launch.log \
+                    | tail -n 1
+            )
+            [ -n "${'$'}NETWORK_VALUE" ] && \
+                echo "NETWORK=${'$'}NETWORK_VALUE"
+
+            LOCAL_URL_VALUE=${'$'}(
+                sed -n 's/^LOCAL_URL=//p' launch.log \
+                    | tail -n 1
+            )
+
+            PUBLIC_URL_VALUE=${'$'}(
+                sed -n 's/^PUBLIC_URL=//p' launch.log \
+                    | tail -n 1
+            )
+
+            case "${'$'}LOCAL_URL_VALUE" in
+                https://*) ;;
+                *) LOCAL_URL_VALUE="" ;;
+            esac
+
+            case "${'$'}PUBLIC_URL_VALUE" in
+                https://*.trycloudflare.com) ;;
+                *) PUBLIC_URL_VALUE="" ;;
+            esac
+
+            case "${'$'}PUBLIC_URL_VALUE" in
+                *api.trycloudflare.com*) PUBLIC_URL_VALUE="" ;;
+            esac
+
+            if [ "${'$'}CLOUDFLARED_OK" -ne 1 ]; then
+                PUBLIC_URL_VALUE=""
+            fi
+
+            if [ -n "${'$'}LOCAL_URL_VALUE" ]; then
+                echo "LOCAL_URL=${'$'}LOCAL_URL_VALUE"
+            fi
+
+            if [ -n "${'$'}PUBLIC_URL_VALUE" ]; then
+                echo "PUBLIC_URL=${'$'}PUBLIC_URL_VALUE"
+            fi
+
+            if [ "${'$'}SIGNALING_OK" -eq 1 ] && \
+               [ "${'$'}AGENT_OK" -eq 1 ] && \
+               { [ -n "${'$'}LOCAL_URL_VALUE" ] || \
+                 [ -n "${'$'}PUBLIC_URL_VALUE" ]; }; then
+                echo "VERIFY_OK"
+            else
+                echo "VERIFY_ERROR=runtime_or_links_not_ready"
+                echo "VERIFY_FAILED"
+            fi
+
+            echo "--- launch.log ---"
+            tail -n 160 launch.log 2>/dev/null
+        """.trimIndent()
+
+        val accumulated =
+            StringBuilder()
+
+        val callbackDelivered =
+            AtomicBoolean(false)
+
+        fun completeOnce(
+            verified: Boolean,
+            output: String,
+            error: String?
+        ) {
+            if (
+                callbackDelivered.compareAndSet(
+                    false,
+                    true
+                )
+            ) {
+                callback(
+                    verified,
+                    output,
+                    error
+                )
+            }
+        }
+
+        ShizukuRunner.executeCommand(
+            command,
+            object :
+                ShizukuRunner.CommandResultListener {
+
+                override fun onCommandResult(
+                    output: String,
+                    done: Boolean
+                ) {
+                    synchronized(accumulated) {
+                        accumulated.append(output)
+                    }
+
+                    if (!done) {
+                        return
+                    }
+
+                    val fullOutput =
+                        synchronized(accumulated) {
+                            accumulated.toString()
+                        }
+
+                    val verified =
+                        fullOutput.lineSequence()
+                            .map {
+                                it.trim()
+                            }
+                            .any {
+                                it == "VERIFY_OK"
+                            }
+
+                    completeOnce(
+                        verified = verified,
+                        output = fullOutput,
+                        error = null
+                    )
+                }
+
+                override fun onCommandError(
+                    error: String
+                ) {
+                    val fullOutput =
+                        synchronized(accumulated) {
+                            accumulated.toString()
+                        }
+
+                    completeOnce(
+                        verified = false,
+                        output = fullOutput,
+                        error = error
+                    )
+                }
+            },
+            lineBundle = 800,
+            timeoutMs = LAUNCH_FALLBACK_VERIFY_TIMEOUT_MS
         )
     }
 
@@ -4584,6 +4972,8 @@ class RemoteControlServiceBridge(
 
         private const val LAUNCH_TIMEOUT_MS =
             120_000L
+        private const val LAUNCH_FALLBACK_VERIFY_TIMEOUT_MS =
+            20_000L
 
         private const val CLOUDFLARE_REPAIR_TIMEOUT_MS =
             90_000L
