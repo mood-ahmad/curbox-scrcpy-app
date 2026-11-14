@@ -55,6 +55,17 @@ class RemoteControlServiceBridge(
         )
     }
 
+    enum class ProcessHealthStatus {
+        RUNNING,
+        STOPPED,
+        CHECK_FAILED
+    }
+
+    data class ProcessHealthCheck(
+        val status: ProcessHealthStatus,
+        val reason: String? = null
+    )
+
     fun start(
         callback: StartCallback
     ) {
@@ -251,67 +262,98 @@ class RemoteControlServiceBridge(
         }
     }
 
-    fun isRunning(
-        callback: (Boolean) -> Unit
+    /**
+     * Performs a diagnostic Core process check without collapsing a
+     * command-execution failure into a confirmed stopped state.
+     */
+    fun checkRunning(
+        callback: (ProcessHealthCheck) -> Unit
     ) {
         val target =
             RemoteControlConfig.WORK_DIR
 
         val command = """
+            set +e
+
             normalise_exe() {
                 printf '%s' "${'$'}1" \
                     | sed 's/ (deleted)${'$'}//'
             }
 
-            pid_matches_executable() {
-                PID="${'$'}1"
-                EXPECTED_EXE="${'$'}2"
-
-                if [ -z "${'$'}PID" ] ||
-                   ! kill -0 "${'$'}PID" 2>/dev/null; then
-                    return 1
-                fi
-
-                ACTUAL_EXE=${'$'}(
-                    readlink "/proc/${'$'}PID/exe" \
-                        2>/dev/null || true
-                )
-
-                ACTUAL_EXE=${'$'}(
-                    normalise_exe "${'$'}ACTUAL_EXE"
-                )
-
-                [ "${'$'}ACTUAL_EXE" = "${'$'}EXPECTED_EXE" ]
+            valid_pid() {
+                case "${'$'}1" in
+                    ""|*[!0-9]*) return 1 ;;
+                esac
+                [ "${'$'}1" -gt 1 ] 2>/dev/null
             }
 
-            pid_file_matches() {
-                PID_FILE="${'$'}1"
-                EXPECTED_EXE="${'$'}2"
+            check_pid_file() {
+                NAME="${'$'}1"
+                PID_FILE="${'$'}2"
+                EXPECTED_EXE="${'$'}3"
 
                 if [ ! -s "${'$'}PID_FILE" ]; then
+                    echo "CORE_HEALTH_DETAIL=${'$'}NAME:pid_file_missing"
                     return 1
                 fi
 
                 PID=${'$'}(
-                    cat "${'$'}PID_FILE" \
-                        2>/dev/null || true
+                    cat "${'$'}PID_FILE" 2>/dev/null || true
                 )
 
-                pid_matches_executable \
-                    "${'$'}PID" \
-                    "${'$'}EXPECTED_EXE"
+                if ! valid_pid "${'$'}PID"; then
+                    echo "CORE_HEALTH_DETAIL=${'$'}NAME:pid_invalid"
+                    return 1
+                fi
+
+                if ! kill -0 "${'$'}PID" 2>/dev/null; then
+                    echo "CORE_HEALTH_DETAIL=${'$'}NAME:process_not_running"
+                    return 1
+                fi
+
+                ACTUAL_EXE=${'$'}(
+                    readlink "/proc/${'$'}PID/exe" 2>/dev/null || true
+                )
+                ACTUAL_EXE=${'$'}(
+                    normalise_exe "${'$'}ACTUAL_EXE"
+                )
+
+                if [ -z "${'$'}ACTUAL_EXE" ]; then
+                    echo "CORE_HEALTH_DETAIL=${'$'}NAME:exe_unreadable"
+                    return 1
+                fi
+
+                if [ "${'$'}ACTUAL_EXE" != "${'$'}EXPECTED_EXE" ]; then
+                    echo "CORE_HEALTH_DETAIL=${'$'}NAME:exe_mismatch"
+                    return 1
+                fi
+
+                echo "CORE_HEALTH_DETAIL=${'$'}NAME:running"
+                return 0
             }
 
-            if pid_file_matches \
-                   "$target/signaling.pid" \
-                   "$target/webrtc-signaling" &&
-               pid_file_matches \
-                   "$target/agent.pid" \
-                   "$target/cloudphone-agent"; then
+            SIGNALING_OK=0
+            AGENT_OK=0
 
-                echo RUNNING
+            if check_pid_file \
+                "signaling" \
+                "$target/signaling.pid" \
+                "$target/webrtc-signaling"; then
+                SIGNALING_OK=1
+            fi
+
+            if check_pid_file \
+                "agent" \
+                "$target/agent.pid" \
+                "$target/cloudphone-agent"; then
+                AGENT_OK=1
+            fi
+
+            if [ "${'$'}SIGNALING_OK" -eq 1 ] && \
+               [ "${'$'}AGENT_OK" -eq 1 ]; then
+                echo CORE_HEALTH_RUNNING
             else
-                echo STOPPED
+                echo CORE_HEALTH_STOPPED
             fi
         """.trimIndent()
 
@@ -319,7 +361,7 @@ class RemoteControlServiceBridge(
             AtomicBoolean(false)
 
         fun completeOnce(
-            running: Boolean
+            result: ProcessHealthCheck
         ) {
             if (
                 callbackDelivered.compareAndSet(
@@ -327,7 +369,7 @@ class RemoteControlServiceBridge(
                     true
                 )
             ) {
-                callback(running)
+                callback(result)
             }
         }
 
@@ -344,31 +386,120 @@ class RemoteControlServiceBridge(
                         return
                     }
 
-                    val running =
+                    val lines =
                         output.lineSequence()
                             .map {
                                 it.trim()
                             }
-                            .any {
-                                it == "RUNNING"
+                            .filter {
+                                it.isNotBlank()
+                            }
+                            .toList()
+
+                    val details =
+                        lines.filter {
+                            it.startsWith(
+                                "CORE_HEALTH_DETAIL="
+                            )
+                        }
+                            .joinToString(
+                                separator = ","
+                            ) {
+                                it.removePrefix(
+                                    "CORE_HEALTH_DETAIL="
+                                )
+                            }
+                            .ifBlank {
+                                "none"
                             }
 
+                    val status =
+                        when {
+                            lines.any {
+                                it == "CORE_HEALTH_RUNNING"
+                            } ->
+                                ProcessHealthStatus.RUNNING
+
+                            lines.any {
+                                it == "CORE_HEALTH_STOPPED"
+                            } ->
+                                ProcessHealthStatus.STOPPED
+
+                            else ->
+                                ProcessHealthStatus.CHECK_FAILED
+                        }
+
+                    val reason =
+                        when (status) {
+                            ProcessHealthStatus.RUNNING ->
+                                null
+
+                            ProcessHealthStatus.STOPPED ->
+                                details
+
+                            ProcessHealthStatus.CHECK_FAILED ->
+                                "missing_terminal_marker; details=$details"
+                        }
+
+                    EventLogger.logStage(
+                        stage = "CORE_HEALTH_BRIDGE",
+                        status = status.name,
+                        details =
+                            "details=" +
+                                safeLogSummary(
+                                    reason ?: details
+                                )
+                    )
+
                     completeOnce(
-                        running
+                        ProcessHealthCheck(
+                            status = status,
+                            reason = reason
+                        )
                     )
                 }
 
                 override fun onCommandError(
                     error: String
                 ) {
+                    val reason =
+                        "command_error=" +
+                            safeLogSummary(error)
+
+                    EventLogger.logStage(
+                        stage = "CORE_HEALTH_BRIDGE",
+                        status = "CHECK_FAILED",
+                        details = reason
+                    )
+
                     completeOnce(
-                        false
+                        ProcessHealthCheck(
+                            status =
+                                ProcessHealthStatus.CHECK_FAILED,
+                            reason = reason
+                        )
                     )
                 }
             },
             lineBundle = 200,
             timeoutMs = HEALTH_CHECK_TIMEOUT_MS
         )
+    }
+
+    /**
+     * Compatibility adapter for existing Boolean callers.
+     * Recovery code must migrate to checkRunning() so CHECK_FAILED is
+     * never treated as proof that the engine stopped.
+     */
+    fun isRunning(
+        callback: (Boolean) -> Unit
+    ) {
+        checkRunning { result ->
+            callback(
+                result.status ==
+                    ProcessHealthStatus.RUNNING
+            )
+        }
     }
 
     fun isCloudflaredRunning(
