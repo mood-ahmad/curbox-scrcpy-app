@@ -8,7 +8,7 @@ permissions:
 
 env:
   BINARIES_REPOSITORY: 'mood-ahmad/curbox-scrcpy-binaries'
-  SCRCPY_RELEASE_TAG: 'binaries-v041'
+  SCRCPY_RELEASE_TAG: 'binaries-v041-recovered-baseline'
   CLOUDFLARED_RELEASE_TAG: 'cloudflared-android-2026.10.5'
   CLOUDFLARED_EXPECTED_SHA256: 'b2980050c656458c4e3b1c35eda53d1c00d9b02edbb32ff55e37df318b5e657c'
 
@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/curbox-cache
-          key: curbox-runtime-v041-cloudflared-android-2026.10.5-v2
+          key: curbox-runtime-baseline-cloudflared-android-2026.10.5-v1
 
       - name: Download pinned Scrcpy runtime and signing key
         shell: bash
@@ -48,26 +48,26 @@ jobs:
           CACHE_ROOT="/tmp/curbox-cache"
           SCRCPY_CACHE="$CACHE_ROOT/scrcpy-v041"
 
-          SCRCPY_ZIP="$SCRCPY_CACHE/cloudphone-binaries-v041.zip"
+          SCRCPY_ZIP="$SCRCPY_CACHE/cloudphone-binaries-v041-recovered-baseline.zip"
           KEYSTORE="$SCRCPY_CACHE/curbox-release.jks"
 
           mkdir -p "$SCRCPY_CACHE"
 
           if [ ! -s "$SCRCPY_ZIP" ]; then
-            echo "Downloading pinned Scrcpy runtime..."
+            echo "Downloading baseline Scrcpy runtime..."
 
             gh release download "$SCRCPY_RELEASE_TAG" \
               --repo "$BINARIES_REPOSITORY" \
-              --pattern "cloudphone-binaries-v041.zip" \
+              --pattern "cloudphone-binaries-v041-recovered-baseline.zip" \
               --dir "$SCRCPY_CACHE"
           else
-            echo "Using cached Scrcpy runtime."
+            echo "Using cached Baseline Scrcpy runtime."
           fi
 
           if [ ! -s "$KEYSTORE" ]; then
-            echo "Downloading CurBox signing key..."
+            echo "Downloading CurBox signing key from stable release..."
 
-            gh release download "$SCRCPY_RELEASE_TAG" \
+            gh release download "binaries-v041" \
               --repo "$BINARIES_REPOSITORY" \
               --pattern "curbox-release.jks" \
               --dir "$SCRCPY_CACHE"
@@ -235,7 +235,7 @@ jobs:
           mkdir -p "$EXTRACT_ROOT"
 
           unzip -q -o \
-            "$SCRCPY_CACHE/cloudphone-binaries-v041.zip" \
+            "$SCRCPY_CACHE/cloudphone-binaries-v041-recovered-baseline.zip" \
             -d "$EXTRACT_ROOT"
 
           test -d "$SOURCE_ROOT"
