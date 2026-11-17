@@ -227,11 +227,15 @@ jobs:
           rm -rf "$EXTRACT_ROOT"
           mkdir -p "$EXTRACT_ROOT"
 
+          # فك الملف اللي تم تحميله
           unzip -q -o \
             "$SCRCPY_CACHE/cloudphone-binaries-v041-recovered-baseline.zip" \
             -d "$EXTRACT_ROOT"
 
-          # Dynamic detection of the root folder
+          # لو الملف اللي طلع هو ملف ZIP تاني (لأنه artifact من GitHub)، هنفكه تاني
+          find "$EXTRACT_ROOT" -maxdepth 1 -name "*.zip" -exec unzip -q -o {} -d "$EXTRACT_ROOT" \;
+
+          # البحث الذكي عن فولدر الأندرويد
           SOURCE_ROOT=$(find "$EXTRACT_ROOT" -maxdepth 2 -type d -name "android" -exec dirname {} \; | head -n 1)
 
           if [ -z "$SOURCE_ROOT" ]; then
