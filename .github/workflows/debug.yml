@@ -223,14 +223,7 @@ jobs:
           CLOUDFLARED_CACHE="/tmp/curbox-cache/cloudflared-android-2026.10.5"
 
           EXTRACT_ROOT="/tmp/extracted"
-          SOURCE_ROOT="$EXTRACT_ROOT/cloudphone-v0.4.1"
-          ANDROID_SOURCE="$SOURCE_ROOT/android"
-          WEB_ASSETS_SOURCE="$SOURCE_ROOT/assets"
-
-          TARGET_ROOT="app/src/main/assets/cloudphone"
-          TARGET_CERTS="$TARGET_ROOT/certs"
-          TARGET_ASSETS="$TARGET_ROOT/assets"
-
+          
           rm -rf "$EXTRACT_ROOT"
           mkdir -p "$EXTRACT_ROOT"
 
@@ -238,7 +231,22 @@ jobs:
             "$SCRCPY_CACHE/cloudphone-binaries-v041-recovered-baseline.zip" \
             -d "$EXTRACT_ROOT"
 
-          test -d "$SOURCE_ROOT"
+          # Dynamic detection of the root folder
+          SOURCE_ROOT=$(find "$EXTRACT_ROOT" -maxdepth 2 -type d -name "android" -exec dirname {} \; | head -n 1)
+
+          if [ -z "$SOURCE_ROOT" ]; then
+            echo "Could not find 'android' directory!"
+            ls -R "$EXTRACT_ROOT" | head -n 50
+            exit 1
+          fi
+
+          ANDROID_SOURCE="$SOURCE_ROOT/android"
+          WEB_ASSETS_SOURCE="$SOURCE_ROOT/assets"
+
+          TARGET_ROOT="app/src/main/assets/cloudphone"
+          TARGET_CERTS="$TARGET_ROOT/certs"
+          TARGET_ASSETS="$TARGET_ROOT/assets"
+
           test -d "$ANDROID_SOURCE"
           test -d "$WEB_ASSETS_SOURCE"
 
