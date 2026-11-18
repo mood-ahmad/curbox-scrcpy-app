@@ -4409,9 +4409,60 @@ class RemoteControlServiceBridge(
                 exit 0
             fi
 
+            # --------------------------------------------------
+            # Signaling owns the Agent secret. When AGENT_SECRET is
+            # not supplied explicitly, the recovered Signaling server
+            # persists its generated value in data/agent.secret.
+            # Read that exact value and pass it to the Agent so both
+            # sides always use the same credential.
+            #
+            # Never print the secret itself to launch.log or stdout.
+            # --------------------------------------------------
+            AGENT_SECRET_FILE="$target/data/agent.secret"
+            AGENT_SECRET_VALUE=""
+
+            for i in ${'$'}(seq 1 10); do
+                if [ -s "${'$'}AGENT_SECRET_FILE" ]; then
+                    AGENT_SECRET_VALUE=${'$'}(
+                        cat "${'$'}AGENT_SECRET_FILE" \
+                            2>/dev/null || true
+                    )
+
+                    if [ -n "${'$'}AGENT_SECRET_VALUE" ]; then
+                        break
+                    fi
+                fi
+
+                sleep 1
+            done
+
+            if [ -z "${'$'}AGENT_SECRET_VALUE" ]; then
+                echo "AGENT_SECRET_READY=0" \
+                    >> launch.log
+
+                echo "NETWORK=$networkLabel"
+                echo "LINK_ERROR=signaling agent secret is unavailable"
+                echo "--- signaling.log ---"
+                tail -n 100 signaling.log \
+                    2>/dev/null
+                echo "--- launch.log ---"
+                cat launch.log \
+                    2>/dev/null
+
+                abort_startup \
+                    "agent_secret_unavailable"
+
+                exit 0
+            fi
+
+            echo "AGENT_SECRET_READY=1" \
+                >> launch.log
+
             export CP_AGENT_ID="$agentId"
             export CP_AGENT_SIGNALING="$signalingUrl"
             export CP_AGENT_JAR="$agentJar"
+            export CP_AGENT_SECRET="${'$'}AGENT_SECRET_VALUE"
+            export AGENT_SECRET="${'$'}AGENT_SECRET_VALUE"
 
             if ! token_is_valid; then
                 echo "NETWORK=$networkLabel"
