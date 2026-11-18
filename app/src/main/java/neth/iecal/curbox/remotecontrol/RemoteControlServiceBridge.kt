@@ -4478,6 +4478,7 @@ class RemoteControlServiceBridge(
             setsid nohup env \
                 GODEBUG=asyncpreemptoff=1 \
                 ./cloudphone-agent \
+                -device-secret "${'$'}AGENT_SECRET_VALUE" \
                 -expires-at "" \
                 >> agent.log 2>&1 &
 
