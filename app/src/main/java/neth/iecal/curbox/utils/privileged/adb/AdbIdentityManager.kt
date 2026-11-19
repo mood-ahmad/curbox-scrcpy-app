@@ -1,8 +1,6 @@
 package neth.iecal.curbox.utils.privileged.adb
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.sun.security.x509.AlgorithmId
 import android.sun.security.x509.CertificateAlgorithmId
 import android.sun.security.x509.CertificateExtensions
@@ -18,93 +16,57 @@ import android.sun.security.x509.SubjectKeyIdentifierExtension
 import android.sun.security.x509.X500Name
 import android.sun.security.x509.X509CertImpl
 import android.sun.security.x509.X509CertInfo
-import java.io.DataInputStream
-import java.io.DataOutputStream
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
-import java.security.KeyStore
 import java.security.PrivateKey
-import java.security.PublicKey
 import java.security.SecureRandom
 import java.security.cert.Certificate
 import java.security.cert.CertificateFactory
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Date
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
+import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /**
  * Owns CurBox's persistent ADB client identity.
  *
- * libadb-android's reference application uses a software RSA key pair for the
- * ADB identity. CurBox follows that model instead of passing an
- * AndroidKeyStore-backed RSA private key directly into libadb/Conscrypt.
+ * libadb-android's pairing path requires an RSA private key that its crypto
+ * provider can use directly. Therefore CurBox uses a normal software RSA key
+ * pair here instead of passing an AndroidKeyStore-backed PrivateKey object to
+ * Conscrypt.
  *
- * The software RSA private key is still protected at rest:
- *
- * - RSA signing key: normal software RSA PrivateKey, compatible with libadb.
- * - Stored PKCS#8 bytes: encrypted with AES/GCM.
- * - AES wrapping key: non-exportable and stored in AndroidKeyStore.
- * - X.509 certificate: stored as the public certificate bytes.
- *
- * The same RSA identity is reused after process and device restarts so an
- * existing ADB pairing can continue to trust CurBox.
+ * The identity is generated once, stored in CurBox's private app storage, and
+ * reused across process restarts. Replacing the identity requires pairing
+ * again, so normal recovery must never regenerate it.
  */
 object AdbIdentityManager {
 
-    private const val ANDROID_KEYSTORE =
-        "AndroidKeyStore"
-
-    /**
-     * Old alias used by the first Direct ADB implementation.
-     *
-     * That implementation put the RSA private key itself in AndroidKeyStore.
-     * The alias is removed during migration because that key type caused the
-     * libadb/Conscrypt pairing path to fail on the tested device.
-     */
-    private const val LEGACY_RSA_ALIAS =
-        "curbox_direct_adb_identity"
-
-    /**
-     * AndroidKeyStore contains only this AES wrapping key.
-     *
-     * The actual ADB RSA private key remains a normal software PrivateKey
-     * after decryption.
-     */
-    private const val WRAPPING_KEY_ALIAS =
-        "curbox_direct_adb_identity_wrapping_key"
-
     private const val PRIVATE_KEY_FILE =
-        "curbox_direct_adb_private_key.bin"
+        "curbox_adb_private.key"
 
     private const val CERTIFICATE_FILE =
-        "curbox_direct_adb_certificate.der"
+        "curbox_adb_certificate.der"
 
     private const val RSA_KEY_SIZE =
         2048
 
-    private const val AES_KEY_SIZE =
-        256
-
-    private const val GCM_TAG_LENGTH_BITS =
-        128
-
-    private const val STORAGE_VERSION =
-        1
-
-    private const val CERTIFICATE_VALIDITY_YEARS =
-        20L
-
     private const val CERTIFICATE_SUBJECT =
         "CN=CurBox Direct ADB"
 
-    private const val CERTIFICATE_SIGNATURE_ALGORITHM =
+    private const val CERTIFICATE_ALGORITHM =
         "SHA512withRSA"
+
+    /**
+     * Keep the certificate well beyond normal app-update/restart cycles.
+     *
+     * This does not control Android's pairing trust lifetime. It only avoids
+     * replacing CurBox's own identity because its local certificate expired.
+     */
+    private val CERTIFICATE_VALIDITY_MS =
+        TimeUnit.DAYS.toMillis(
+            3650L
+        )
 
     data class Identity(
         val privateKey: PrivateKey,
@@ -112,8 +74,10 @@ object AdbIdentityManager {
     )
 
     /**
-     * Returns CurBox's existing ADB identity or creates a new compatible
-     * software-RSA identity when none has been stored yet.
+     * Returns the existing persistent identity or creates it once.
+     *
+     * This operation is synchronized so startup, recovery, and explicit setup
+     * cannot race while the initial identity files are being created.
      */
     @Synchronized
     fun getOrCreate(
@@ -122,8 +86,6 @@ object AdbIdentityManager {
         val appContext =
             context.applicationContext
 
-        migrateLegacyIdentity()
-
         loadIdentity(
             appContext
         )?.let {
@@ -131,7 +93,10 @@ object AdbIdentityManager {
         }
 
         /*
-         * Do not keep half of a previous/corrupted identity.
+         * If only one identity file exists, the previous write was incomplete
+         * or the stored identity is unusable. Remove both before generating a
+         * replacement so key and certificate can never belong to different
+         * key pairs.
          */
         deleteIdentityFiles(
             appContext
@@ -153,25 +118,19 @@ object AdbIdentityManager {
     }
 
     /**
-     * Returns the stored identity without generating a new one.
+     * Returns the stored software ADB identity without creating a new one.
      */
     @Synchronized
     fun getExisting(
         context: Context
     ): Identity? {
-        val appContext =
-            context.applicationContext
-
-        migrateLegacyIdentity()
-
         return loadIdentity(
-            appContext
+            context.applicationContext
         )
     }
 
     /**
-     * Returns true only when both the private RSA key and matching certificate
-     * can be loaded successfully.
+     * Returns true only when both identity files can be decoded successfully.
      */
     @Synchronized
     fun exists(
@@ -183,66 +142,20 @@ object AdbIdentityManager {
     }
 
     /**
-     * Deletes CurBox's ADB identity.
+     * Explicitly deletes CurBox's Direct ADB identity.
      *
-     * Existing ADB trust for this identity becomes unusable after reset, so
-     * this method belongs only to an explicit repair/reset flow.
+     * Existing Android Wireless Debugging trust refers to the old public key,
+     * so the next Direct Access setup will require pairing again.
+     *
+     * Normal reconnect/recovery logic must not call this.
      */
     @Synchronized
     fun reset(
         context: Context
     ) {
-        val appContext =
-            context.applicationContext
-
         deleteIdentityFiles(
-            appContext
+            context.applicationContext
         )
-
-        val keyStore =
-            loadAndroidKeyStore()
-
-        if (
-            keyStore.containsAlias(
-                WRAPPING_KEY_ALIAS
-            )
-        ) {
-            keyStore.deleteEntry(
-                WRAPPING_KEY_ALIAS
-            )
-        }
-
-        if (
-            keyStore.containsAlias(
-                LEGACY_RSA_ALIAS
-            )
-        ) {
-            keyStore.deleteEntry(
-                LEGACY_RSA_ALIAS
-            )
-        }
-    }
-
-    /**
-     * Removes the original AndroidKeyStore-backed RSA identity.
-     *
-     * It is deliberately not converted because AndroidKeyStore private keys
-     * are non-exportable. CurBox therefore creates a new software RSA
-     * identity once and requires one fresh ADB pairing.
-     */
-    private fun migrateLegacyIdentity() {
-        val keyStore =
-            loadAndroidKeyStore()
-
-        if (
-            keyStore.containsAlias(
-                LEGACY_RSA_ALIAS
-            )
-        ) {
-            keyStore.deleteEntry(
-                LEGACY_RSA_ALIAS
-            )
-        }
     }
 
     private fun loadIdentity(
@@ -268,15 +181,8 @@ object AdbIdentityManager {
         }
 
         return try {
-            val encryptedPrivateKey =
-                readEncryptedPrivateKey(
-                    privateKeyFile
-                )
-
             val privateKeyBytes =
-                decryptPrivateKey(
-                    encryptedPrivateKey
-                )
+                privateKeyFile.readBytes()
 
             val privateKey =
                 KeyFactory
@@ -289,26 +195,34 @@ object AdbIdentityManager {
                         )
                     )
 
-            /*
-             * Clear the decrypted encoded bytes as soon as KeyFactory has
-             * created the PrivateKey object.
-             */
-            privateKeyBytes.fill(
-                0
-            )
-
             val certificate =
-                FileInputStream(
-                    certificateFile
-                ).use { input ->
-                    CertificateFactory
-                        .getInstance(
-                            "X.509"
-                        )
-                        .generateCertificate(
-                            input
-                        )
-                }
+                certificateFile
+                    .inputStream()
+                    .use { input ->
+                        CertificateFactory
+                            .getInstance(
+                                "X.509"
+                            )
+                            .generateCertificate(
+                                input
+                            )
+                    }
+
+            /*
+             * Verify that the persisted key and certificate still form the
+             * same RSA identity before handing them to libadb.
+             */
+            val certificatePublicKey =
+                certificate.publicKey
+
+            if (
+                certificatePublicKey.algorithm !=
+                "RSA" ||
+                privateKey.algorithm !=
+                "RSA"
+            ) {
+                return null
+            }
 
             Identity(
                 privateKey = privateKey,
@@ -319,7 +233,13 @@ object AdbIdentityManager {
         }
     }
 
-    private fun generateIdentity(): Identity {
+    private fun generateIdentity():
+        Identity {
+
+        /*
+         * Match libadb-android's test application: generate an ordinary RSA
+         * software key pair rather than an AndroidKeyStore-backed key.
+         */
         val keyPairGenerator =
             KeyPairGenerator.getInstance(
                 "RSA"
@@ -327,59 +247,28 @@ object AdbIdentityManager {
 
         keyPairGenerator.initialize(
             RSA_KEY_SIZE,
-            SecureRandom()
+            SecureRandom.getInstance(
+                "SHA1PRNG"
+            )
         )
 
         val keyPair =
             keyPairGenerator
                 .generateKeyPair()
 
-        val certificate =
-            generateCertificate(
-                publicKey =
-                    keyPair.public,
-                privateKey =
-                    keyPair.private
-            )
+        val privateKey =
+            keyPair.private
 
-        return Identity(
-            privateKey =
-                keyPair.private,
-            certificate =
-                certificate
-        )
-    }
-
-    /**
-     * Generates the self-signed X.509 certificate expected by libadb's TLS
-     * identity path.
-     *
-     * The structure follows the libadb-android reference application's
-     * certificate-generation approach.
-     */
-    private fun generateCertificate(
-        publicKey: PublicKey,
-        privateKey: PrivateKey
-    ): Certificate {
-        val now =
-            System.currentTimeMillis()
-
-        val validityMillis =
-            CERTIFICATE_VALIDITY_YEARS *
-                365L *
-                24L *
-                60L *
-                60L *
-                1000L
+        val publicKey =
+            keyPair.public
 
         val notBefore =
-            Date(
-                now
-            )
+            Date()
 
         val notAfter =
             Date(
-                now + validityMillis
+                System.currentTimeMillis() +
+                    CERTIFICATE_VALIDITY_MS
             )
 
         val extensions =
@@ -413,13 +302,6 @@ object AdbIdentityManager {
                 notAfter
             )
 
-        val serialNumber =
-            SecureRandom()
-                .nextInt()
-                .and(
-                    Int.MAX_VALUE
-                )
-
         val certificateInfo =
             X509CertInfo()
 
@@ -433,7 +315,10 @@ object AdbIdentityManager {
         certificateInfo.set(
             "serialNumber",
             CertificateSerialNumber(
-                serialNumber
+                Random.nextInt(
+                    1,
+                    Int.MAX_VALUE
+                )
             )
         )
 
@@ -441,7 +326,7 @@ object AdbIdentityManager {
             "algorithmID",
             CertificateAlgorithmId(
                 AlgorithmId.get(
-                    CERTIFICATE_SIGNATURE_ALGORITHM
+                    CERTIFICATE_ALGORITHM
                 )
             )
         )
@@ -484,16 +369,31 @@ object AdbIdentityManager {
 
         certificate.sign(
             privateKey,
-            CERTIFICATE_SIGNATURE_ALGORITHM
+            CERTIFICATE_ALGORITHM
         )
 
-        return certificate
+        return Identity(
+            privateKey = privateKey,
+            certificate = certificate
+        )
     }
 
     private fun persistIdentity(
         context: Context,
         identity: Identity
     ) {
+        val encodedPrivateKey =
+            identity.privateKey.encoded
+                ?: throw IllegalStateException(
+                    "Generated ADB private key cannot be encoded as PKCS#8."
+                )
+
+        val encodedCertificate =
+            identity.certificate.encoded
+                ?: throw IllegalStateException(
+                    "Generated ADB certificate cannot be encoded."
+                )
+
         val privateKeyFile =
             File(
                 context.filesDir,
@@ -506,255 +406,51 @@ object AdbIdentityManager {
                 CERTIFICATE_FILE
             )
 
-        val encodedPrivateKey =
-            identity
-                .privateKey
-                .encoded
-                ?: throw IllegalStateException(
-                    "Generated ADB private key does not expose PKCS#8 encoding."
-                )
+        val temporaryPrivateKeyFile =
+            File(
+                context.filesDir,
+                "$PRIVATE_KEY_FILE.tmp"
+            )
+
+        val temporaryCertificateFile =
+            File(
+                context.filesDir,
+                "$CERTIFICATE_FILE.tmp"
+            )
 
         try {
-            val encryptedPrivateKey =
-                encryptPrivateKey(
-                    encodedPrivateKey
-                )
-
-            writeEncryptedPrivateKey(
-                file =
-                    privateKeyFile,
-                encrypted =
-                    encryptedPrivateKey
+            temporaryPrivateKeyFile.writeBytes(
+                encodedPrivateKey
             )
 
-            FileOutputStream(
-                certificateFile
-            ).use { output ->
-                output.write(
-                    identity
-                        .certificate
-                        .encoded
-                )
+            temporaryCertificateFile.writeBytes(
+                encodedCertificate
+            )
 
-                output.flush()
+            if (
+                !temporaryPrivateKeyFile.renameTo(
+                    privateKeyFile
+                )
+            ) {
+                throw IllegalStateException(
+                    "Could not persist the Direct ADB private key."
+                )
             }
-        } catch (t: Throwable) {
-            deleteIdentityFiles(
-                context
-            )
 
-            throw t
+            if (
+                !temporaryCertificateFile.renameTo(
+                    certificateFile
+                )
+            ) {
+                privateKeyFile.delete()
+
+                throw IllegalStateException(
+                    "Could not persist the Direct ADB certificate."
+                )
+            }
         } finally {
-            encodedPrivateKey.fill(
-                0
-            )
-        }
-    }
-
-    private data class EncryptedPrivateKey(
-        val iv: ByteArray,
-        val ciphertext: ByteArray
-    )
-
-    private fun encryptPrivateKey(
-        privateKeyBytes: ByteArray
-    ): EncryptedPrivateKey {
-        val cipher =
-            Cipher.getInstance(
-                "AES/GCM/NoPadding"
-            )
-
-        cipher.init(
-            Cipher.ENCRYPT_MODE,
-            getOrCreateWrappingKey()
-        )
-
-        return EncryptedPrivateKey(
-            iv =
-                cipher.iv,
-            ciphertext =
-                cipher.doFinal(
-                    privateKeyBytes
-                )
-        )
-    }
-
-    private fun decryptPrivateKey(
-        encrypted:
-            EncryptedPrivateKey
-    ): ByteArray {
-        val cipher =
-            Cipher.getInstance(
-                "AES/GCM/NoPadding"
-            )
-
-        cipher.init(
-            Cipher.DECRYPT_MODE,
-            getOrCreateWrappingKey(),
-            GCMParameterSpec(
-                GCM_TAG_LENGTH_BITS,
-                encrypted.iv
-            )
-        )
-
-        return cipher.doFinal(
-            encrypted.ciphertext
-        )
-    }
-
-    private fun getOrCreateWrappingKey():
-        SecretKey {
-
-        val keyStore =
-            loadAndroidKeyStore()
-
-        val existing =
-            keyStore.getKey(
-                WRAPPING_KEY_ALIAS,
-                null
-            ) as? SecretKey
-
-        if (existing != null) {
-            return existing
-        }
-
-        val keyGenerator =
-            KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE
-            )
-
-        val spec =
-            KeyGenParameterSpec.Builder(
-                WRAPPING_KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or
-                    KeyProperties.PURPOSE_DECRYPT
-            )
-                .setKeySize(
-                    AES_KEY_SIZE
-                )
-                .setBlockModes(
-                    KeyProperties.BLOCK_MODE_GCM
-                )
-                .setEncryptionPaddings(
-                    KeyProperties.ENCRYPTION_PADDING_NONE
-                )
-                .setUserAuthenticationRequired(
-                    false
-                )
-                .build()
-
-        keyGenerator.init(
-            spec
-        )
-
-        return keyGenerator
-            .generateKey()
-    }
-
-    private fun writeEncryptedPrivateKey(
-        file: File,
-        encrypted: EncryptedPrivateKey
-    ) {
-        DataOutputStream(
-            FileOutputStream(
-                file
-            )
-        ).use { output ->
-            output.writeInt(
-                STORAGE_VERSION
-            )
-
-            output.writeInt(
-                encrypted.iv.size
-            )
-
-            output.write(
-                encrypted.iv
-            )
-
-            output.writeInt(
-                encrypted
-                    .ciphertext
-                    .size
-            )
-
-            output.write(
-                encrypted.ciphertext
-            )
-
-            output.flush()
-        }
-    }
-
-    private fun readEncryptedPrivateKey(
-        file: File
-    ): EncryptedPrivateKey {
-        DataInputStream(
-            FileInputStream(
-                file
-            )
-        ).use { input ->
-            val version =
-                input.readInt()
-
-            if (
-                version !=
-                STORAGE_VERSION
-            ) {
-                throw IllegalStateException(
-                    "Unsupported Direct ADB identity storage version: $version"
-                )
-            }
-
-            val ivSize =
-                input.readInt()
-
-            if (
-                ivSize !in
-                1..64
-            ) {
-                throw IllegalStateException(
-                    "Invalid Direct ADB identity IV length."
-                )
-            }
-
-            val iv =
-                ByteArray(
-                    ivSize
-                )
-
-            input.readFully(
-                iv
-            )
-
-            val ciphertextSize =
-                input.readInt()
-
-            if (
-                ciphertextSize !in
-                1..65_536
-            ) {
-                throw IllegalStateException(
-                    "Invalid Direct ADB private-key payload length."
-                )
-            }
-
-            val ciphertext =
-                ByteArray(
-                    ciphertextSize
-                )
-
-            input.readFully(
-                ciphertext
-            )
-
-            return EncryptedPrivateKey(
-                iv =
-                    iv,
-                ciphertext =
-                    ciphertext
-            )
+            temporaryPrivateKeyFile.delete()
+            temporaryCertificateFile.delete()
         }
     }
 
@@ -770,19 +466,46 @@ object AdbIdentityManager {
             context.filesDir,
             CERTIFICATE_FILE
         ).delete()
-    }
 
-    private fun loadAndroidKeyStore():
-        KeyStore {
+        File(
+            context.filesDir,
+            "$PRIVATE_KEY_FILE.tmp"
+        ).delete()
 
-        return KeyStore
-            .getInstance(
-                ANDROID_KEYSTORE
-            )
-            .apply {
-                load(
-                    null
+        File(
+            context.filesDir,
+            "$CERTIFICATE_FILE.tmp"
+        ).delete()
+
+        /*
+         * Remove the incompatible identity used by CurBox's earlier
+         * AndroidKeyStore-based implementation.
+         *
+         * Failure to remove it is harmless because the new implementation no
+         * longer reads it.
+         */
+        try {
+            val keyStore =
+                java.security.KeyStore.getInstance(
+                    "AndroidKeyStore"
+                ).apply {
+                    load(null)
+                }
+
+            val oldAlias =
+                "curbox_direct_adb_identity"
+
+            if (
+                keyStore.containsAlias(
+                    oldAlias
+                )
+            ) {
+                keyStore.deleteEntry(
+                    oldAlias
                 )
             }
+        } catch (_: Exception) {
+            // The software identity does not depend on this cleanup.
+        }
     }
 }
