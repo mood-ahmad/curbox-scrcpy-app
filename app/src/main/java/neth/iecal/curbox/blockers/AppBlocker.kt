@@ -26,12 +26,13 @@ import neth.iecal.curbox.data.models.upgradeLegacyAppGroupConfigs
 import neth.iecal.curbox.services.BaseBlockingService
 import neth.iecal.curbox.ui.activity.WarningActivity
 import neth.iecal.curbox.utils.AppSuspendHelper
-import neth.iecal.curbox.utils.ShizukuRunner
 import neth.iecal.curbox.utils.TimerNotification
 import neth.iecal.curbox.utils.UsageStatsHelper
 import neth.iecal.curbox.utils.activeWindow
 import neth.iecal.curbox.utils.getCurrentKeyboardPackageName
 import neth.iecal.curbox.utils.nextChangeAfter
+import neth.iecal.curbox.utils.privileged.PrivilegedBackend
+import neth.iecal.curbox.utils.privileged.PrivilegedRunner
 import java.util.Calendar
 import java.util.concurrent.ConcurrentHashMap
 
@@ -41,7 +42,8 @@ class AppBlocker : BaseBlocker() {
         /**
          * Refreshes information about warning screen, cheat hours and blocked app list
          */
-        const val INTENT_ACTION_REFRESH_APP_BLOCKER = "neth.iecal.curbox.refresh.appblocker"
+        const val INTENT_ACTION_REFRESH_APP_BLOCKER =
+            "neth.iecal.curbox.refresh.appblocker"
 
         /**
          * Add cooldown to an app group.
@@ -49,11 +51,18 @@ class AppBlocker : BaseBlocker() {
          * selected_time: Long -> Duration of cooldown in millis
          * result_id : String -> ID of the app group to be put into cooldown
          */
-        const val INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN = "neth.iecal.curbox.refresh.appblocker.cooldown"
+        const val INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN =
+            "neth.iecal.curbox.refresh.appblocker.cooldown"
+
         const val INTENT_ACTION_WARNING_SCREEN_VISIBILITY =
             "neth.iecal.curbox.appblocker.warning_screen_visibility"
-        const val EXTRA_WARNING_SCREEN_VISIBLE = "warning_screen_visible"
-        private const val TARGET_EVENTS_MASK = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+
+        const val EXTRA_WARNING_SCREEN_VISIBLE =
+            "warning_screen_visible"
+
+        private const val TARGET_EVENTS_MASK =
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
     }
 
     private lateinit var prefs: SharedPreferences
@@ -62,7 +71,8 @@ class AppBlocker : BaseBlocker() {
      * Stores which blocked groups have been allowed by the user and until when.
      * group-id -> end-time-in-real-time-millis
      */
-    private var cooldownGroupsList = ConcurrentHashMap<String, Long>()
+    private var cooldownGroupsList =
+        ConcurrentHashMap<String, Long>()
 
     private data class AppGroupEntry(
         val groupId: String,
@@ -71,149 +81,275 @@ class AppBlocker : BaseBlocker() {
         val warningConfig: AppBlockerWarningScreenConfig
     )
 
-    private val blockedAppsList = ConcurrentHashMap<String, MutableList<AppGroupEntry>>()
-    // Holds the warning config last shown per group, used for the cooldown intent's default duration.
-    private val appBlockerWarningScrnConfgs = ConcurrentHashMap<String, AppBlockerWarningScreenConfig>()
+    private val blockedAppsList =
+        ConcurrentHashMap<String, MutableList<AppGroupEntry>>()
 
-    private lateinit var usageStats : UsageStatsHelper
+    // Holds the warning config last shown per group, used for the cooldown intent's default duration.
+    private val appBlockerWarningScrnConfgs =
+        ConcurrentHashMap<String, AppBlockerWarningScreenConfig>()
+
+    private lateinit var usageStats: UsageStatsHelper
     private var lastPackage = ""
     private lateinit var service: BaseBlockingService
     private var settingsJob: kotlinx.coroutines.Job? = null
     private var isWarningScreenVisible = false
 
+    // Responsible for triggering a recheck for what app the user is currently
+    // using even when no event is received.
+    private val handler =
+        Handler(Looper.getMainLooper())
 
-    // responsible to trigger a recheck for what app user is currently using even when no event is received. Used in putting the usage recheck logic into
-    // cooldown for an app and later when the cooldown duration is over, trigger a recheck
-    private val handler = Handler(Looper.getMainLooper())
+    private val activeRunnables =
+        ConcurrentHashMap<String, Runnable>()
 
-    private val activeRunnables = ConcurrentHashMap<String, Runnable>()
+    private lateinit var notificationManager:
+        TimerNotification
 
-    private lateinit var notificationManager: TimerNotification
+    private val ignoredApps =
+        mutableListOf("com.android.systemui")
 
-    private val ignoredApps = mutableListOf("com.android.systemui")
+    fun doAppBlockerCheck(
+        event: AccessibilityEvent?
+    ) {
+        if (
+            event == null ||
+            (event.eventType and TARGET_EVENTS_MASK) == 0
+        ) {
+            return
+        }
 
-    fun doAppBlockerCheck(event: AccessibilityEvent?) {
-        if (event == null || (event.eventType and TARGET_EVENTS_MASK) == 0) return
+        val packageName =
+            event.packageName?.toString()
+                ?: return
 
-        val packageName = event.packageName?.toString() ?: return
-
-        if (packageName == service.packageName &&
-            (isWarningScreenVisible || event.className?.toString() == WarningActivity::class.java.name)
+        if (
+            packageName == service.packageName &&
+            (
+                isWarningScreenVisible ||
+                    event.className?.toString() ==
+                    WarningActivity::class.java.name
+                )
         ) {
             isWarningScreenVisible = true
             return
         }
 
-        if (lastPackage == packageName || ignoredApps.contains(packageName)) {
+        if (
+            lastPackage == packageName ||
+            ignoredApps.contains(packageName)
+        ) {
             return
         }
 
-        clearFinishedOnEachOpenSessions(packageName)
+        clearFinishedOnEachOpenSessions(
+            packageName
+        )
 
-        val now = System.currentTimeMillis()
+        val now =
+            System.currentTimeMillis()
 
         blockedAppsList[packageName]?.let { entries ->
+
             for (entry in entries) {
-                if (!entry.warningConfig.isOnOpenConfig ||
-                    isGroupInCooldown(entry.groupId, now)
+                if (
+                    !entry.warningConfig.isOnOpenConfig ||
+                    isGroupInCooldown(
+                        entry.groupId,
+                        now
+                    )
                 ) {
                     continue
                 }
-                val activeWindow = entry.config.schedule.activeWindow(now)
+
+                val activeWindow =
+                    entry.config.schedule.activeWindow(
+                        now
+                    )
+
                 if (activeWindow == null) {
-                    entry.config.schedule.nextChangeAfter(now)?.let { nextChange ->
-                        setUpForcedRefreshChecker(
-                            "schedule:${entry.groupId}:$packageName",
-                            nextChange
-                        )
-                    }
+                    entry.config.schedule
+                        .nextChangeAfter(now)
+                        ?.let { nextChange ->
+                            setUpForcedRefreshChecker(
+                                "schedule:${entry.groupId}:$packageName",
+                                nextChange
+                            )
+                        }
+
                     continue
                 }
 
                 notificationManager.stopTimer()
-                showWarningScreen(packageName, entry.groupId, entry.warningConfig)
+
+                showWarningScreen(
+                    packageName,
+                    entry.groupId,
+                    entry.warningConfig
+                )
+
                 return
             }
 
-            var minRemaining = Long.MAX_VALUE
+            var minRemaining =
+                Long.MAX_VALUE
+
             for (entry in entries) {
-                if (entry.warningConfig.isOnOpenConfig) continue
-                if (isGroupInCooldown(entry.groupId, now)) continue
-                val activeWindow = entry.config.schedule.activeWindow(now)
-                if (activeWindow == null) {
-                    entry.config.schedule.nextChangeAfter(now)?.let { nextChange ->
-                        setUpForcedRefreshChecker(
-                            "schedule:${entry.groupId}:$packageName",
-                            nextChange
-                        )
-                    }
+                if (
+                    entry.warningConfig.isOnOpenConfig
+                ) {
                     continue
                 }
 
-                val currentUsage = runBlocking {
-                    usageStats.getForegroundUsageBetween(
-                        entry.groupPackages.toSet(),
-                        activeWindow.startMs,
-                        minOf(now, activeWindow.endMs)
+                if (
+                    isGroupInCooldown(
+                        entry.groupId,
+                        now
                     )
+                ) {
+                    continue
                 }
-                val usageLimitMillis = getUsageLimitForToday(entry.config.usage) * 60_000L
-                val remainingUsage = usageLimitMillis - currentUsage
+
+                val activeWindow =
+                    entry.config.schedule.activeWindow(
+                        now
+                    )
+
+                if (activeWindow == null) {
+                    entry.config.schedule
+                        .nextChangeAfter(now)
+                        ?.let { nextChange ->
+                            setUpForcedRefreshChecker(
+                                "schedule:${entry.groupId}:$packageName",
+                                nextChange
+                            )
+                        }
+
+                    continue
+                }
+
+                val currentUsage =
+                    runBlocking {
+                        usageStats.getForegroundUsageBetween(
+                            entry.groupPackages.toSet(),
+                            activeWindow.startMs,
+                            minOf(
+                                now,
+                                activeWindow.endMs
+                            )
+                        )
+                    }
+
+                val usageLimitMillis =
+                    getUsageLimitForToday(
+                        entry.config.usage
+                    ) * 60_000L
+
+                val remainingUsage =
+                    usageLimitMillis - currentUsage
 
                 if (remainingUsage <= 0) {
                     notificationManager.stopTimer()
-                    showWarningScreen(packageName, entry.groupId, entry.warningConfig)
+
+                    showWarningScreen(
+                        packageName,
+                        entry.groupId,
+                        entry.warningConfig
+                    )
+
                     return
                 }
-                if (remainingUsage < minRemaining) minRemaining = remainingUsage
+
+                if (
+                    remainingUsage <
+                    minRemaining
+                ) {
+                    minRemaining =
+                        remainingUsage
+                }
+
                 setUpForcedRefreshChecker(
                     "schedule:${entry.groupId}:$packageName",
                     activeWindow.endMs
                 )
             }
 
-            if (minRemaining != Long.MAX_VALUE) {
+            if (
+                minRemaining !=
+                Long.MAX_VALUE
+            ) {
                 notificationManager.startTimer(
-                    totalMillis = minRemaining,
-                    timerId = packageName,
-                    title = service.getString(R.string.notification_title_remaining_usage)
+                    totalMillis =
+                        minRemaining,
+                    timerId =
+                        packageName,
+                    title =
+                        service.getString(
+                            R.string.notification_title_remaining_usage
+                        )
                 )
-                setUpForcedRefreshChecker("usage:$packageName", System.currentTimeMillis() + minRemaining)
+
+                setUpForcedRefreshChecker(
+                    "usage:$packageName",
+                    System.currentTimeMillis() +
+                        minRemaining
+                )
             } else {
                 showNextCooldownNotification()
-            }
-            lastPackage = packageName
+                           packageName
+
             return
         }
 
         showNextCooldownNotification()
 
-        lastPackage = packageName
+        lastPackage =
+            packageName
     }
 
     /**
-     * An on-each-open unlock lasts only while the user stays within that group's selected apps.
+     * An on-each-open unlock lasts only while the user stays within that
+     * group's selected apps.
      */
-    private fun clearFinishedOnEachOpenSessions(currentPackage: String) {
+    private fun clearFinishedOnEachOpenSessions(
+        currentPackage: String
+    ) {
         blockedAppsList[lastPackage]
             .orEmpty()
             .asSequence()
-            .filter { it.warningConfig.isOnOpenConfig }
-            .filter { currentPackage !in it.groupPackages }
-            .map(AppGroupEntry::groupId)
+            .filter {
+                it.warningConfig.isOnOpenConfig
+            }
+            .filter {
+                currentPackage !in it.groupPackages
+            }
+            .map(
+                AppGroupEntry::groupId
+            )
             .distinct()
-            .filter(cooldownGroupsList::containsKey)
-            .forEach(::removeCooldownFrom)
+            .filter(
+                cooldownGroupsList::containsKey
+            )
+            .forEach(
+                ::removeCooldownFrom
+            )
     }
 
-    // THIS IS EXPORTED HERE INTENTIONALLY. THE APPBLOCKER SERVICE RUNS IN A DIFFERENT PROCESS THAN
-    // THE MAIN UI.
+    // THIS IS EXPORTED HERE INTENTIONALLY. THE APPBLOCKER SERVICE RUNS IN A
+    // DIFFERENT PROCESS THAN THE MAIN UI.
     fun setupReceivers() {
-        val filter = IntentFilter().apply {
-            addAction(INTENT_ACTION_REFRESH_APP_BLOCKER)
-            addAction(INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN)
-            addAction(INTENT_ACTION_WARNING_SCREEN_VISIBILITY)
-        }
+        val filter =
+            IntentFilter().apply {
+                addAction(
+                    INTENT_ACTION_REFRESH_APP_BLOCKER
+                )
+                addAction(
+                    INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN
+                )
+                addAction(
+                    INTENT_ACTION_WARNING_SCREEN_VISIBILITY
+                )
+            }
+
         ContextCompat.registerReceiver(
             service,
             refreshReceiver,
@@ -223,159 +359,394 @@ class AppBlocker : BaseBlocker() {
     }
 
     fun onDestroy() {
-        service.unregisterReceiver(refreshReceiver)
+        service.unregisterReceiver(
+            refreshReceiver
+        )
+
         notificationManager.release()
-        handler.removeCallbacksAndMessages(null)
+
+        handler.removeCallbacksAndMessages(
+            null
+        )
+
         activeRunnables.clear()
+
         settingsJob?.cancel()
     }
 
-    fun setupAppBlocker(service: BaseBlockingService) {
+    fun setupAppBlocker(
+        service: BaseBlockingService
+    ) {
         this.service = service
-        notificationManager = TimerNotification(service)
-        prefs = service.getSharedPreferences("app_blocker_prefs", Context.MODE_PRIVATE)
-        usageStats = UsageStatsHelper(service)
+
+        notificationManager =
+            TimerNotification(service)
+
+        prefs =
+            service.getSharedPreferences(
+                "app_blocker_prefs",
+                Context.MODE_PRIVATE
+            )
+
+        usageStats =
+            UsageStatsHelper(service)
+
         loadPersistedData()
 
-        ignoredApps.add(getCurrentKeyboardPackageName(service)?:"com.google.android.inputmethod.latin")
-        ignoredApps.add("com.google.android.apps.wellbeing")
+        ignoredApps.add(
+            getCurrentKeyboardPackageName(
+                service
+            ) ?: "com.google.android.inputmethod.latin"
+        )
+
+        ignoredApps.add(
+            "com.google.android.apps.wellbeing"
+        )
 
         settingsJob?.cancel()
-        settingsJob = CoroutineScope(Dispatchers.IO).launch {
-            service.dataStoreManager.settings.collectLatest { settings ->
-                Log.d("AppBlocker", "Settings updated, groups count: ${settings.blockedAppGroups.size}")
 
-                val newBlockedAppsList = ConcurrentHashMap<String, MutableList<AppGroupEntry>>()
-                settings.blockedAppGroups.upgradeLegacyAppGroupConfigs().forEach { group ->
-                    if (!group.isActive) return@forEach
+        settingsJob =
+            CoroutineScope(
+                Dispatchers.IO
+            ).launch {
 
-                    try {
-                        val config = group.config ?: return@forEach
-                        val groupPackages = group.selectedPackages.map(String::trim)
-                        val entry = AppGroupEntry(
-                            group.id,
-                            config,
-                            groupPackages,
-                            group.warningScreenConfig
+                service.dataStoreManager
+                    .settings
+                    .collectLatest { settings ->
+
+                        Log.d(
+                            "AppBlocker",
+                            "Settings updated, groups count: " +
+                                "${settings.blockedAppGroups.size}"
                         )
-                        groupPackages.forEach { pkg ->
-                            newBlockedAppsList.getOrPut(pkg) { mutableListOf() }.add(entry)
-                        }
-                    } catch (e: Exception) {
-                        Log.e("AppBlocker", "Error loading group ${group.name}", e)
-                    }
-                }
 
-                // Atomic-like update of the maps
-                blockedAppsList.clear()
-                blockedAppsList.putAll(newBlockedAppsList)
+                        val newBlockedAppsList =
+                            ConcurrentHashMap<
+                                String,
+                                MutableList<AppGroupEntry>
+                                >()
 
-                Log.d("AppBlocker", "Loaded ${blockedAppsList.size} scheduled usage apps")
-                
-                // Force a check for the currently open app after settings change
-                handler.post {
-                    try {
-                        val currentPackage = service.rootInActiveWindow?.packageName?.toString()
-                        if (currentPackage != null) {
-                            Log.d("AppBlocker", "Forcing re-check for current package: $currentPackage")
-                            lastPackage = "" // Reset lastPackage to ensure doAppBlockerCheck doesn't return early
-                            // Construct a dummy event to trigger the check
-                            val dummyEvent = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
-                            dummyEvent.packageName = currentPackage
-                            doAppBlockerCheck(dummyEvent)
-                            dummyEvent.recycle()
+                        settings.blockedAppGroups
+                            .upgradeLegacyAppGroupConfigs()
+                            .forEach { group ->
+
+                                if (!group.isActive) {
+                                    return@forEach
+                                }
+
+                                try {
+                                    val config =
+                                        group.config
+                                            ?: return@forEach
+
+                                    val groupPackages =
+                                        group.selectedPackages
+                                            .map(
+                                                String::trim
+                                            )
+
+                                    val entry =
+                                        AppGroupEntry(
+                                            group.id,
+                                            config,
+                                            groupPackages,
+                                            group.warningScreenConfig
+                                        )
+
+                                    groupPackages
+                                        .forEach { pkg ->
+                                            newBlockedAppsList
+                                                .getOrPut(
+                                                    pkg
+                                                ) {
+                                                    mutableListOf()
+                                                }
+                                                .add(entry)
+                                        }
+                                } catch (
+                                    e: Exception
+                                ) {
+                                    Log.e(
+                                        "AppBlocker",
+                                        "Error loading group ${group.name}",
+                                        e
+                                    )
+                                }
+                            }
+
+                        blockedAppsList.clear()
+
+                        blockedAppsList.putAll(
+                            newBlockedAppsList
+                        )
+
+                        Log.d(
+                            "AppBlocker",
+                            "Loaded ${blockedAppsList.size} scheduled usage apps"
+                        )
+
+                        // Force a check for the currently open app after settings change.
+                        handler.post {
+                            try {
+                                val currentPackage =
+                                    service
+                                        .rootInActiveWindow
+                                        ?.packageName
+                                        ?.toString()
+
+                                if (
+                                    currentPackage != null
+                                ) {
+                                    Log.d(
+                                        "AppBlocker",
+                                        "Forcing re-check for current package: " +
+                                            currentPackage
+                                    )
+
+                                    lastPackage = ""
+
+                                    val dummyEvent =
+                                        AccessibilityEvent.obtain(
+                                            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                                        )
+
+                                    dummyEvent.packageName =
+                                        currentPackage
+
+                                    doAppBlockerCheck(
+                                        dummyEvent
+                                    )
+
+                                    dummyEvent.recycle()
+                                }
+                            } catch (
+                                e: Exception
+                            ) {
+                                Log.e(
+                                    "AppBlocker",
+                                    "Error in forced re-check",
+                                    e
+                                )
+                            }
                         }
-                    } catch (e: Exception) {
-                        Log.e("AppBlocker", "Error in forced re-check", e)
                     }
-                }
             }
-        }
     }
 
-    private fun handlePutCooldownIntentBroadcast(intent: Intent) {
-        val groupId = intent.getStringExtra("result_id") ?: return
+    private fun handlePutCooldownIntentBroadcast(
+        intent: Intent
+    ) {
+        val groupId =
+            intent.getStringExtra(
+                "result_id"
+            ) ?: return
 
-        val durationMillis = intent.getLongExtra(
-            "selected_time",
-            appBlockerWarningScrnConfgs[groupId]?.timeInterval ?: 10L
+        val durationMillis =
+            intent.getLongExtra(
+                "selected_time",
+                appBlockerWarningScrnConfgs[
+                    groupId
+                ]?.timeInterval ?: 10L
+            )
+
+        if (durationMillis <= 0) {
+            return
+        }
+
+        Log.d(
+            "cooldown for ",
+            durationMillis.toString()
         )
-        if (durationMillis <= 0) return
-        Log.d("cooldown for ", durationMillis.toString())
-        val currentTimeMillis = System.currentTimeMillis()
-        val realTimeEndMillis = if (durationMillis > Long.MAX_VALUE - currentTimeMillis) {
-            Long.MAX_VALUE
-        } else {
-            currentTimeMillis + durationMillis
-        }
 
-        putCooldownTo(groupId, realTimeEndMillis)
+        val currentTimeMillis =
+            System.currentTimeMillis()
+
+        val realTimeEndMillis =
+            if (
+                durationMillis >
+                Long.MAX_VALUE -
+                currentTimeMillis
+            ) {
+                Long.MAX_VALUE
+            } else {
+                currentTimeMillis +
+                    durationMillis
+            }
+
+        putCooldownTo(
+            groupId,
+            realTimeEndMillis
+        )
+
         showNextCooldownNotification()
-        setUpForcedRefreshChecker("cooldown:$groupId", realTimeEndMillis, groupId)
+
+        setUpForcedRefreshChecker(
+            "cooldown:$groupId",
+            realTimeEndMillis,
+            groupId
+        )
     }
 
-    private fun getUsageLimitForToday(config: AppUsageConfig): Long {
-        return if (config.isDailyUniform) {
+    private fun getUsageLimitForToday(
+        config: AppUsageConfig
+    ): Long {
+        return if (
+            config.isDailyUniform
+        ) {
             config.uniformLimit
         } else {
-            val calendar = Calendar.getInstance()
-            val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) - 1
-            config.dailyLimits[dayOfWeek]
+            val calendar =
+                Calendar.getInstance()
+
+            val dayOfWeek =
+                calendar.get(
+                    Calendar.DAY_OF_WEEK
+                ) - 1
+
+            config.dailyLimits[
+                dayOfWeek
+            ]
         }
     }
 
     private fun loadPersistedData() {
-        val cooldownKeys = prefs.getStringSet("cooldown_keys", setOf()) ?: setOf()
+        val cooldownKeys =
+            prefs.getStringSet(
+                "cooldown_keys",
+                setOf()
+            ) ?: setOf()
+
         cooldownKeys.forEach { groupId ->
-            val endTime = prefs.getLong("cooldown_$groupId", 0L)
-            if (endTime > System.currentTimeMillis()) {
-                cooldownGroupsList[groupId] = endTime
-                setUpForcedRefreshChecker("cooldown:$groupId", endTime, groupId)
+            val endTime =
+                prefs.getLong(
+                    "cooldown_$groupId",
+                    0L
+                )
+
+            if (
+                endTime >
+                System.currentTimeMillis()
+            ) {
+                cooldownGroupsList[
+                    groupId
+                ] = endTime
+
+                setUpForcedRefreshChecker(
+                    "cooldown:$groupId",
+                    endTime,
+                    groupId
+                )
             }
         }
     }
 
     private fun persistCooldownData() {
         prefs.edit {
-            putStringSet("cooldown_keys", cooldownGroupsList.keys.toSet())
-            cooldownGroupsList.forEach { (groupId, endTime) ->
-                putLong("cooldown_$groupId", endTime)
-            }
+            putStringSet(
+                "cooldown_keys",
+                cooldownGroupsList
+                    .keys
+                    .toSet()
+            )
+
+            cooldownGroupsList
+                .forEach {
+                    (
+                        groupId,
+                        endTime
+                    ) ->
+
+                    putLong(
+                        "cooldown_$groupId",
+                        endTime
+                    )
+                }
         }
     }
 
-    private fun putCooldownTo(groupId: String, realTimeEnd: Long) {
-        cooldownGroupsList[groupId] = realTimeEnd
+    private fun putCooldownTo(
+        groupId: String,
+        realTimeEnd: Long
+    ) {
+        cooldownGroupsList[
+            groupId
+        ] = realTimeEnd
+
         persistCooldownData()
     }
 
-    private fun removeCooldownFrom(groupId: String) {
-        cooldownGroupsList.remove(groupId)
+    private fun removeCooldownFrom(
+        groupId: String
+    ) {
+        cooldownGroupsList.remove(
+            groupId
+        )
+
         prefs.edit {
-            remove("cooldown_$groupId")
-            putStringSet("cooldown_keys", cooldownGroupsList.keys.toSet())
+            remove(
+                "cooldown_$groupId"
+            )
+
+            putStringSet(
+                "cooldown_keys",
+                cooldownGroupsList
+                    .keys
+                    .toSet()
+            )
         }
     }
 
-    private fun isGroupInCooldown(groupId: String, now: Long = System.currentTimeMillis()): Boolean {
-        val endTime = cooldownGroupsList[groupId] ?: return false
-        if (endTime > now) return true
-        removeCooldownFrom(groupId)
+    private fun isGroupInCooldown(
+        groupId: String,
+        now: Long =
+            System.currentTimeMillis()
+    ): Boolean {
+        val endTime =
+            cooldownGroupsList[
+                groupId
+            ] ?: return false
+
+        if (endTime > now) {
+            return true
+        }
+
+        removeCooldownFrom(
+            groupId
+        )
+
         return false
     }
 
     private fun showNextCooldownNotification() {
-        val now = System.currentTimeMillis()
-        val next = cooldownGroupsList.filterValues { it > now }.minByOrNull { it.value }
+        val now =
+            System.currentTimeMillis()
+
+        val next =
+            cooldownGroupsList
+                .filterValues {
+                    it > now
+                }
+                .minByOrNull {
+                    it.value
+                }
+
         if (next == null) {
             notificationManager.stopTimer()
             return
         }
+
         notificationManager.startTimer(
-            totalMillis = next.value - now,
-            timerId = "app_cooldown:${next.key}:${next.value}",
-            title = service.getString(R.string.notification_remaining_usage_lockdown),
-            onFinishCallback = { showNextCooldownNotification() }
+            totalMillis =
+                next.value - now,
+            timerId =
+                "app_cooldown:${next.key}:${next.value}",
+            title =
+                service.getString(
+                    R.string.notification_remaining_usage_lockdown
+                ),
+            onFinishCallback = {
+                showNextCooldownNotification()
+            }
         )
     }
 
@@ -384,92 +755,226 @@ class AppBlocker : BaseBlocker() {
         realTimeEndMillis: Long,
         cooldownGroupId: String? = null
     ) {
-        activeRunnables[checkId]?.let { handler.removeCallbacks(it) }
-
-        val delayMillis = realTimeEndMillis - System.currentTimeMillis()
-        if (delayMillis <= 0) return // Time is already up
-
-        val runnable = Runnable {
-            try {
-                cooldownGroupId?.let(::removeCooldownFrom)
-                val currentPackage = service.rootInActiveWindow?.packageName?.toString()
-                if (currentPackage != null) {
-                    lastPackage = ""
-                    val event = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)
-                    event.packageName = currentPackage
-                    doAppBlockerCheck(event)
-                    event.recycle()
-                }
-            } catch (e: Exception) {
-                Log.e("AppBlocker", "Recheck error: $e")
-                // Retry in 1 minute if UI check failed
-                setUpForcedRefreshChecker(
-                    checkId,
-                    System.currentTimeMillis() + 60_000L,
-                    cooldownGroupId
-                )
-            } finally {
-                activeRunnables.remove(checkId)
-            }
+        activeRunnables[
+            checkId
+        ]?.let {
+            handler.removeCallbacks(
+                it
+            )
         }
 
-        activeRunnables[checkId] = runnable
-        handler.postDelayed(runnable, delayMillis)
+        val delayMillis =
+            realTimeEndMillis -
+                System.currentTimeMillis()
+
+        if (delayMillis <= 0) {
+            return
+        }
+
+        val runnable =
+            Runnable {
+                try {
+                    cooldownGroupId?.let(
+                        ::removeCooldownFrom
+                    )
+
+                    val currentPackage =
+                        service
+                            .rootInActiveWindow
+                            ?.packageName
+                            ?.toString()
+
+                    if (
+                        currentPackage != null
+                    ) {
+                        lastPackage = ""
+
+                        val event =
+                            AccessibilityEvent.obtain(
+                                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+                            )
+
+                        event.packageName =
+                            currentPackage
+
+                        doAppBlockerCheck(
+                            event
+                        )
+
+                        event.recycle()
+                    }
+                } catch (
+                    e: Exception
+                ) {
+                    Log.e(
+                        "AppBlocker",
+                        "Recheck error: $e"
+                    )
+
+                    setUpForcedRefreshChecker(
+                        checkId,
+                        System.currentTimeMillis() +
+                            60_000L,
+                        cooldownGroupId
+                    )
+                } finally {
+                    activeRunnables.remove(
+                        checkId
+                    )
+                }
+            }
+
+        activeRunnables[
+            checkId
+        ] = runnable
+
+        handler.postDelayed(
+            runnable,
+            delayMillis
+        )
     }
 
-    private fun showWarningScreen(packageName: String, groupId: String, warningConfig: AppBlockerWarningScreenConfig) {
-        if (service.isDelayOver(1000)) {
+    private fun showWarningScreen(
+        packageName: String,
+        groupId: String,
+        warningConfig:
+            AppBlockerWarningScreenConfig
+    ) {
+        if (!service.isDelayOver(1000)) {
+            return
+        }
 
-            // Remember the warning that was shown so the cooldown intent can read its default duration
-            appBlockerWarningScrnConfgs[groupId] = warningConfig
+        // Remember the warning that was shown so the cooldown intent can read
+        // its default duration.
+        appBlockerWarningScrnConfgs[
+            groupId
+        ] = warningConfig
 
-            Log.d("AppBlocker", "Showing warning screen for $packageName")
-            notificationManager.stopTimer()
-            service.pressHome()
-            lastPackage = ""
+        Log.d(
+            "AppBlocker",
+            "Showing warning screen for $packageName"
+        )
 
-            try {
-                if (packageName != service.packageName && AppSuspendHelper.isShizukuAvailable()) {
-                    ShizukuRunner.executeCommand(
+        notificationManager.stopTimer()
+
+        service.pressHome()
+
+        lastPackage = ""
+
+        try {
+            if (
+                packageName !=
+                service.packageName &&
+                PrivilegedRunner.isAvailable()
+            ) {
+                PrivilegedRunner.executeCommand(
+                    command =
                         "am force-stop $packageName",
-                        object : ShizukuRunner.CommandResultListener {})
-                }
-            } catch (e: Exception) {
-                Log.e("AppBlocker", "Shizuku force-stop failed", e)
+                    listener =
+                        object :
+                            PrivilegedBackend.CommandResultListener {
+
+                            override fun onCommandError(
+                                error: String
+                            ) {
+                                Log.e(
+                                    "AppBlocker",
+                                    "Privileged force-stop failed: $error"
+                                )
+                            }
+                        }
+                )
             }
-
-            if (warningConfig.isWarningDialogHidden) return
-            isWarningScreenVisible = true
-
-            handler.postDelayed({
-                val dialogIntent = Intent(service, WarningActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    putExtra("mode", Constants.WARNING_SCREEN_MODE_APP_BLOCKER)
-                    putExtra("result_id", groupId)
-                    putExtra("launch_package", packageName)
-                    putExtra(
-                        "warning_config",
-                        Gson().toJson(warningConfig)
-                    )
-                }
-                service.startActivity(dialogIntent)
-            }, 100)
+        } catch (e: Exception) {
+            Log.e(
+                "AppBlocker",
+                "Privileged force-stop failed",
+                e
+            )
         }
+
+        if (
+            warningConfig
+                .isWarningDialogHidden
+        ) {
+            return
+        }
+
+        isWarningScreenVisible =
+            true
+
+        handler.postDelayed(
+            {
+                val dialogIntent =
+                    Intent(
+                        service,
+                        WarningActivity::class.java
+                    ).apply {
+                        flags =
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TASK
+
+                        putExtra(
+                            "mode",
+                            Constants.WARNING_SCREEN_MODE_APP_BLOCKER
+                        )
+
+                        putExtra(
+                            "result_id",
+                            groupId
+                        )
+
+                        putExtra(
+                            "launch_package",
+                            packageName
+                        )
+
+                        putExtra(
+                            "warning_config",
+                            Gson().toJson(
+                                warningConfig
+                            )
+                        )
+                    }
+
+                service.startActivity(
+                    dialogIntent
+                )
+            },
+            100
+        )
     }
 
-    private val refreshReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent == null) return
-            when (intent.action) {
-                INTENT_ACTION_REFRESH_APP_BLOCKER -> setupAppBlocker(service)
-                INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN -> handlePutCooldownIntentBroadcast(intent)
-                INTENT_ACTION_WARNING_SCREEN_VISIBILITY -> {
-                    isWarningScreenVisible = intent.getBooleanExtra(
-                        EXTRA_WARNING_SCREEN_VISIBLE,
-                        false
-                    )
+    private val refreshReceiver =
+        object : BroadcastReceiver() {
+
+            override fun onReceive(
+                context: Context?,
+                intent: Intent?
+            ) {
+                if (intent == null) {
+                    return
+                }
+
+                when (intent.action) {
+                    INTENT_ACTION_REFRESH_APP_BLOCKER ->
+                        setupAppBlocker(
+                            service
+                        )
+
+                    INTENT_ACTION_REFRESH_APP_BLOCKER_COOLDOWN ->
+                        handlePutCooldownIntentBroadcast(
+                            intent
+                        )
+
+                    INTENT_ACTION_WARNING_SCREEN_VISIBILITY -> {
+                        isWarningScreenVisible =
+                            intent.getBooleanExtra(
+                                EXTRA_WARNING_SCREEN_VISIBLE,
+                                false
+                            )
+                    }
                 }
             }
         }
-    }
 }
