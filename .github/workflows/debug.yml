@@ -742,6 +742,163 @@ jobs:
           ./gradlew \
             compileFdroidDebugKotlin \
             --stacktrace
+            
+      # ============================================================
+      # LIBADB 3.1.1 API INSPECTION
+      #
+      # Inspect the exact dependency Gradle resolved for this build.
+      # This is temporary and exists so CurBox's LibAdbTransport can
+      # be implemented against verified bytecode signatures instead
+      # of assumed library APIs.
+      # ============================================================
+
+      - name: Inspect resolved libadb 3.1.1 public API
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== Searching Gradle cache for libadb-android 3.1.1 ====="
+
+          mapfile -t LIBADB_ARTIFACTS < <(
+            find "$HOME/.gradle/caches/modules-2/files-2.1" \
+              -type f \
+              \( \
+                -name "libadb-android-3.1.1.aar" \
+                -o \
+                -name "libadb-android-3.1.1.jar" \
+              \) \
+              | sort
+          )
+
+          if [ "${#LIBADB_ARTIFACTS[@]}" -eq 0 ]; then
+            echo "FAIL: libadb-android 3.1.1 artifact was not found in the Gradle cache."
+            echo ""
+            echo "Matching MuntashirAkon cache entries:"
+            find "$HOME/.gradle/caches/modules-2/files-2.1" \
+              -type f \
+              -path "*MuntashirAkon*" \
+              -print \
+              2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Found ${#LIBADB_ARTIFACTS[@]} matching artifact(s):"
+          printf '%s\n' "${LIBADB_ARTIFACTS[@]}"
+
+          LIBADB_ARTIFACT="${LIBADB_ARTIFACTS[0]}"
+
+          INSPECT_DIR="/tmp/curbox-libadb-api"
+
+          rm -rf "$INSPECT_DIR"
+          mkdir -p "$INSPECT_DIR"
+
+          case "$LIBADB_ARTIFACT" in
+            *.aar)
+              echo ""
+              echo "Resolved artifact type: AAR"
+
+              unzip -q \
+                "$LIBADB_ARTIFACT" \
+                classes.jar \
+                -d "$INSPECT_DIR"
+
+              LIBADB_CLASSES="$INSPECT_DIR/classes.jar"
+              ;;
+
+            *.jar)
+              echo ""
+              echo "Resolved artifact type: JAR"
+
+              LIBADB_CLASSES="$LIBADB_ARTIFACT"
+              ;;
+
+            *)
+              echo "FAIL: unsupported libadb artifact type: $LIBADB_ARTIFACT"
+              exit 1
+              ;;
+          esac
+
+          test -s "$LIBADB_CLASSES"
+
+          echo ""
+          echo "===== Verifying expected classes ====="
+
+          jar tf "$LIBADB_CLASSES" \
+            > "$INSPECT_DIR/classes.txt"
+
+          CLASSES=(
+            "io/github/muntashirakon/adb/AbsAdbConnectionManager.class"
+            "io/github/muntashirakon/adb/AdbStream.class"
+            "io/github/muntashirakon/adb/AdbInputStream.class"
+            "io/github/muntashirakon/adb/AdbOutputStream.class"
+          )
+
+          for class_file in "${CLASSES[@]}"; do
+            if ! grep -Fxq \
+              "$class_file" \
+              "$INSPECT_DIR/classes.txt"
+            then
+              echo "FAIL: expected class not found: $class_file"
+              exit 1
+            fi
+
+            echo "PASS: $class_file"
+          done
+
+          echo ""
+          echo "===== AbsAdbConnectionManager ====="
+
+          javap \
+            -classpath "$LIBADB_CLASSES" \
+            -public \
+            io.github.muntashirakon.adb.AbsAdbConnectionManager \
+            | tee "$INSPECT_DIR/AbsAdbConnectionManager.txt"
+
+          echo ""
+          echo "===== AdbStream ====="
+
+          javap \
+            -classpath "$LIBADB_CLASSES" \
+            -public \
+            io.github.muntashirakon.adb.AdbStream \
+            | tee "$INSPECT_DIR/AdbStream.txt"
+
+          echo ""
+          echo "===== AdbInputStream ====="
+
+          javap \
+            -classpath "$LIBADB_CLASSES" \
+            -public \
+            io.github.muntashirakon.adb.AdbInputStream \
+            | tee "$INSPECT_DIR/AdbInputStream.txt"
+
+          echo ""
+          echo "===== AdbOutputStream ====="
+
+          javap \
+            -classpath "$LIBADB_CLASSES" \
+            -public \
+            io.github.muntashirakon.adb.AdbOutputStream \
+            | tee "$INSPECT_DIR/AdbOutputStream.txt"
+
+          echo ""
+          echo "===== Important manager methods ====="
+
+          grep -E \
+            "pair|connect|disconnect|close|openStream|isConnection|PrivateKey|Certificate|getDeviceName|setApi" \
+            "$INSPECT_DIR/AbsAdbConnectionManager.txt" \
+            || true
+
+          echo ""
+          echo "===== Important stream methods ====="
+
+          grep -E \
+            "read|write|close|openInputStream|openOutputStream" \
+            "$INSPECT_DIR/AdbStream.txt" \
+            || true
+
+          echo ""
+          echo "PASS: libadb-android 3.1.1 API inspection completed"
 
       - name: Run Fdroid Debug lint
         shell: bash
