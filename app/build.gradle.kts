@@ -396,6 +396,12 @@ dependencies {
         "com.github.MuntashirAkon:libadb-android:3.1.1"
     )
 
+    // Used by the libadb-android reference application to generate the
+    // X.509 certificate required by an ADB client identity.
+    implementation(
+        "com.github.MuntashirAkon:sun-security-android:1.1"
+    )
+
     implementation(
         "org.conscrypt:conscrypt-android:2.5.3"
     )
