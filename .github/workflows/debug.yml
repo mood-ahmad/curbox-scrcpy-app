@@ -32,6 +32,120 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Make Gradle executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          test -x gradlew
+
+      # ============================================================
+      # SOURCE / FOUNDATION GATES
+      # ============================================================
+
+      - name: Verify privileged foundation source files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="app/src/main/java/neth/iecal/curbox/utils/privileged"
+
+          test -s "$ROOT/PrivilegedBackend.kt"
+          test -s "$ROOT/PrivilegedResult.kt"
+          test -s "$ROOT/ShizukuBackend.kt"
+          test -s "$ROOT/PrivilegedRunner.kt"
+
+          grep -Fq \
+            "interface PrivilegedBackend" \
+            "$ROOT/PrivilegedBackend.kt"
+
+          grep -Fq \
+            "sealed class PrivilegedResult" \
+            "$ROOT/PrivilegedResult.kt"
+
+          grep -Fq \
+            "object ShizukuBackend" \
+            "$ROOT/ShizukuBackend.kt"
+
+          grep -Fq \
+            "object PrivilegedRunner" \
+            "$ROOT/PrivilegedRunner.kt"
+
+          echo "PASS: privileged foundation files exist"
+          echo "PASS: privileged foundation declarations found"
+
+      - name: Verify migrated privileged command call sites
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          MONO="app/src/main/java/neth/iecal/curbox/utils/MonochromeTools.kt"
+          SUSPEND="app/src/main/java/neth/iecal/curbox/utils/AppSuspendHelper.kt"
+          PROTECTION="app/src/main/java/neth/iecal/curbox/utils/ServiceProtectionManager.kt"
+          BLOCKER="app/src/main/java/neth/iecal/curbox/blockers/AppBlocker.kt"
+          ONBOARDING="app/src/main/java/neth/iecal/curbox/ui/fragments/installation/onboarding/screens/OnboardingPermissionsFragment.kt"
+
+          for file in \
+            "$MONO" \
+            "$SUSPEND" \
+            "$PROTECTION" \
+            "$BLOCKER" \
+            "$ONBOARDING"
+          do
+            test -s "$file"
+
+            grep -Fq \
+              "PrivilegedRunner" \
+              "$file"
+
+            echo "PASS: PrivilegedRunner migration found in $file"
+          done
+
+          if grep -n \
+            "ShizukuRunner.executeCommand" \
+            "$MONO" \
+            "$SUSPEND" \
+            "$PROTECTION" \
+            "$BLOCKER" \
+            "$ONBOARDING"
+          then
+            echo "FAIL: direct ShizukuRunner command execution remains in a migrated file"
+            exit 1
+          fi
+
+          echo "PASS: migrated files no longer execute commands directly through ShizukuRunner"
+
+      - name: Verify Shizuku backend remains present
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RUNNER="app/src/main/java/neth/iecal/curbox/utils/ShizukuRunner.kt"
+          BACKEND="app/src/main/java/neth/iecal/curbox/utils/privileged/ShizukuBackend.kt"
+          MANIFEST="app/src/main/AndroidManifest.xml"
+          GRADLE="app/build.gradle.kts"
+
+          test -s "$RUNNER"
+          test -s "$BACKEND"
+
+          grep -Fq \
+            "ShizukuRunner.executeCommand" \
+            "$BACKEND"
+
+          grep -Fq \
+            "rikka.shizuku.ShizukuProvider" \
+            "$MANIFEST"
+
+          grep -Fq \
+            "implementation(libs.api)" \
+            "$GRADLE"
+
+          grep -Fq \
+            "implementation(libs.provider)" \
+            "$GRADLE"
+
+          echo "PASS: existing Shizuku backend remains intact"
+
       # ============================================================
       # PREFLIGHT 1: Required secrets
       # ============================================================
@@ -130,9 +244,6 @@ jobs:
 
       # ============================================================
       # PREFLIGHT 3: Real Gmail IMAP authentication
-      #
-      # Does NOT read message bodies.
-      # Does NOT mark messages as read.
       # ============================================================
 
       - name: Verify Gmail IMAP authentication and INBOX
@@ -208,8 +319,7 @@ jobs:
 
               ids = []
 
-              if data and data[0]:
-                  ids = data[0].split()
+              if data and dataids = data[0].split()
 
               print(
                   f"IMAP_UNSEEN_SEARCH_OK count={len(ids)}"
@@ -235,8 +345,6 @@ jobs:
 
       # ============================================================
       # PREFLIGHT 4: Real Gmail SMTP authentication
-      #
-      # Login only. Does NOT send an email.
       # ============================================================
 
       - name: Verify Gmail SMTP authentication
@@ -609,15 +717,60 @@ jobs:
           echo "PASS: prepared runtime assets verified"
 
       # ============================================================
-      # Build
+      # COMPILE / TEST / LINT GATES
       # ============================================================
 
-      - name: Make Gradle executable
+      - name: Compile Fdroid Debug Kotlin
         shell: bash
+        env:
+          CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
+          CURBOX_COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          CURBOX_COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+          CURBOX_AUTHORIZED_COMMAND_SENDER: ${{ secrets.CURBOX_AUTHORIZED_COMMAND_SENDER }}
         run: |
           set -euo pipefail
-          chmod +x gradlew
-          test -x gradlew
+
+          ./gradlew \
+            compileFdroidDebugKotlin \
+            --stacktrace
+
+      - name: Run Fdroid Debug unit tests
+        shell: bash
+        env:
+          CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
+          CURBOX_COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          CURBOX_COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+          CURBOX_AUTHORIZED_COMMAND_SENDER: ${{ secrets.CURBOX_AUTHORIZED_COMMAND_SENDER }}
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            testFdroidDebugUnitTest \
+            --stacktrace
+
+      - name: Run Fdroid Debug lint
+        shell: bash
+        env:
+          CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
+          CURBOX_COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          CURBOX_COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+          CURBOX_AUTHORIZED_COMMAND_SENDER: ${{ secrets.CURBOX_AUTHORIZED_COMMAND_SENDER }}
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            lintFdroidDebug \
+            --stacktrace
+
+      # ============================================================
+      # Build
+      # ============================================================
 
       - name: Build Fdroid Debug APK
         shell: bash
@@ -631,7 +784,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./gradlew assembleFdroidDebug
+          ./gradlew \
+            assembleFdroidDebug \
+            --stacktrace
 
       # ============================================================
       # APK verification
@@ -903,7 +1058,24 @@ jobs:
           {
             echo "## CurBox Debug CI"
             echo ""
-            echo "### What this workflow verifies"
+            echo "### Foundation verification"
+            echo ""
+            echo "- PrivilegedBackend source exists"
+            echo "- PrivilegedResult source exists"
+            echo "- ShizukuBackend source exists"
+            echo "- PrivilegedRunner source exists"
+            echo "- Migrated command callers use PrivilegedRunner"
+            echo "- Migrated callers do not directly execute through ShizukuRunner"
+            echo "- Existing Shizuku backend/provider/dependencies remain present"
+            echo ""
+            echo "### Compile / quality gates"
+            echo ""
+            echo "- Fdroid Debug Kotlin compilation"
+            echo "- Fdroid Debug unit tests"
+            echo "- Fdroid Debug lint"
+            echo "- Fdroid Debug APK assembly"
+            echo ""
+            echo "### Existing runtime verification"
             echo ""
             echo "- Required secrets are present"
             echo "- Gmail IMAP DNS/TLS"
@@ -914,17 +1086,19 @@ jobs:
             echo "- Gmail SMTP authentication"
             echo "- Original ScrcpyOverWebRTC v0.4.1 runtime"
             echo "- Android cloudflared identity and SHA-256"
-            echo "- Gradle APK build"
             echo "- Runtime presence inside APK"
             echo "- APK ZIP integrity"
             echo "- APK signing"
             echo "- Runtime identity after final signing"
             echo ""
-            echo "### Important"
+            echo "### Physical-device checks still required"
             echo ""
-            echo "This CI does not prove Android/Shizuku runtime behaviour."
-            echo "Physical-device tests remain required for:"
-            echo "- Shizuku"
+            echo "- Existing Shizuku permission flow"
+            echo "- WRITE_SECURE_SETTINGS grant through Shizuku"
+            echo "- Grayscale"
+            echo "- AppBlocker force-stop"
+            echo "- Service Protection self-heal"
+            echo "- Device Owner flow"
             echo "- Agent launch"
             echo "- Signaling launch"
             echo "- WebRTC streaming/control"
