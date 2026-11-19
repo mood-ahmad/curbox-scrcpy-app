@@ -3,55 +3,121 @@ package neth.iecal.curbox.utils.privileged.adb
 /**
  * Central coordinator for CurBox's Direct ADB channel.
  *
- * This class deliberately depends only on [AdbTransport]. The concrete
- * libadb-android implementation will be attached later, after ADB identity
- * generation and persistence are implemented.
+ * The manager owns the currently active [AdbTransport] implementation and
+ * provides a backend-independent entry point for pairing, connecting,
+ * opening ADB services, and disconnecting.
+ *
+ * The transport is initialized explicitly instead of during object loading.
+ * This avoids creating CurBox's persistent ADB identity until Direct Access
+ * is actually being prepared for use.
  */
 object AdbChannelManager {
+
+    private val transportLock = Any()
 
     @Volatile
     private var transport: AdbTransport? = null
 
     /**
-     * Installs the transport implementation used by Direct ADB.
+     * Ensures that CurBox's default Direct ADB transport is installed.
+     *
+     * Calling this method multiple times is safe. Once a transport is already
+     * installed, the existing instance is preserved so its connection state
+     * and persistent ADB identity are not disturbed.
+     *
+     * A Result is returned because creation of the concrete transport can
+     * fail, for example if the persistent ADB identity cannot be loaded or
+     * created.
+     */
+    fun initialize(): Result<Unit> {
+        if (transport != null) {
+            return Result.success(Unit)
+        }
+
+        synchronized(transportLock) {
+            if (transport != null) {
+                return Result.success(Unit)
+            }
+
+            return try {
+                transport =
+                    LibAdbTransport()
+
+                Result.success(Unit)
+            } catch (t: Throwable) {
+                transport = null
+
+                Result.failure(t)
+            }
+        }
+    }
+
+    /**
+     * Returns true when a transport implementation is currently installed.
+     *
+     * This does not mean that the ADB connection itself is active.
+     */
+    fun isInitialized(): Boolean {
+        return transport != null
+    }
+
+    /**
+     * Installs a transport implementation used by Direct ADB.
+     *
+     * This remains available so tests or future alternative transports can be
+     * installed without changing the rest of CurBox.
      *
      * Replacing the transport first disconnects the previous transport so
      * CurBox does not accidentally keep two ADB sessions alive.
      */
-    @Synchronized
     fun installTransport(
         newTransport: AdbTransport
     ) {
-        if (transport === newTransport) {
-            return
-        }
+        synchronized(transportLock) {
+            if (transport === newTransport) {
+                return
+            }
 
-        transport?.let { current ->
-            try {
-                current.disconnect()
-            } catch (_: Exception) {
-                // Replacing the transport must still be possible even when
-                // cleanup of an old or broken connection fails.
+            val previous =
+                transport
+
+            transport =
+                newTransport
+
+            if (previous != null) {
+                try {
+                    previous.disconnect()
+                } catch (_: Exception) {
+                    // The new transport is already installed. Failure to clean
+                    // up an old broken connection must not undo replacement.
+                }
             }
         }
-
-        transport = newTransport
     }
 
     /**
      * Removes the currently installed transport.
+     *
+     * This is different from [disconnect]. clearTransport() removes the
+     * transport object itself, while disconnect() keeps it available for a
+     * later reconnect.
      */
-    @Synchronized
     fun clearTransport() {
-        val current = transport
+        val previous: AdbTransport?
 
-        transport = null
+        synchronized(transportLock) {
+            previous =
+                transport
 
-        if (current != null) {
+            transport =
+                null
+        }
+
+        if (previous != null) {
             try {
-                current.disconnect()
+                previous.disconnect()
             } catch (_: Exception) {
-                // The manager is already detached from this transport.
+                // The manager has already detached from this transport.
             }
         }
     }
@@ -61,8 +127,8 @@ object AdbChannelManager {
      * ADB connection ready for use.
      */
     fun isConnected(): Boolean {
-        val current = transport
-            ?: return false
+        val current =
+            transport ?: return false
 
         return try {
             current.isConnected()
@@ -75,8 +141,9 @@ object AdbChannelManager {
      * Returns the current Direct ADB transport state.
      */
     fun state(): AdbTransport.State {
-        val current = transport
-            ?: return AdbTransport.State.DISCONNECTED
+        val current =
+            transport
+                ?: return AdbTransport.State.DISCONNECTED
 
         return try {
             current.state
@@ -93,12 +160,13 @@ object AdbChannelManager {
         port: Int,
         pairingCode: String
     ): Result<Unit> {
-        val current = transport
-            ?: return Result.failure(
-                IllegalStateException(
-                    "Direct ADB transport is not installed."
+        val current =
+            transport
+                ?: return Result.failure(
+                    IllegalStateException(
+                        "Direct ADB transport is not initialized."
+                    )
                 )
-            )
 
         if (host.isBlank()) {
             return Result.failure(
@@ -124,11 +192,15 @@ object AdbChannelManager {
             )
         }
 
-        return current.pair(
-            host = host,
-            port = port,
-            pairingCode = pairingCode
-        )
+        return try {
+            current.pair(
+                host = host,
+                port = port,
+                pairingCode = pairingCode
+            )
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
     }
 
     /**
@@ -138,12 +210,13 @@ object AdbChannelManager {
         host: String,
         port: Int
     ): Result<Unit> {
-        val current = transport
-            ?: return Result.failure(
-                IllegalStateException(
-                    "Direct ADB transport is not installed."
+        val current =
+            transport
+                ?: return Result.failure(
+                    IllegalStateException(
+                        "Direct ADB transport is not initialized."
+                    )
                 )
-            )
 
         if (host.isBlank()) {
             return Result.failure(
@@ -161,26 +234,31 @@ object AdbChannelManager {
             )
         }
 
-        return current.connect(
-            host = host,
-            port = port
-        )
+        return try {
+            current.connect(
+                host = host,
+                port = port
+            )
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
     }
 
     /**
      * Opens an ADB service through the active transport.
      *
-     * Command execution will later use this with "shell:".
+     * Command execution will later use this with services such as "shell:".
      */
     fun openService(
         service: String
     ): Result<AdbTransportStream> {
-        val current = transport
-            ?: return Result.failure(
-                IllegalStateException(
-                    "Direct ADB transport is not installed."
+        val current =
+            transport
+                ?: return Result.failure(
+                    IllegalStateException(
+                        "Direct ADB transport is not initialized."
+                    )
                 )
-            )
 
         if (service.isBlank()) {
             return Result.failure(
@@ -198,7 +276,13 @@ object AdbChannelManager {
             )
         }
 
-        return current.openService(service)
+        return try {
+            current.openService(
+                service
+            )
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
     }
 
     /**
@@ -208,8 +292,8 @@ object AdbChannelManager {
      * automatic reconnection.
      */
     fun disconnect() {
-        val current = transport
-            ?: return
+        val current =
+            transport ?: return
 
         try {
             current.disconnect()
