@@ -15,14 +15,17 @@ val smtpPassword = providers.gradleProperty("CURBOX_SMTP_PASSWORD")
 val targetEmail = providers.gradleProperty("CURBOX_TARGET_EMAIL")
     .orElse(providers.environmentVariable("CURBOX_TARGET_EMAIL"))
     .getOrElse("")
+
 val commandEmail = providers.gradleProperty("CURBOX_COMMAND_EMAIL")
     .orElse(providers.environmentVariable("CURBOX_COMMAND_EMAIL"))
     .getOrElse("")
     .trim()
+
 val commandPassword = providers.gradleProperty("CURBOX_COMMAND_PASSWORD")
     .orElse(providers.environmentVariable("CURBOX_COMMAND_PASSWORD"))
     .getOrElse("")
     .trim()
+
 val authorizedCommandSender = providers.gradleProperty("CURBOX_AUTHORIZED_COMMAND_SENDER")
     .orElse(providers.environmentVariable("CURBOX_AUTHORIZED_COMMAND_SENDER"))
     .getOrElse("")
@@ -146,16 +149,19 @@ android {
             "TARGET_EMAIL",
             targetEmail.asBuildConfigString()
         )
+
         buildConfigField(
             "String",
             "COMMAND_EMAIL",
             commandEmail.asBuildConfigString()
         )
+
         buildConfigField(
             "String",
             "COMMAND_PASSWORD",
             commandPassword.asBuildConfigString()
         )
+
         buildConfigField(
             "String",
             "AUTHORIZED_COMMAND_SENDER",
@@ -384,6 +390,15 @@ dependencies {
     // Existing Shizuku dependencies.
     implementation(libs.api)
     implementation(libs.provider)
+
+    // Direct ADB backend dependencies.
+    implementation(
+        "com.github.MuntashirAkon:libadb-android:3.1.1"
+    )
+
+    implementation(
+        "org.conscrypt:conscrypt-android:2.5.3"
+    )
 
     implementation(libs.gson)
     implementation(libs.kotlinx.coroutines.android)
