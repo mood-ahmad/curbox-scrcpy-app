@@ -7,7 +7,19 @@ import java.util.concurrent.atomic.AtomicLong
  * High-level coordinator for CurBox Direct Access.
  *
  * This is the entry point that UI and lifecycle components should use instead
- * of talking directly to discovery, pairing, or connection managers.
+ * of talking directly to Wireless Debugging, discovery, pairing, connection,
+ * or transport managers.
+ *
+ * Bootstrap rules:
+ *
+ * - If Wireless Debugging is already enabled, CurBox can immediately attempt
+ *   discovery and reconnection.
+ *
+ * - If Wireless Debugging is disabled but another privileged backend can
+ *   enable it, CurBox attempts to enable and verify it before ADB discovery.
+ *
+ * - Direct ADB itself is never treated as a way to bootstrap Wireless
+ *   Debugging while Direct ADB is disconnected.
  */
 class DirectAccessOrchestrator(
     context: Context
@@ -16,6 +28,8 @@ class DirectAccessOrchestrator(
     enum class State {
         IDLE,
         INITIALIZING,
+        ENABLING_WIRELESS_DEBUGGING,
+        WIRELESS_DEBUGGING_REQUIRED,
         DISCOVERING,
         PAIRING_REQUIRED,
         DISCOVERING_PAIRING,
@@ -34,15 +48,27 @@ class DirectAccessOrchestrator(
         }
 
         /**
-         * Direct ADB is connected and passed transport health verification.
+         * Direct ADB is connected and has passed transport health
+         * verification.
          */
         fun onConnected() {
         }
 
         /**
+         * Wireless Debugging could not be enabled automatically.
+         *
+         * The caller can direct the user to Android's Wireless Debugging
+         * settings and retry after it has been enabled.
+         */
+        fun onWirelessDebuggingRequired(
+            cause: Throwable?
+        ) {
+        }
+
+        /**
          * Automatic reconnect did not succeed.
          *
-         * The caller may now offer the explicit pairing flow.
+         * The caller may now offer the explicit pairing-code flow.
          */
         fun onPairingRequired(
             cause: Throwable?
@@ -55,14 +81,17 @@ class DirectAccessOrchestrator(
         }
     }
 
+    private val appContext =
+        context.applicationContext
+
     private val connectionManager =
         AdbConnectionManager(
-            context.applicationContext
+            appContext
         )
 
     private val pairingManager =
         AdbPairingManager(
-            context.applicationContext
+            appContext
         )
 
     private val operationCounter =
@@ -76,11 +105,12 @@ class DirectAccessOrchestrator(
         get() = currentState
 
     /**
-     * Attempts to restore/use an existing Direct ADB relationship.
+     * Attempts to restore an existing Direct ADB relationship.
      *
-     * This method never starts pairing automatically and never asks for a
-     * pairing code. If reconnect cannot be completed, the caller receives
-     * [Listener.onPairingRequired].
+     * This never starts pairing automatically and never asks for a pairing
+     * code. Wireless Debugging is checked first because there is no useful ADB
+     * discovery/reconnect operation while Android has Wireless Debugging
+     * disabled.
      */
     fun ensureConnected(
         listener: Listener
@@ -94,79 +124,14 @@ class DirectAccessOrchestrator(
             State.INITIALIZING
         )
 
-        connectionManager.ensureConnected(
-            object :
-                AdbConnectionManager.Listener {
-
-                override fun onStageChanged(
-                    stage:
-                        AdbConnectionManager.Stage
-                ) {
-                    if (!isCurrent(operationId)) {
-                        return
-                    }
-
-                    val mappedState =
-                        when (stage) {
-                            AdbConnectionManager.Stage.INITIALIZING ->
-                                State.INITIALIZING
-
-                            AdbConnectionManager.Stage.DISCOVERING ->
-                                State.DISCOVERING
-
-                            AdbConnectionManager.Stage.CONNECTING ->
-                                State.CONNECTING
-
-                            AdbConnectionManager.Stage.CONNECTED ->
-                                State.CONNECTED
-                        }
-
-                    publishState(
-                        operationId,
-                        listener,
-                        mappedState
-                    )
-                }
-
-                override fun onConnected() {
-                    if (!isCurrent(operationId)) {
-                        return
-                    }
-
-                    publishState(
-                        operationId,
-                        listener,
-                        State.CONNECTED
-                    )
-
-                    listener.onConnected()
-                }
-
-                override fun onError(
-                    error: Throwable
-                ) {
-                    if (!isCurrent(operationId)) {
-                        return
-                    }
-
-                    /*
-                     * At this level we deliberately do not destroy the stored
-                     * ADB identity. Failure to reconnect can mean Wireless
-                     * Debugging is off, discovery failed, the endpoint changed,
-                     * or the device no longer trusts the identity.
-                     *
-                     * Later recovery layers can distinguish these cases.
-                     */
-                    publishState(
-                        operationId,
-                        listener,
-                        State.PAIRING_REQUIRED
-                    )
-
-                    listener.onPairingRequired(
-                        error
-                    )
-                }
+        ensureWirelessDebugging(
+            operationId = operationId,
+            listener = listener,
+            onReady = {
+                startReconnect(
+                    operationId = operationId,
+                    listener = listener
+                )
             }
         )
     }
@@ -174,6 +139,9 @@ class DirectAccessOrchestrator(
     /**
      * Starts the explicit pairing flow after the user supplies the pairing
      * code shown by Android Wireless Debugging.
+     *
+     * Wireless Debugging is checked first because the pairing mDNS endpoint is
+     * advertised by Android's Wireless Debugging pairing server.
      */
     fun pairAndConnect(
         pairingCode: String,
@@ -181,6 +149,259 @@ class DirectAccessOrchestrator(
     ) {
         val operationId =
             beginNewOperation()
+
+        publishState(
+            operationId,
+            listener,
+            State.INITIALIZING
+        )
+
+        ensureWirelessDebugging(
+            operationId = operationId,
+            listener = listener,
+            onReady = {
+                startPairing(
+                    operationId = operationId,
+                    pairingCode = pairingCode,
+                    listener = listener
+                )
+            }
+        )
+    }
+
+    /**
+     * Returns Android's current Wireless Debugging setting.
+     */
+    fun isWirelessDebuggingEnabled(): Boolean {
+        return WirelessDebuggingController.isEnabled(
+            appContext
+        )
+    }
+
+    /**
+     * Cancels discovery/setup activity owned by this orchestrator.
+     *
+     * An already established ADB session is intentionally left connected.
+     */
+    fun cancel() {
+        operationCounter.incrementAndGet()
+
+        connectionManager.cancel()
+        pairingManager.cancel()
+
+        currentState =
+            if (AdbChannelManager.isConnected()) {
+                State.CONNECTED
+            } else {
+                State.IDLE
+            }
+    }
+
+    /**
+     * Disconnects the current ADB session while preserving CurBox's identity
+     * for future reconnect attempts.
+     *
+     * Wireless Debugging itself is intentionally left unchanged.
+     */
+    fun disconnect() {
+        operationCounter.incrementAndGet()
+
+        connectionManager.cancel()
+        pairingManager.cancel()
+
+        AdbChannelManager.disconnect()
+
+        currentState =
+            State.IDLE
+    }
+
+    /**
+     * Current verified connection state from the shared ADB channel.
+     */
+    fun isConnected(): Boolean {
+        return AdbChannelManager.isConnected()
+    }
+
+    /**
+     * Ensures Android reports Wireless Debugging as enabled before CurBox
+     * starts any discovery operation.
+     *
+     * WirelessDebuggingController verifies the state again after attempting a
+     * privileged change, so reaching [onReady] means the setting read-back
+     * succeeded.
+     */
+    private fun ensureWirelessDebugging(
+        operationId: Long,
+        listener: Listener,
+        onReady: () -> Unit
+    ) {
+        if (!isCurrent(operationId)) {
+            return
+        }
+
+        if (
+            WirelessDebuggingController.isEnabled(
+                appContext
+            )
+        ) {
+            onReady()
+            return
+        }
+
+        publishState(
+            operationId,
+            listener,
+            State.ENABLING_WIRELESS_DEBUGGING
+        )
+
+        WirelessDebuggingController.enable(
+            context = appContext,
+            listener =
+                object :
+                    WirelessDebuggingController.Listener {
+
+                    override fun onResult(
+                        enabled: Boolean
+                    ) {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        if (enabled) {
+                            onReady()
+                        } else {
+                            reportWirelessDebuggingRequired(
+                                operationId =
+                                    operationId,
+                                listener =
+                                    listener,
+                                cause =
+                                    IllegalStateException(
+                                        "Wireless Debugging remains disabled."
+                                    )
+                            )
+                        }
+                    }
+
+                    override fun onError(
+                        error: String
+                    ) {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        reportWirelessDebuggingRequired(
+                            operationId =
+                                operationId,
+                            listener =
+                                listener,
+                            cause =
+                                IllegalStateException(
+                                    error
+                                )
+                        )
+                    }
+                }
+        )
+    }
+
+    /**
+     * Starts normal reconnect after Wireless Debugging is known to be enabled.
+     */
+    private fun startReconnect(
+        operationId: Long,
+        listener: Listener
+    ) {
+        if (!isCurrent(operationId)) {
+            return
+        }
+
+        connectionManager.ensureConnected(
+            object :
+                AdbConnectionManager.Listener {
+
+                    override fun onStageChanged(
+                        stage:
+                            AdbConnectionManager.Stage
+                    ) {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        val mappedState =
+                            when (stage) {
+                                AdbConnectionManager.Stage.INITIALIZING ->
+                                    State.INITIALIZING
+
+                                AdbConnectionManager.Stage.DISCOVERING ->
+                                    State.DISCOVERING
+
+                                AdbConnectionManager.Stage.CONNECTING ->
+                                    State.CONNECTING
+
+                                AdbConnectionManager.Stage.CONNECTED ->
+                                    State.CONNECTED
+                            }
+
+                        publishState(
+                            operationId,
+                            listener,
+                            mappedState
+                        )
+                    }
+
+                    override fun onConnected() {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        publishState(
+                            operationId,
+                            listener,
+                            State.CONNECTED
+                        )
+
+                        listener.onConnected()
+                    }
+
+                    override fun onError(
+                        error: Throwable
+                    ) {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        /*
+                         * Do not destroy the stored ADB identity here.
+                         *
+                         * Discovery or authentication failure does not prove
+                         * that the identity itself should be reset.
+                         */
+                        publishState(
+                            operationId,
+                            listener,
+                            State.PAIRING_REQUIRED
+                        )
+
+                        listener.onPairingRequired(
+                            error
+                        )
+                    }
+                }
+        )
+    }
+
+    /**
+     * Starts explicit pairing after Wireless Debugging is known to be enabled.
+     */
+    private fun startPairing(
+        operationId: Long,
+        pairingCode: String,
+        listener: Listener
+    ) {
+        if (!isCurrent(operationId)) {
+            return
+        }
 
         pairingManager.pairAndConnect(
             pairingCode =
@@ -260,46 +481,24 @@ class DirectAccessOrchestrator(
         )
     }
 
-    /**
-     * Cancels discovery/setup activity owned by this orchestrator.
-     *
-     * An already established ADB session is intentionally left connected.
-     */
-    fun cancel() {
-        operationCounter.incrementAndGet()
+    private fun reportWirelessDebuggingRequired(
+        operationId: Long,
+        listener: Listener,
+        cause: Throwable?
+    ) {
+        if (!isCurrent(operationId)) {
+            return
+        }
 
-        connectionManager.cancel()
-        pairingManager.cancel()
+        publishState(
+            operationId,
+            listener,
+            State.WIRELESS_DEBUGGING_REQUIRED
+        )
 
-        currentState =
-            if (AdbChannelManager.isConnected()) {
-                State.CONNECTED
-            } else {
-                State.IDLE
-            }
-    }
-
-    /**
-     * Disconnects the current ADB session while preserving CurBox's identity
-     * for future reconnect attempts.
-     */
-    fun disconnect() {
-        operationCounter.incrementAndGet()
-
-        connectionManager.cancel()
-        pairingManager.cancel()
-
-        AdbChannelManager.disconnect()
-
-        currentState =
-            State.IDLE
-    }
-
-    /**
-     * Current verified connection state from the shared ADB channel.
-     */
-    fun isConnected(): Boolean {
-        return AdbChannelManager.isConnected()
+        listener.onWirelessDebuggingRequired(
+            cause
+        )
     }
 
     private fun beginNewOperation(): Long {
