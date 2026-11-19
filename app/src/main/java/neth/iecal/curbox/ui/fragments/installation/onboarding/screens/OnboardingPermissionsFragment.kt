@@ -25,7 +25,6 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import neth.iecal.curbox.BuildConfig
 import neth.iecal.curbox.R
 import neth.iecal.curbox.data.models.AppBlockerWarningScreenConfig
 import neth.iecal.curbox.data.models.AppGroup
@@ -40,8 +39,7 @@ import neth.iecal.curbox.ui.fragments.main.reducers.blockertools.appBlocker.AppB
 import neth.iecal.curbox.ui.fragments.main.usage.AllAppsUsageFragment
 import neth.iecal.curbox.utils.PermissionUtils
 import neth.iecal.curbox.utils.ZipUtils.unzipSharedPreferencesFromUri
-import neth.iecal.curbox.utils.privileged.PrivilegedBackend
-import neth.iecal.curbox.utils.privileged.PrivilegedRunner
+import neth.iecal.curbox.utils.privileged.PersistentPrivilegesManager
 import java.util.UUID
 
 class OnboardingPermissionsFragment : Fragment() {
@@ -552,11 +550,11 @@ class OnboardingPermissionsFragment : Fragment() {
     }
 
     /**
-     * This remains the Shizuku setup button and permission flow.
+     * This remains the Shizuku setup button and permission-request flow.
      *
-     * The command execution itself goes through PrivilegedRunner so the
-     * actual privileged operation is no longer coupled directly to
-     * ShizukuRunner.
+     * The persistent privileged operations themselves now live in
+     * PersistentPrivilegesManager and therefore execute through whichever
+     * backend PrivilegedRunner has selected.
      */
     private fun runShizukuGrantAllCommand() {
         val currentBinding =
@@ -573,101 +571,60 @@ class OnboardingPermissionsFragment : Fragment() {
                 R.string.onboarding_granting_permissions
             )
 
-        val pkg =
-            requireContext()
-                .packageName
+        val context =
+            context
+                ?.applicationContext
 
-        val svc1 =
-            "$pkg/${AppBlockerService::class.java.name}"
+        if (context == null) {
+            currentBinding
+                .btnShizukuGrantAll
+                .isEnabled = true
 
-        // Full and fdroid also take WRITE_SECURE_SETTINGS here so grayscale
-        // keeps working without a privileged command backend later on.
-        val secureSettingsGrant =
-            if (
-                BuildConfig
-                    .SUPPORTS_WRITE_SECURE_SETTINGS
-            ) {
-                "pm grant $pkg " +
-                    "android.permission.WRITE_SECURE_SETTINGS"
-            } else {
-                ""
-            }
+            currentBinding
+                .btnShizukuGrantAll
+                .text =
+                getString(
+                    R.string.onboarding_error_tap_retry
+                )
 
-        val command =
-            """
-            appops set $pkg SYSTEM_ALERT_WINDOW allow
-            pm grant $pkg android.permission.POST_NOTIFICATIONS
-            $secureSettingsGrant
-            cmd notification allow_dnd $pkg
+            return
+        }
 
-            CURRENT_ACC_SVCS=${'$'}(settings get secure enabled_accessibility_services)
-            if [ "${'$'}CURRENT_ACC_SVCS" = "null" ] || [ -z "${'$'}CURRENT_ACC_SVCS" ]; then
-                settings put secure enabled_accessibility_services "$svc1"
-            else
-                NEW_SVCS="${'$'}CURRENT_ACC_SVCS"
-                case "${'$'}CURRENT_ACC_SVCS" in
-                    *"$svc1"*) ;;
-                    *) NEW_SVCS="${'$'}NEW_SVCS:$svc1" ;;
-                esac
-                settings put secure enabled_accessibility_services "${'$'}NEW_SVCS"
-            fi
-            settings put secure accessibility_enabled 1
-            """.trimIndent()
-
-        PrivilegedRunner.executeCommand(
-            command = command,
+        PersistentPrivilegesManager.apply(
+            context = context,
             listener =
                 object :
-                    PrivilegedBackend.CommandResultListener {
+                    PersistentPrivilegesManager.Listener {
 
-                    override fun onCommandResult(
-                        output: String,
-                        done: Boolean
-                    ) {
-                        if (!done) {
-                            return
-                        }
-
-                        activity?.runOnUiThread {
-                            val binding =
-                                _binding
-                                    ?: return@runOnUiThread
-
-                            binding
-                                .btnShizukuGrantAll
-                                .text =
-                                getString(
-                                    R.string.onboarding_permissions_granted
-                                )
-
-                            binding
-                                .btnShizukuGrantAll
-                                .isEnabled =
-                                true
-
-                            updatePermissionsState()
-                        }
-                    }
-
-                    override fun onCommandError(
-                        error: String
+                    override fun onComplete(
+                        result:
+                            PersistentPrivilegesManager.Result
                     ) {
                         activity?.runOnUiThread {
                             val binding =
                                 _binding
                                     ?: return@runOnUiThread
 
+                            if (result.success) {
+                                binding
+                                    .btnShizukuGrantAll
+                                    .text =
+                                    getString(
+                                        R.string.onboarding_permissions_granted
+                                    )
+                            } else {
+                                binding
+                                    .btnShizukuGrantAll
+                                    .text =
+                                    getString(
+                                        R.string.onboarding_error_tap_retry
+                                    )
+                            }
+
                             binding
                                 .btnShizukuGrantAll
                                 .isEnabled =
                                 true
-
-                            binding
-                                .btnShizukuGrantAll
-                                .text =
-                                getString(
-                                    R.string.onboarding_error_tap_retry
-                                )
 
                             updatePermissionsState()
                         }
