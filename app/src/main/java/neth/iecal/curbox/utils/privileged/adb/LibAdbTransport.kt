@@ -1,5 +1,6 @@
 package neth.iecal.curbox.utils.privileged.adb
 
+import android.content.Context
 import android.os.Build
 import io.github.muntashirakon.adb.AbsAdbConnectionManager
 import io.github.muntashirakon.adb.AdbStream
@@ -13,7 +14,9 @@ import java.security.cert.Certificate
  * The rest of CurBox communicates through [AdbTransport] and
  * [AdbTransportStream].
  */
-class LibAdbTransport : AdbTransport {
+class LibAdbTransport(
+    context: Context
+) : AdbTransport {
 
     companion object {
         private const val DEVICE_NAME = "CurBox"
@@ -22,6 +25,9 @@ class LibAdbTransport : AdbTransport {
 
     private val lock = Any()
 
+    private val appContext =
+        context.applicationContext
+
     @Volatile
     private var currentState =
         AdbTransport.State.DISCONNECTED
@@ -29,8 +35,17 @@ class LibAdbTransport : AdbTransport {
     override val state: AdbTransport.State
         get() = currentState
 
+    /**
+     * CurBox deliberately uses the persistent software RSA identity managed by
+     * AdbIdentityManager instead of an AndroidKeyStore-backed RSA PrivateKey.
+     *
+     * AndroidKeyStore remains responsible only for protecting the encryption
+     * key used for the persisted PKCS#8 private-key bytes.
+     */
     private val identity: AdbIdentityManager.Identity =
-        AdbIdentityManager.getOrCreate()
+        AdbIdentityManager.getOrCreate(
+            appContext
+        )
 
     /**
      * Concrete libadb connection manager using CurBox's persistent identity.
@@ -50,7 +65,9 @@ class LibAdbTransport : AdbTransport {
                 return DEVICE_NAME
             }
         }.apply {
-            setApi(Build.VERSION.SDK_INT)
+            setApi(
+                Build.VERSION.SDK_INT
+            )
         }
 
     override fun isConnected(): Boolean {
@@ -93,7 +110,9 @@ class LibAdbTransport : AdbTransport {
                     AdbTransport.State.DISCONNECTED
 
                 if (paired) {
-                    Result.success(Unit)
+                    Result.success(
+                        Unit
+                    )
                 } else {
                     Result.failure(
                         IllegalStateException(
@@ -105,7 +124,9 @@ class LibAdbTransport : AdbTransport {
                 currentState =
                     AdbTransport.State.DISCONNECTED
 
-                Result.failure(t)
+                Result.failure(
+                    t
+                )
             }
         }
     }
@@ -119,7 +140,9 @@ class LibAdbTransport : AdbTransport {
                 currentState =
                     AdbTransport.State.CONNECTED
 
-                return Result.success(Unit)
+                return Result.success(
+                    Unit
+                )
             }
 
             currentState =
@@ -147,15 +170,17 @@ class LibAdbTransport : AdbTransport {
                  * Do not trust connect() alone.
                  *
                  * Verify that the freshly connected channel can actually open
-                 * an ADB service. This also protects CurBox from treating a
-                 * stale/broken connection as ready.
+                 * an ADB service. This protects CurBox from treating a stale or
+                 * broken connection as ready.
                  */
                 verifyConnection()
 
                 currentState =
                     AdbTransport.State.CONNECTED
 
-                Result.success(Unit)
+                Result.success(
+                    Unit
+                )
             } catch (t: Throwable) {
                 try {
                     manager.disconnect()
@@ -166,7 +191,9 @@ class LibAdbTransport : AdbTransport {
                 currentState =
                     AdbTransport.State.DISCONNECTED
 
-                Result.failure(t)
+                Result.failure(
+                    t
+                )
             }
         }
     }
@@ -197,16 +224,22 @@ class LibAdbTransport : AdbTransport {
             }
 
             val stream =
-                manager.openStream(service)
+                manager.openStream(
+                    service
+                )
 
             Result.success(
-                LibAdbTransportStream(stream)
+                LibAdbTransportStream(
+                    stream
+                )
             )
         } catch (t: Throwable) {
             currentState =
                 AdbTransport.State.DISCONNECTED
 
-            Result.failure(t)
+            Result.failure(
+                t
+            )
         }
     }
 
@@ -227,14 +260,18 @@ class LibAdbTransport : AdbTransport {
                 stream.openInputStream()
 
             val buffer =
-                ByteArray(READ_BUFFER_SIZE)
+                ByteArray(
+                    READ_BUFFER_SIZE
+                )
 
             val output =
                 StringBuilder()
 
             while (true) {
                 val count =
-                    input.read(buffer)
+                    input.read(
+                        buffer
+                    )
 
                 if (count < 0) {
                     break
@@ -257,7 +294,9 @@ class LibAdbTransport : AdbTransport {
             if (
                 !output
                     .toString()
-                    .contains("curbox_adb_ready")
+                    .contains(
+                        "curbox_adb_ready"
+                    )
             ) {
                 throw IllegalStateException(
                     "ADB connection health check returned an unexpected response."
@@ -293,11 +332,15 @@ class LibAdbTransport : AdbTransport {
                 stream.available()
 
             if (available <= 0) {
-                return ByteArray(0)
+                return ByteArray(
+                    0
+                )
             }
 
             val buffer =
-                ByteArray(available)
+                ByteArray(
+                    available
+                )
 
             val count =
                 stream.read(
@@ -307,13 +350,20 @@ class LibAdbTransport : AdbTransport {
                 )
 
             if (count <= 0) {
-                return ByteArray(0)
+                return ByteArray(
+                    0
+                )
             }
 
-            return if (count == buffer.size) {
+            return if (
+                count ==
+                buffer.size
+            ) {
                 buffer
             } else {
-                buffer.copyOf(count)
+                buffer.copyOf(
+                    count
+                )
             }
         }
 
