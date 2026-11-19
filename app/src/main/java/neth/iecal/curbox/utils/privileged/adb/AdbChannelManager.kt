@@ -1,5 +1,7 @@
 package neth.iecal.curbox.utils.privileged.adb
 
+import android.content.Context
+
 /**
  * Central coordinator for CurBox's Direct ADB channel.
  *
@@ -25,29 +27,45 @@ object AdbChannelManager {
      * installed, the existing instance is preserved so its connection state
      * and persistent ADB identity are not disturbed.
      *
-     * A Result is returned because creation of the concrete transport can
-     * fail, for example if the persistent ADB identity cannot be loaded or
-     * created.
+     * The application context is passed to the concrete transport because the
+     * persistent ADB identity is stored in CurBox's private application
+     * storage.
      */
-    fun initialize(): Result<Unit> {
+    fun initialize(
+        context: Context
+    ): Result<Unit> {
         if (transport != null) {
-            return Result.success(Unit)
+            return Result.success(
+                Unit
+            )
         }
+
+        val appContext =
+            context.applicationContext
 
         synchronized(transportLock) {
             if (transport != null) {
-                return Result.success(Unit)
+                return Result.success(
+                    Unit
+                )
             }
 
             return try {
                 transport =
-                    LibAdbTransport()
+                    LibAdbTransport(
+                        appContext
+                    )
 
-                Result.success(Unit)
+                Result.success(
+                    Unit
+                )
             } catch (t: Throwable) {
-                transport = null
+                transport =
+                    null
 
-                Result.failure(t)
+                Result.failure(
+                    t
+                )
             }
         }
     }
@@ -103,7 +121,8 @@ object AdbChannelManager {
      * later reconnect.
      */
     fun clearTransport() {
-        val previous: AdbTransport?
+        val previous:
+            AdbTransport?
 
         synchronized(transportLock) {
             previous =
@@ -128,7 +147,8 @@ object AdbChannelManager {
      */
     fun isConnected(): Boolean {
         val current =
-            transport ?: return false
+            transport
+                ?: return false
 
         return try {
             current.isConnected()
@@ -199,7 +219,9 @@ object AdbChannelManager {
                 pairingCode = pairingCode
             )
         } catch (t: Throwable) {
-            Result.failure(t)
+            Result.failure(
+                t
+            )
         }
     }
 
@@ -240,14 +262,16 @@ object AdbChannelManager {
                 port = port
             )
         } catch (t: Throwable) {
-            Result.failure(t)
+            Result.failure(
+                t
+            )
         }
     }
 
     /**
      * Opens an ADB service through the active transport.
      *
-     * Command execution will later use this with services such as "shell:".
+     * Command execution uses this with services such as "shell:".
      */
     fun openService(
         service: String
@@ -281,7 +305,9 @@ object AdbChannelManager {
                 service
             )
         } catch (t: Throwable) {
-            Result.failure(t)
+            Result.failure(
+                t
+            )
         }
     }
 
@@ -293,7 +319,8 @@ object AdbChannelManager {
      */
     fun disconnect() {
         val current =
-            transport ?: return
+            transport
+                ?: return
 
         try {
             current.disconnect()
