@@ -20,6 +20,9 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * - Direct ADB itself is never treated as a way to bootstrap Wireless
  *   Debugging while Direct ADB is disconnected.
+ *
+ * - Automatic lifecycle recovery is enabled only after an explicit pairing
+ *   flow has completed and produced a verified Direct ADB connection.
  */
 class DirectAccessOrchestrator(
     context: Context
@@ -199,7 +202,7 @@ class DirectAccessOrchestrator(
 
     /**
      * Disconnects the current ADB session while preserving CurBox's identity
-     * for future reconnect attempts.
+     * and lifecycle-recovery preference for future reconnect attempts.
      *
      * Wireless Debugging itself is intentionally left unchanged.
      */
@@ -393,6 +396,9 @@ class DirectAccessOrchestrator(
 
     /**
      * Starts explicit pairing after Wireless Debugging is known to be enabled.
+     *
+     * Lifecycle recovery is enabled only after this explicit setup flow has
+     * produced a verified connection.
      */
     private fun startPairing(
         operationId: Long,
@@ -450,6 +456,19 @@ class DirectAccessOrchestrator(
                         if (!isCurrent(operationId)) {
                             return
                         }
+
+                        /*
+                         * The explicit pairing flow has now produced a
+                         * verified Direct ADB connection. From this point on,
+                         * lifecycle recovery may reuse the stored identity.
+                         */
+                        DirectAccessLifecycleManager
+                            .setRecoveryEnabled(
+                                context =
+                                    appContext,
+                                enabled =
+                                    true
+                            )
 
                         publishState(
                             operationId,
