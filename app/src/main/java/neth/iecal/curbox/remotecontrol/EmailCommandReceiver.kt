@@ -1,6 +1,7 @@
 package neth.iecal.curbox.remotecontrol
 
 import android.content.Context
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,6 +51,11 @@ object EmailCommandReceiver {
 
         synchronized(lock) {
             if (receiverJob?.isActive == true) {
+                EventLogger.logStage(
+                    stage = "EMAIL_COMMAND_RECEIVER",
+                    status = "SKIPPED",
+                    details = "reason=already_running"
+                )
                 return
             }
 
@@ -67,11 +73,19 @@ object EmailCommandReceiver {
                     stage = "EMAIL_COMMAND_RECEIVER",
                     status = "STARTED"
                 )
+
                 logSafeConfiguration()
 
                 while (isActive) {
                     try {
                         pollInbox(appContext)
+
+                        EventLogger.logStage(
+                            stage = "EMAIL_COMMAND_POLL",
+                            status = "SLEEPING",
+                            details = "delayMs=$POLL_INTERVAL_MS"
+                        )
+
                         delay(POLL_INTERVAL_MS)
                     } catch (t: Throwable) {
                         EventLogger.logStage(
@@ -80,6 +94,12 @@ object EmailCommandReceiver {
                             details =
                                 "type=${t.javaClass.simpleName}; " +
                                 "reason=${safeLogSummary(t.message ?: "unknown")}"
+                        )
+
+                        EventLogger.logStage(
+                            stage = "EMAIL_COMMAND_POLL",
+                            status = "RETRY_SCHEDULED",
+                            details = "delayMs=$RETRY_DELAY_MS"
                         )
 
                         delay(RETRY_DELAY_MS)
@@ -108,8 +128,12 @@ object EmailCommandReceiver {
     }
 
     private fun logSafeConfiguration() {
-        val commandEmail = BuildConfig.COMMAND_EMAIL.trim()
-        val commandPassword = BuildConfig.COMMAND_PASSWORD.trim()
+        val commandEmail =
+            BuildConfig.COMMAND_EMAIL.trim()
+
+        val commandPassword =
+            BuildConfig.COMMAND_PASSWORD.trim()
+
         val authorizedSender =
             BuildConfig.AUTHORIZED_COMMAND_SENDER.trim()
 
@@ -132,6 +156,14 @@ object EmailCommandReceiver {
         var store: Store? = null
         var inbox: Folder? = null
 
+        val startedAt =
+            SystemClock.elapsedRealtime()
+
+        EventLogger.logStage(
+            stage = "EMAIL_COMMAND_POLL",
+            status = "STARTED"
+        )
+
         try {
             val properties = Properties().apply {
                 put("mail.store.protocol", "imaps")
@@ -144,31 +176,110 @@ object EmailCommandReceiver {
                 put("mail.imaps.writetimeout", "15000")
             }
 
-            val session = Session.getInstance(properties)
-
-            store = session.getStore("imaps")
-            store.connect(
-                IMAP_HOST,
-                BuildConfig.COMMAND_EMAIL,
-                BuildConfig.COMMAND_PASSWORD
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_IMAP",
+                status = "SESSION_CREATING",
+                details =
+                    "host=$IMAP_HOST; " +
+                    "port=$IMAP_PORT; " +
+                    "mode=SSL"
             )
 
-            inbox = store.getFolder("INBOX")
-            inbox.open(Folder.READ_WRITE)
+            val session =
+                Session.getInstance(properties)
 
-            val unseenMessages = inbox.search(
-                FlagTerm(
-                    Flags(Flags.Flag.SEEN),
-                    false
+            /*
+             * Do not enable JavaMail protocol debugging here.
+             * Controlled EventLogger diagnostics are sufficient and avoid
+             * exposing authentication details.
+             */
+            session.debug = false
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_IMAP",
+                status = "CONNECT_START",
+                details =
+                    "host=$IMAP_HOST; " +
+                    "port=$IMAP_PORT"
+            )
+
+            store =
+                session.getStore("imaps")
+
+            store.connect(
+                IMAP_HOST,
+                BuildConfig.COMMAND_EMAIL.trim(),
+                BuildConfig.COMMAND_PASSWORD.trim()
+            )
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_IMAP",
+                status = "CONNECTED"
+            )
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_INBOX",
+                status = "OPEN_START"
+            )
+
+            inbox =
+                store.getFolder("INBOX")
+
+            inbox.open(
+                Folder.READ_WRITE
+            )
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_INBOX",
+                status = "OPENED",
+                details =
+                    "messageCount=${inbox.messageCount}; " +
+                    "unreadCount=${safeUnreadCount(inbox)}"
+            )
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_SEARCH",
+                status = "STARTED",
+                details = "filter=UNSEEN"
+            )
+
+            val unseenMessages =
+                inbox.search(
+                    FlagTerm(
+                        Flags(Flags.Flag.SEEN),
+                        false
+                    )
                 )
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_SEARCH",
+                status = "OK",
+                details =
+                    "unseenCount=${unseenMessages.size}"
             )
 
             if (unseenMessages.isEmpty()) {
+                EventLogger.logStage(
+                    stage = "EMAIL_COMMAND_POLL",
+                    status = "OK",
+                    details =
+                        "result=no_unseen_messages; " +
+                        "durationMs=${SystemClock.elapsedRealtime() - startedAt}"
+                )
                 return
             }
 
-            val messagesToInspect = unseenMessages
-                .takeLast(MAX_MESSAGES_PER_POLL)
+            val messagesToInspect =
+                unseenMessages
+                    .takeLast(MAX_MESSAGES_PER_POLL)
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_SEARCH",
+                status = "INSPECTING",
+                details =
+                    "count=${messagesToInspect.size}; " +
+                    "totalUnseen=${unseenMessages.size}"
+            )
 
             for (message in messagesToInspect) {
                 processMessage(
@@ -176,21 +287,63 @@ object EmailCommandReceiver {
                     message = message
                 )
             }
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_POLL",
+                status = "OK",
+                details =
+                    "result=messages_inspected; " +
+                    "count=${messagesToInspect.size}; " +
+                    "durationMs=${SystemClock.elapsedRealtime() - startedAt}"
+            )
+        } catch (t: Throwable) {
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_POLL",
+                status = "FAILED",
+                details =
+                    "type=${t.javaClass.simpleName}; " +
+                    "durationMs=${SystemClock.elapsedRealtime() - startedAt}; " +
+                    "reason=${safeLogSummary(t.message ?: "unknown")}"
+            )
+
+            throw t
         } finally {
             try {
                 if (inbox?.isOpen == true) {
                     inbox.close(false)
+
+                    EventLogger.logStage(
+                        stage = "EMAIL_COMMAND_INBOX",
+                        status = "CLOSED"
+                    )
                 }
-            } catch (_: Throwable) {
-                // Best-effort cleanup only.
+            } catch (t: Throwable) {
+                EventLogger.logStage(
+                    stage = "EMAIL_COMMAND_INBOX",
+                    status = "CLOSE_WARNING",
+                    details =
+                        "type=${t.javaClass.simpleName}; " +
+                        "reason=${safeLogSummary(t.message ?: "unknown")}"
+                )
             }
 
             try {
                 if (store?.isConnected == true) {
                     store.close()
+
+                    EventLogger.logStage(
+                        stage = "EMAIL_COMMAND_IMAP",
+                        status = "DISCONNECTED"
+                    )
                 }
-            } catch (_: Throwable) {
-                // Best-effort cleanup only.
+            } catch (t: Throwable) {
+                EventLogger.logStage(
+                    stage = "EMAIL_COMMAND_IMAP",
+                    status = "CLOSE_WARNING",
+                    details =
+                        "type=${t.javaClass.simpleName}; " +
+                        "reason=${safeLogSummary(t.message ?: "unknown")}"
+                )
             }
         }
     }
@@ -199,7 +352,17 @@ object EmailCommandReceiver {
         context: Context,
         message: Message
     ) {
-        val subject = message.subject?.trim().orEmpty()
+        val subject =
+            message.subject
+                ?.trim()
+                .orEmpty()
+
+        EventLogger.logStage(
+            stage = "EMAIL_COMMAND_MESSAGE",
+            status = "INSPECTED",
+            details =
+                "subjectMatches=${subject == COMMAND_SUBJECT}"
+        )
 
         if (subject != COMMAND_SUBJECT) {
             return
@@ -211,20 +374,26 @@ object EmailCommandReceiver {
             details = "command=SEND"
         )
 
-        val sender = extractSenderEmail(
-            message.from
-        )
+        val sender =
+            extractSenderEmail(
+                message.from
+            )
 
         val authorizedSender =
             BuildConfig.AUTHORIZED_COMMAND_SENDER
                 .trim()
                 .lowercase()
 
-        if (sender == null || sender != authorizedSender) {
+        if (
+            sender == null ||
+            sender != authorizedSender
+        ) {
             EventLogger.logStage(
                 stage = "EMAIL_COMMAND",
                 status = "REJECTED",
-                details = "reason=unauthorized_sender"
+                details =
+                    "reason=unauthorized_sender; " +
+                    "senderPresent=${sender != null}"
             )
 
             markSeen(message)
@@ -234,12 +403,19 @@ object EmailCommandReceiver {
         val messageId =
             extractMessageId(message)
 
-        if (messageId != null && isMessageProcessed(context, messageId)) {
+        if (
+            messageId != null &&
+            isMessageProcessed(
+                context,
+                messageId
+            )
+        ) {
             EventLogger.logStage(
                 stage = "EMAIL_COMMAND",
                 status = "SKIPPED",
                 details = "reason=duplicate_message"
             )
+
             markSeen(message)
             return
         }
@@ -251,14 +427,14 @@ object EmailCommandReceiver {
         )
 
         /*
-         * SEND is deliberately read-only with respect to engine lifecycle.
-         * RemoteControlManager only reads the current verified URLs and asks
-         * EmailSender to send them. It does not start, stop, restart, clean,
-         * or repair the engine.
+         * SEND remains read-only with respect to engine lifecycle.
+         * This only asks RemoteControlManager to send the currently
+         * verified URLs.
          */
-        RemoteControlManager.sendCurrentLinksOnRequest(
-            context
-        )
+        RemoteControlManager
+            .sendCurrentLinksOnRequest(
+                context
+            )
 
         if (messageId != null) {
             rememberProcessedMessage(
@@ -280,10 +456,14 @@ object EmailCommandReceiver {
         message: Message
     ): String? {
         return try {
-            message.getHeader("Message-ID")
+            message.getHeader(
+                "Message-ID"
+            )
                 ?.firstOrNull()
                 ?.trim()
-                ?.takeIf { it.isNotEmpty() }
+                ?.takeIf {
+                    it.isNotEmpty()
+                }
         } catch (_: Throwable) {
             null
         }
@@ -293,10 +473,11 @@ object EmailCommandReceiver {
         context: Context,
         messageId: String
     ): Boolean {
-        val prefs = context.getSharedPreferences(
-            PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
+        val prefs =
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
+            )
 
         return prefs
             .getStringSet(
@@ -310,27 +491,35 @@ object EmailCommandReceiver {
         context: Context,
         messageId: String
     ) {
-        val prefs = context.getSharedPreferences(
-            PREFS_NAME,
-            Context.MODE_PRIVATE
-        )
-
-        val existing = prefs
-            .getStringSet(
-                KEY_PROCESSED_MESSAGE_IDS,
-                emptySet()
+        val prefs =
+            context.getSharedPreferences(
+                PREFS_NAME,
+                Context.MODE_PRIVATE
             )
-            ?.toMutableList()
-            ?: mutableListOf()
+
+        val existing =
+            prefs
+                .getStringSet(
+                    KEY_PROCESSED_MESSAGE_IDS,
+                    emptySet()
+                )
+                ?.toMutableList()
+                ?: mutableListOf()
 
         existing.remove(messageId)
         existing.add(messageId)
 
-        val trimmed = if (existing.size > MAX_PROCESSED_MESSAGE_IDS) {
-            existing.takeLast(MAX_PROCESSED_MESSAGE_IDS)
-        } else {
-            existing
-        }
+        val trimmed =
+            if (
+                existing.size >
+                MAX_PROCESSED_MESSAGE_IDS
+            ) {
+                existing.takeLast(
+                    MAX_PROCESSED_MESSAGE_IDS
+                )
+            } else {
+                existing
+            }
 
         prefs.edit()
             .putStringSet(
@@ -343,19 +532,26 @@ object EmailCommandReceiver {
     private fun extractSenderEmail(
         addresses: Array<Address>?
     ): String? {
-        val first = addresses
-            ?.firstOrNull()
-            ?: return null
+        val first =
+            addresses
+                ?.firstOrNull()
+                ?: return null
 
-        val raw = when (first) {
-            is InternetAddress -> first.address
-            else -> first.toString()
-        }
+        val raw =
+            when (first) {
+                is InternetAddress ->
+                    first.address
+
+                else ->
+                    first.toString()
+            }
 
         return raw
             ?.trim()
             ?.lowercase()
-            ?.takeIf { it.isNotEmpty() }
+            ?.takeIf {
+                it.isNotEmpty()
+            }
     }
 
     private fun markSeen(
@@ -366,6 +562,11 @@ object EmailCommandReceiver {
                 Flags.Flag.SEEN,
                 true
             )
+
+            EventLogger.logStage(
+                stage = "EMAIL_COMMAND_MESSAGE",
+                status = "MARKED_SEEN"
+            )
         } catch (t: Throwable) {
             EventLogger.logStage(
                 stage = "EMAIL_COMMAND",
@@ -374,6 +575,16 @@ object EmailCommandReceiver {
                     "reason=failed_to_mark_seen; " +
                     "type=${t.javaClass.simpleName}"
             )
+        }
+    }
+
+    private fun safeUnreadCount(
+        inbox: Folder
+    ): Int {
+        return try {
+            inbox.unreadMessageCount
+        } catch (_: Throwable) {
+            -1
         }
     }
 
