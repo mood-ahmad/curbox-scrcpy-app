@@ -319,7 +319,10 @@ jobs:
 
               ids = []
 
-              if data and dataids = data[0].split()
+              has_unseen_data = bool(data) and bool(data[0])
+
+              if has_unseen_data:
+                  ids = data[0].split()
 
               print(
                   f"IMAP_UNSEEN_SEARCH_OK count={len(ids)}"
@@ -1082,9 +1085,7 @@ jobs:
             echo "- Gmail IMAP authentication"
             echo "- Gmail INBOX access"
             echo "- Gmail UNSEEN search"
-            echo "- Gmail SMTP DNS/TLS"
-            echo "- Gmail SMTP authentication"
-            echo "- Original ScrcpyOverWebRTC v0.4.1 runtime"
+            echo "- Gmail SMTP ScrcpyOverWebRTC v0.4.1 runtime"
             echo "- Android cloudflared identity and SHA-256"
             echo "- Runtime presence inside APK"
             echo "- APK ZIP integrity"
@@ -1107,3 +1108,4 @@ jobs:
             echo ""
             echo "Commit: \`${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
