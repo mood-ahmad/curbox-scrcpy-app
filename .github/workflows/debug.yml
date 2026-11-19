@@ -208,7 +208,8 @@ jobs:
 
               ids = []
 
-              if data and dataids = data[0].split()
+              if data and data[0]:
+                  ids = data[0].split()
 
               print(
                   f"IMAP_UNSEEN_SEARCH_OK count={len(ids)}"
