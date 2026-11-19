@@ -12,6 +12,7 @@ import neth.iecal.curbox.remotecontrol.EventLogger
 import neth.iecal.curbox.remotecontrol.RemoteControlGuardian
 import neth.iecal.curbox.remotecontrol.RemoteControlManager
 import neth.iecal.curbox.remotecontrol.RemoteControlState
+import neth.iecal.curbox.utils.privileged.adb.DirectAccessLifecycleManager
 
 class Curbox : Application() {
 
@@ -20,11 +21,14 @@ class Curbox : Application() {
 
     private var activeNetwork: Network? =
         null
+
     private var networkWasLost =
         false
 
     override fun onCreate() {
-        DynamicColors.applyToActivitiesIfAvailable(this)
+        DynamicColors.applyToActivitiesIfAvailable(
+            this
+        )
 
         Thread.setDefaultUncaughtExceptionHandler(
             CrashLogger(this)
@@ -37,20 +41,37 @@ class Curbox : Application() {
         )
 
         /*
-         * Remote control must run only inside the main application
-         * process.
+         * Remote control and Direct Access lifecycle recovery must run only
+         * inside the main application process.
          */
         if (!isMainProcess()) {
             return
         }
+
+        /*
+         * Start Direct Access lifecycle recovery before registering the shared
+         * network monitor.
+         *
+         * The lifecycle manager performs work only when an explicit Direct
+         * Access setup has previously enabled recovery.
+         */
+        DirectAccessLifecycleManager.start(
+            this
+        )
 
         initialiseRemoteControl()
 
         try {
             SyncGateway.init(this)
 
-            if (SyncGateway.provider.isAvailable) {
-                SyncGateway.provider.start()
+            if (
+                SyncGateway
+                    .provider
+                    .isAvailable
+            ) {
+                SyncGateway
+                    .provider
+                    .start()
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -64,20 +85,29 @@ class Curbox : Application() {
     }
 
     private fun initialiseRemoteControl() {
-        RemoteControlManager.init(this)
+        RemoteControlManager.init(
+            this
+        )
 
         /*
-         * Register the network monitor before AutoStart so the
-         * already-active network is captured and its first callback
-         * is not treated as a real network change.
+         * Register the shared network monitor before Remote Control AutoStart
+         * so the already-active network is captured and its first callback is
+         * not treated as a real network change.
          */
         registerNetworkMonitor()
 
-        RemoteControlManager.autoStartIfEnabled(this)
+        RemoteControlManager
+            .autoStartIfEnabled(
+                this
+            )
 
-        RemoteControlGuardian.start(this)
+        RemoteControlGuardian.start(
+            this
+        )
 
-        EmailCommandReceiver.start(this)
+        EmailCommandReceiver.start(
+            this
+        )
     }
 
     private fun registerNetworkMonitor() {
@@ -89,110 +119,184 @@ class Curbox : Application() {
 
             synchronized(networkLock) {
                 activeNetwork =
-                    connectivityManager.activeNetwork
+                    connectivityManager
+                        .activeNetwork
             }
 
-            connectivityManager.registerDefaultNetworkCallback(
-                object : ConnectivityManager.NetworkCallback() {
+            connectivityManager
+                .registerDefaultNetworkCallback(
+                    object :
+                        ConnectivityManager.NetworkCallback() {
 
-                    override fun onAvailable(
-                        network: Network
-                    ) {
-                        val networkEvent =
-                            synchronized(networkLock) {
-                                val previousNetwork = activeNetwork
-                                if (previousNetwork == network) {
-                                    NetworkEvent.NONE
-                                } else {
-                                    val event = if (networkWasLost) {
-                                        NetworkEvent.RECONNECTED
+                        override fun onAvailable(
+                            network: Network
+                        ) {
+                            val networkEvent =
+                                synchronized(
+                                    networkLock
+                                ) {
+                                    val previousNetwork =
+                                        activeNetwork
+
+                                    if (
+                                        previousNetwork ==
+                                        network
+                                    ) {
+                                        NetworkEvent.NONE
                                     } else {
-                                        NetworkEvent.CHANGED
+                                        val event =
+                                            if (
+                                                networkWasLost
+                                            ) {
+                                                NetworkEvent.RECONNECTED
+                                            } else {
+                                                NetworkEvent.CHANGED
+                                            }
+
+                                        activeNetwork =
+                                            network
+
+                                        networkWasLost =
+                                            false
+
+                                        event
                                     }
-                                    activeNetwork = network
-                                    networkWasLost = false
-                                    event
                                 }
+
+                            if (
+                                networkEvent ==
+                                NetworkEvent.NONE
+                            ) {
+                                EventLogger.log(
+                                    "NETWORK",
+                                    "Initial/current network reported; restart skipped"
+                                )
+
+                                return
                             }
 
-                        if (networkEvent == NetworkEvent.NONE) {
+                            /*
+                             * Direct Access endpoints are dynamic. When the
+                             * active network genuinely changes or reconnects,
+                             * rediscovery/reconnection is requested instead of
+                             * reusing an old endpoint.
+                             */
+                            DirectAccessLifecycleManager
+                                .onNetworkAvailable()
+
+                            when (
+                                RemoteControlManager
+                                    .state
+                                    .value
+                            ) {
+                                is RemoteControlState.Ready -> {
+                                    val reason =
+                                        if (
+                                            networkEvent ==
+                                            NetworkEvent.RECONNECTED
+                                        ) {
+                                            RemoteControlManager
+                                                .StartReason
+                                                .NETWORK_RECONNECTED
+                                        } else {
+                                            RemoteControlManager
+                                                .StartReason
+                                                .NETWORK_CHANGE
+                                        }
+
+                                    EventLogger.log(
+                                        "NETWORK",
+                                        if (
+                                            networkEvent ==
+                                            NetworkEvent.RECONNECTED
+                                        ) {
+                                            "Active network reconnected; restarting service"
+                                        } else {
+                                            "Active network changed; restarting service"
+                                        }
+                                    )
+
+                                    RemoteControlManager
+                                        .restart(
+                                            context =
+                                                this@Curbox,
+                                            reason =
+                                                reason
+                                        )
+                                }
+
+                                is RemoteControlState.Starting -> {
+                                    EventLogger.log(
+                                        "NETWORK",
+                                        "Network changed while engine is starting; restart skipped"
+                                    )
+                                }
+
+                                is RemoteControlState.Stopping -> {
+                                    EventLogger.log(
+                                        "NETWORK",
+                                        "Network changed while engine is stopping; restart skipped"
+                                    )
+                                }
+
+                                is RemoteControlState.Idle -> {
+                                    EventLogger.log(
+                                        "NETWORK",
+                                        "Network became available while engine is idle; restart skipped"
+                                    )
+                                }
+
+                                is RemoteControlState.Error -> {
+                                    EventLogger.log(
+                                        "NETWORK",
+                                        "Network changed while engine is in error state; Guardian will handle recovery"
+                                    )
+                                }
+                            }
+                        }
+
+                        override fun onLost(
+                            network: Network
+                        ) {
+                            val activeNetworkWasLost =
+                                synchronized(
+                                    networkLock
+                                ) {
+                                    if (
+                                        activeNetwork ==
+                                        network
+                                    ) {
+                                        activeNetwork =
+                                            null
+
+                                        networkWasLost =
+                                            true
+
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+
+                            if (
+                                activeNetworkWasLost
+                            ) {
+                                /*
+                                 * Drop only the stale Direct ADB channel.
+                                 * The persistent identity and recovery
+                                 * preference remain intact.
+                                 */
+                                DirectAccessLifecycleManager
+                                    .onNetworkLost()
+                            }
+
                             EventLogger.log(
                                 "NETWORK",
-                                "Initial/current network reported; restart skipped"
+                                "Active network lost"
                             )
-                            return
-                        }
-
-                        when (RemoteControlManager.state.value) {
-                            is RemoteControlState.Ready -> {
-                                val reason = if (networkEvent == NetworkEvent.RECONNECTED) {
-                                    RemoteControlManager.StartReason.NETWORK_RECONNECTED
-                                } else {
-                                    RemoteControlManager.StartReason.NETWORK_CHANGE
-                                }
-                                EventLogger.log(
-                                    "NETWORK",
-                                    if (networkEvent == NetworkEvent.RECONNECTED) {
-                                        "Active network reconnected; restarting service"
-                                    } else {
-                                        "Active network changed; restarting service"
-                                    }
-                                )
-                                RemoteControlManager.restart(
-                                    context = this@Curbox,
-                                    reason = reason
-                                )
-                            }
-
-                            is RemoteControlState.Starting -> {
-                                EventLogger.log(
-                                    "NETWORK",
-                                    "Network changed while engine is starting; restart skipped"
-                                )
-                            }
-
-                            is RemoteControlState.Stopping -> {
-                                EventLogger.log(
-                                    "NETWORK",
-                                    "Network changed while engine is stopping; restart skipped"
-                                )
-                            }
-
-                            is RemoteControlState.Idle -> {
-                                EventLogger.log(
-                                    "NETWORK",
-                                    "Network became available while engine is idle; restart skipped"
-                                )
-                            }
-
-                            is RemoteControlState.Error -> {
-                                EventLogger.log(
-                                    "NETWORK",
-                                    "Network changed while engine is in error state; Guardian will handle recovery"
-                                )
-                            }
                         }
                     }
-
-                    override fun onLost(
-                        network: Network
-                    ) {
-                        synchronized(networkLock) {
-                            if (activeNetwork == network) {
-                                activeNetwork =
-                                    null
-                                networkWasLost =
-                                    true
-                            }
-                        }
-
-                        EventLogger.log(
-                            "NETWORK",
-                            "Active network lost"
-                        )
-                    }
-                }
-            )
+                )
         } catch (t: Throwable) {
             EventLogger.log(
                 "NETWORK",
