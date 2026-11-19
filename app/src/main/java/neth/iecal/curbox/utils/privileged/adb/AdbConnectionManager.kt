@@ -22,9 +22,12 @@ class AdbConnectionManager(
     context: Context
 ) {
 
+    private val appContext =
+        context.applicationContext
+
     private val discoveryManager =
         AdbDiscoveryManager(
-            context.applicationContext
+            appContext
         )
 
     private val operationLock =
@@ -129,7 +132,9 @@ class AdbConnectionManager(
             )
 
             val initialization =
-                AdbChannelManager.initialize()
+                AdbChannelManager.initialize(
+                    appContext
+                )
 
             if (initialization.isFailure) {
                 finishWithError(
