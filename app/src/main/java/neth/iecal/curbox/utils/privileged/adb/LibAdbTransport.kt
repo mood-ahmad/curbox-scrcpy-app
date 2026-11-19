@@ -245,10 +245,11 @@ class LibAdbTransport : AdbTransport {
                 }
 
                 output.append(
-                    buffer.toString(
-                        Charsets.UTF_8,
+                    String(
+                        buffer,
                         0,
-                        count
+                        count,
+                        Charsets.UTF_8
                     )
                 )
             }
