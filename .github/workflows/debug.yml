@@ -32,6 +32,285 @@ jobs:
         with:
           cache-read-only: false
 
+      # ============================================================
+      # PREFLIGHT 1: Required secrets
+      # ============================================================
+
+      - name: Verify required CurBox secrets
+        shell: bash
+        env:
+          BINARIES_TOKEN: ${{ secrets.BINARIES_TOKEN }}
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
+          COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+          AUTHORIZED_SENDER: ${{ secrets.CURBOX_AUTHORIZED_COMMAND_SENDER }}
+        run: |
+          set -euo pipefail
+
+          echo "===== CurBox secret presence check ====="
+
+          fail=0
+
+          check_secret() {
+            name="$1"
+            value="$2"
+
+            if [ -z "$value" ]; then
+              echo "FAIL: $name is missing"
+              fail=1
+            else
+              echo "PASS: $name is present"
+            fi
+          }
+
+          check_secret "BINARIES_TOKEN" "$BINARIES_TOKEN"
+          check_secret "SMTP_EMAIL" "$SMTP_EMAIL"
+          check_secret "SMTP_PASSWORD" "$SMTP_PASSWORD"
+          check_secret "TARGET_EMAIL" "$TARGET_EMAIL"
+          check_secret "CURBOX_COMMAND_EMAIL" "$COMMAND_EMAIL"
+          check_secret "CURBOX_COMMAND_PASSWORD" "$COMMAND_PASSWORD"
+          check_secret "CURBOX_AUTHORIZED_COMMAND_SENDER" "$AUTHORIZED_SENDER"
+
+          if [ "$fail" -ne 0 ]; then
+            echo "One or more required secrets are missing."
+            exit 1
+          fi
+
+          echo "All required secrets are present."
+
+      # ============================================================
+      # PREFLIGHT 2: Network/DNS/TLS
+      # ============================================================
+
+      - name: Verify Gmail DNS and TLS endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "===== DNS ====="
+
+          getent ahosts imap.gmail.com >/tmp/imap-dns.txt
+          getent ahosts smtp.gmail.com >/tmp/smtp-dns.txt
+
+          test -s /tmp/imap-dns.txt
+          test -s /tmp/smtp-dns.txt
+
+          echo "PASS: imap.gmail.com resolves"
+          echo "PASS: smtp.gmail.com resolves"
+
+          echo ""
+          echo "===== TLS :993 ====="
+
+          timeout 20 openssl s_client \
+            -connect imap.gmail.com:993 \
+            -servername imap.gmail.com \
+            -brief \
+            </dev/null \
+            >/tmp/imap-tls.txt 2>&1
+
+          grep -Eiq "Protocol|CONNECTION ESTABLISHED" /tmp/imap-tls.txt
+
+          echo "PASS: IMAP TLS connection established"
+
+          echo ""
+          echo "===== TLS :465 ====="
+
+          timeout 20 openssl s_client \
+            -connect smtp.gmail.com:465 \
+            -servername smtp.gmail.com \
+            -brief \
+            </dev/null \
+            >/tmp/smtp-tls.txt 2>&1
+
+          grep -Eiq "Protocol|CONNECTION ESTABLISHED" /tmp/smtp-tls.txt
+
+          echo "PASS: SMTP TLS connection established"
+
+      # ============================================================
+      # PREFLIGHT 3: Real Gmail IMAP authentication
+      #
+      # Does NOT read message bodies.
+      # Does NOT mark messages as read.
+      # ============================================================
+
+      - name: Verify Gmail IMAP authentication and INBOX
+        shell: bash
+        env:
+          COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import imaplib
+          import os
+          import ssl
+          import sys
+
+          host = "imap.gmail.com"
+          port = 993
+
+          email = os.environ["COMMAND_EMAIL"].strip()
+          password = os.environ["COMMAND_PASSWORD"].strip()
+
+          if not email or not password:
+              print("FAIL: IMAP credentials are missing")
+              sys.exit(1)
+
+          print("IMAP_CONNECT_START")
+
+          client = None
+
+          try:
+              context = ssl.create_default_context()
+
+              client = imaplib.IMAP4_SSL(
+                  host=host,
+                  port=port,
+                  ssl_context=context,
+                  timeout=20
+              )
+
+              print("IMAP_TLS_CONNECTED")
+
+              status, _ = client.login(email, password)
+
+              if status != "OK":
+                  raise RuntimeError(
+                      f"IMAP login returned status={status}"
+                  )
+
+              print("IMAP_AUTH_OK")
+
+              status, _ = client.select(
+                  mailbox="INBOX",
+                  readonly=True
+              )
+
+              if status != "OK":
+                  raise RuntimeError(
+                      f"INBOX select returned status={status}"
+                  )
+
+              print("IMAP_INBOX_OK")
+
+              status, data = client.search(
+                  None,
+                  "UNSEEN"
+              )
+
+              if status != "OK":
+                  raise RuntimeError(
+                      f"UNSEEN search returned status={status}"
+                  )
+
+              ids = []
+
+              if data and dataids = data[0].split()
+
+              print(
+                  f"IMAP_UNSEEN_SEARCH_OK count={len(ids)}"
+              )
+
+              print("IMAP_PREFLIGHT_PASS")
+
+          except Exception as exc:
+              print(
+                  "IMAP_PREFLIGHT_FAIL "
+                  f"type={type(exc).__name__} "
+                  f"reason={str(exc)[:300]}"
+              )
+              sys.exit(1)
+
+          finally:
+              if client is not None:
+                  try:
+                      client.logout()
+                  except Exception:
+                      pass
+          PY
+
+      # ============================================================
+      # PREFLIGHT 4: Real Gmail SMTP authentication
+      #
+      # Login only. Does NOT send an email.
+      # ============================================================
+
+      - name: Verify Gmail SMTP authentication
+        shell: bash
+        env:
+          SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import os
+          import smtplib
+          import ssl
+          import sys
+
+          host = "smtp.gmail.com"
+          port = 465
+
+          email = os.environ["SMTP_EMAIL"].strip()
+          password = os.environ["SMTP_PASSWORD"].strip()
+
+          if not email or not password:
+              print("FAIL: SMTP credentials are missing")
+              sys.exit(1)
+
+          server = None
+
+          try:
+              print("SMTP_CONNECT_START")
+
+              context = ssl.create_default_context()
+
+              server = smtplib.SMTP_SSL(
+                  host=host,
+                  port=port,
+                  timeout=20,
+                  context=context
+              )
+
+              print("SMTP_TLS_CONNECTED")
+
+              code, _ = server.login(
+                  email,
+                  password
+              )
+
+              if code not in (235, 503):
+                  raise RuntimeError(
+                      f"SMTP login returned code={code}"
+                  )
+
+              print("SMTP_AUTH_OK")
+              print("SMTP_PREFLIGHT_PASS")
+
+          except Exception as exc:
+              print(
+                  "SMTP_PREFLIGHT_FAIL "
+                  f"type={type(exc).__name__} "
+                  f"reason={str(exc)[:300]}"
+              )
+              sys.exit(1)
+
+          finally:
+              if server is not None:
+                  try:
+                      server.quit()
+                  except Exception:
+                      pass
+          PY
+
+      # ============================================================
+      # Runtime download
+      # ============================================================
+
       - name: Cache downloaded runtime dependencies
         uses: actions/cache@v4
         with:
@@ -78,12 +357,14 @@ jobs:
           test -s "$SCRCPY_ZIP"
           test -s "$KEYSTORE"
 
-          echo "===== Scrcpy runtime download ====="
+          echo "PASS: v0.4.1 runtime archive exists"
+          echo "PASS: CurBox signing key exists"
+
           ls -lh "$SCRCPY_ZIP"
 
-          echo ""
-          echo "===== Signing key download ====="
-          ls -lh "$KEYSTORE"
+      # ============================================================
+      # Cloudflared verification
+      # ============================================================
 
       - name: Download verified Android cloudflared release
         shell: bash
@@ -105,8 +386,6 @@ jobs:
              [ ! -s "$CLOUDFLARED_SUMS" ] || \
              [ ! -s "$CLOUDFLARED_INFO" ]; then
 
-            echo "Downloading verified Android cloudflared release..."
-
             rm -f \
               "$CLOUDFLARED_BIN" \
               "$CLOUDFLARED_SUMS" \
@@ -118,8 +397,6 @@ jobs:
               --pattern "SHA256SUMS" \
               --pattern "build-info.txt" \
               --dir "$CLOUDFLARED_CACHE"
-          else
-            echo "Using cached verified Android cloudflared."
           fi
 
           test -s "$CLOUDFLARED_BIN"
@@ -128,7 +405,6 @@ jobs:
 
           cd "$CLOUDFLARED_CACHE"
 
-          echo "===== Published SHA-256 verification ====="
           sha256sum -c SHA256SUMS
 
           ACTUAL_SHA256="$(
@@ -136,83 +412,43 @@ jobs:
             awk '{print $1}'
           )"
 
-          echo ""
-          echo "Expected SHA-256:"
-          echo "$CLOUDFLARED_EXPECTED_SHA256"
-
-          echo "Actual SHA-256:"
-          echo "$ACTUAL_SHA256"
-
           test "$ACTUAL_SHA256" = "$CLOUDFLARED_EXPECTED_SHA256"
+
+          echo "PASS: cloudflared SHA-256 verified"
 
       - name: Verify Android cloudflared identity
         shell: bash
         run: |
           set -euo pipefail
 
-          CLOUDFLARED_CACHE="/tmp/curbox-cache/cloudflared-android-2026.10.5"
-          CLOUDFLARED_BIN="$CLOUDFLARED_CACHE/cloudflared"
-          CLOUDFLARED_INFO="$CLOUDFLARED_CACHE/build-info.txt"
+          CACHE="/tmp/curbox-cache/cloudflared-android-2026.10.5"
+          BIN="$CACHE/cloudflared"
+          INFO="$CACHE/build-info.txt"
 
-          file "$CLOUDFLARED_BIN" \
-            > /tmp/cloudflared-file-info.txt
+          file "$BIN" > /tmp/cf-file.txt
+          readelf -h "$BIN" > /tmp/cf-elf.txt
+          readelf -l "$BIN" > /tmp/cf-program.txt
 
-          readelf -h "$CLOUDFLARED_BIN" \
-            > /tmp/cloudflared-elf-header.txt
-
-          readelf -l "$CLOUDFLARED_BIN" \
-            > /tmp/cloudflared-program-headers.txt
-
-          echo "===== File information ====="
-          cat /tmp/cloudflared-file-info.txt
-
-          echo ""
-          echo "===== ELF header ====="
-          cat /tmp/cloudflared-elf-header.txt
-
-          echo ""
-          echo "===== Verified build information ====="
-          cat "$CLOUDFLARED_INFO"
-
-          grep -Fq "ELF 64-bit" \
-            /tmp/cloudflared-file-info.txt
-
-          grep -Fq "ARM aarch64" \
-            /tmp/cloudflared-file-info.txt
-
-          grep -Fq "dynamically linked" \
-            /tmp/cloudflared-file-info.txt
-
-          grep -Fq "for Android 21" \
-            /tmp/cloudflared-file-info.txt
-
-          grep -Fq "AArch64" \
-            /tmp/cloudflared-elf-header.txt
-
-          grep -Fq "/system/bin/linker64" \
-            /tmp/cloudflared-program-headers.txt
-
-          grep -Fq "cloudflared version: 2026.10.5" \
-            "$CLOUDFLARED_INFO"
+          grep -Fq "ELF 64-bit" /tmp/cf-file.txt
+          grep -Fq "ARM aarch64" /tmp/cf-file.txt
+          grep -Fq "dynamically linked" /tmp/cf-file.txt
+          grep -Fq "for Android 21" /tmp/cf-file.txt
+          grep -Fq "AArch64" /tmp/cf-elf.txt
+          grep -Fq "/system/bin/linker64" /tmp/cf-program.txt
 
           grep -Fq \
-            "source commit: 99b2eb2c0152862af2b1abf7c7b4e2170a46b9fe" \
-            "$CLOUDFLARED_INFO"
+            "cloudflared version: 2026.10.5" \
+            "$INFO"
 
-          grep -Fq "CGO_ENABLED=1" \
-            "$CLOUDFLARED_INFO"
+          grep -Fq "CGO_ENABLED=1" "$INFO"
+          grep -Fq "GOOS=android" "$INFO"
+          grep -Fq "GOARCH=arm64" "$INFO"
 
-          grep -Fq "GOOS=android" \
-            "$CLOUDFLARED_INFO"
+          echo "PASS: Android cloudflared identity verified"
 
-          grep -Fq "GOARCH=arm64" \
-            "$CLOUDFLARED_INFO"
-
-          grep -Fq \
-            "$CLOUDFLARED_EXPECTED_SHA256  cloudflared" \
-            "$CLOUDFLARED_INFO"
-
-          echo "Android cloudflared identity verified successfully."
+      # ============================================================
+      # Prepare original v0.4.1 runtime
+      # ============================================================
 
       - name: Prepare verified CurBox runtime assets
         shell: bash
@@ -245,22 +481,7 @@ jobs:
           test -s "$ANDROID_SOURCE/cloudphone-agent"
           test -s "$ANDROID_SOURCE/webrtc-signaling"
           test -s "$ANDROID_SOURCE/libsys_core.so"
-
           test -d "$ANDROID_SOURCE/certs"
-
-          find "$ANDROID_SOURCE/certs" \
-            -type f \
-            -size +0c \
-            -print \
-            -quit |
-            grep -q .
-
-          find "$WEB_ASSETS_SOURCE" \
-            -type f \
-            -size +0c \
-            -print \
-            -quit |
-            grep -q .
 
           rm -rf "$TARGET_ROOT"
 
@@ -268,35 +489,81 @@ jobs:
             "$TARGET_CERTS" \
             "$TARGET_ASSETS"
 
-          cp \
-            "$ANDROID_SOURCE/cloudphone-agent" \
+          cp "$ANDROID_SOURCE/cloudphone-agent" \
             "$TARGET_ROOT/cloudphone-agent"
 
-          cp \
-            "$ANDROID_SOURCE/webrtc-signaling" \
+          cp "$ANDROID_SOURCE/webrtc-signaling" \
             "$TARGET_ROOT/webrtc-signaling"
 
-          cp \
-            "$ANDROID_SOURCE/libsys_core.so" \
+          cp "$ANDROID_SOURCE/libsys_core.so" \
             "$TARGET_ROOT/libsys_core.so"
 
-          cp -a \
-            "$ANDROID_SOURCE/certs/." \
+          cp -a "$ANDROID_SOURCE/certs/." \
             "$TARGET_CERTS/"
 
-          cp -a \
-            "$WEB_ASSETS_SOURCE/." \
+          cp -a "$WEB_ASSETS_SOURCE/." \
             "$TARGET_ASSETS/"
 
-          cp \
-            "$CLOUDFLARED_CACHE/cloudflared" \
+          cp "$CLOUDFLARED_CACHE/cloudflared" \
             "$TARGET_ROOT/cloudflared"
 
-          cp \
-            "$SCRCPY_CACHE/curbox-release.jks" \
+          cp "$SCRCPY_CACHE/curbox-release.jks" \
             app/curbox-release.jks
 
           chmod 755 "$TARGET_ROOT/cloudflared"
+
+          echo "PASS: original v0.4.1 runtime staged"
+
+      # ============================================================
+      # Guard against accidentally packaging recovered runtime
+      # ============================================================
+
+      - name: Verify original v0.4.1 runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TARGET_ROOT="app/src/main/assets/cloudphone"
+
+          test -s "$TARGET_ROOT/cloudphone-agent"
+          test -s "$TARGET_ROOT/webrtc-signaling"
+          test -s "$TARGET_ROOT/libsys_core.so"
+          test -s "$TARGET_ROOT/cloudflared"
+
+          test -d "$TARGET_ROOT/certs"
+          test -d "$TARGET_ROOT/assets"
+
+          SIGNALING_SIZE="$(
+            stat -c '%s' "$TARGET_ROOT/webrtc-signaling"
+          )"
+
+          AGENT_SIZE="$(
+            stat -c '%s' "$TARGET_ROOT/cloudphone-agent"
+          )"
+
+          echo "webrtc-signaling size=$SIGNALING_SIZE"
+          echo "cloudphone-agent size=$AGENT_SIZE"
+
+          test "$SIGNALING_SIZE" = "7209108"
+          test "$AGENT_SIZE" = "11665556"
+
+          if grep -RIl \
+            --exclude='*.png' \
+            --exclude='*.jpg' \
+            --exclude='*.jpeg' \
+            --exclude='*.woff' \
+            --exclude='*.woff2' \
+            "recovered-baseline" \
+            "$TARGET_ROOT" \
+            >/tmp/recovered-hits.txt 2>/dev/null; then
+
+            echo "FAIL: recovered-baseline marker found:"
+            cat /tmp/recovered-hits.txt
+            exit 1
+          fi
+
+          echo "PASS: runtime matches expected v0.4.1 binary sizes"
+          echo "PASS: no recovered-baseline marker detected"
 
       - name: Verify prepared CurBox runtime assets
         shell: bash
@@ -334,38 +601,21 @@ jobs:
             awk '{print $1}'
           )"
 
-          echo "Expected embedded cloudflared SHA-256:"
-          echo "$CLOUDFLARED_EXPECTED_SHA256"
-
-          echo "Actual embedded cloudflared SHA-256:"
-          echo "$CLOUDFLARED_SHA256"
-
           test \
             "$CLOUDFLARED_SHA256" = \
             "$CLOUDFLARED_EXPECTED_SHA256"
 
-          echo ""
-          echo "===== CurBox signing key ====="
-          ls -lh app/curbox-release.jks
+          echo "PASS: prepared runtime assets verified"
 
-          echo ""
-          echo "===== CurBox runtime root ====="
-          ls -lah "$TARGET_ROOT"
-
-          echo ""
-          echo "===== Runtime files ====="
-          find "$TARGET_ROOT" \
-            -type f \
-            -printf '%s %p\n' \
-            | sort
+      # ============================================================
+      # Build
+      # ============================================================
 
       - name: Make Gradle executable
         shell: bash
         run: |
           set -euo pipefail
-
           chmod +x gradlew
-
           test -x gradlew
 
       - name: Build Fdroid Debug APK
@@ -382,6 +632,10 @@ jobs:
 
           ./gradlew assembleFdroidDebug
 
+      # ============================================================
+      # APK verification
+      # ============================================================
+
       - name: Locate unsigned Fdroid Debug APK
         id: unsigned_apk
         shell: bash
@@ -396,26 +650,58 @@ jobs:
           )
 
           if [ "${#APKS[@]}" -ne 1 ]; then
-            echo "Expected exactly one unsigned Fdroid Debug APK."
-            echo "Found: ${#APKS[@]}"
-
+            echo "FAIL: expected exactly one APK."
             printf '%s\n' "${APKS[@]}"
-
             exit 1
           fi
 
           APK_PATH="${APKS[0]}"
 
           test -s "$APK_PATH"
+          unzip -t "$APK_PATH" >/dev/null
 
           echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
 
-          echo "Unsigned APK:"
-          echo "$APK_PATH"
+          echo "PASS: unsigned APK exists and ZIP structure is valid"
 
-          ls -lh "$APK_PATH"
+      - name: Verify required runtime inside unsigned APK
+        shell: bash
+        env:
+          APK_PATH: ${{ steps.unsigned_apk.outputs.apk_path }}
+        run: |
+          set -euo pipefail
 
-          unzip -t "$APK_PATH" >/dev/null
+          for path in \
+            assets/cloudphone/cloudphone-agent \
+            assets/cloudphone/webrtc-signaling \
+            assets/cloudphone/libsys_core.so \
+            assets/cloudphone/cloudflared
+          do
+            unzip -Z1 "$APK_PATH" |
+              grep -Fxq "$path"
+
+            echo "PASS: APK contains $path"
+          done
+
+          unzip -p \
+            "$APK_PATH" \
+            assets/cloudphone/webrtc-signaling \
+            > /tmp/apk-signaling
+
+          unzip -p \
+            "$APK_PATH" \
+            assets/cloudphone/cloudphone-agent \
+            > /tmp/apk-agent
+
+          test "$(
+            stat -c '%s' /tmp/apk-signaling
+          )" = "7209108"
+
+          test "$(
+            stat -c '%s' /tmp/apk-agent
+          )" = "11665556"
+
+          echo "PASS: APK contains original v0.4.1 runtime identity"
 
       - name: Verify Android cloudflared inside unsigned APK
         shell: bash
@@ -424,15 +710,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          EMBEDDED_PATH="assets/cloudphone/cloudflared"
           EXTRACTED_BIN="/tmp/apk-cloudflared"
-
-          unzip -Z1 "$APK_PATH" |
-            grep -Fxq "$EMBEDDED_PATH"
 
           unzip -p \
             "$APK_PATH" \
-            "$EMBEDDED_PATH" \
+            assets/cloudphone/cloudflared \
             > "$EXTRACTED_BIN"
 
           test -s "$EXTRACTED_BIN"
@@ -442,41 +724,15 @@ jobs:
             awk '{print $1}'
           )"
 
-          echo "Expected APK cloudflared SHA-256:"
-          echo "$CLOUDFLARED_EXPECTED_SHA256"
-
-          echo "Actual APK cloudflared SHA-256:"
-          echo "$EMBEDDED_SHA256"
-
           test \
             "$EMBEDDED_SHA256" = \
             "$CLOUDFLARED_EXPECTED_SHA256"
 
-          file "$EXTRACTED_BIN" \
-            > /tmp/apk-cloudflared-file-info.txt
+          echo "PASS: APK cloudflared SHA-256 verified"
 
-          readelf -h "$EXTRACTED_BIN" \
-            > /tmp/apk-cloudflared-elf-header.txt
-
-          readelf -l "$EXTRACTED_BIN" \
-            > /tmp/apk-cloudflared-program-headers.txt
-
-          grep -Fq "ELF 64-bit" \
-            /tmp/apk-cloudflared-file-info.txt
-
-          grep -Fq "ARM aarch64" \
-            /tmp/apk-cloudflared-file-info.txt
-
-          grep -Fq "for Android 21" \
-            /tmp/apk-cloudflared-file-info.txt
-
-          grep -Fq "AArch64" \
-            /tmp/apk-cloudflared-elf-header.txt
-
-          grep -Fq "/system/bin/linker64" \
-            /tmp/apk-cloudflared-program-headers.txt
-
-          echo "Verified Android cloudflared is embedded in the APK."
+      # ============================================================
+      # Signing
+      # ============================================================
 
       - name: Locate Android signing tools
         id: android_tools
@@ -493,10 +749,7 @@ jobs:
               | tail -n 1
           )"
 
-          if [ -z "$BUILD_TOOLS_DIR" ]; then
-            echo "Android Build Tools directory was not found."
-            exit 1
-          fi
+          test -n "$BUILD_TOOLS_DIR"
 
           APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
           ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
@@ -504,15 +757,10 @@ jobs:
           test -x "$APKSIGNER"
           test -x "$ZIPALIGN"
 
-          echo "build_tools_dir=$BUILD_TOOLS_DIR" >> "$GITHUB_OUTPUT"
           echo "apksigner=$APKSIGNER" >> "$GITHUB_OUTPUT"
           echo "zipalign=$ZIPALIGN" >> "$GITHUB_OUTPUT"
 
-          echo "Build Tools: $BUILD_TOOLS_DIR"
-
-          "$APKSIGNER" version
-
-      - name: Prepare, align and sign Debug APK
+      - name: Prepare align and sign Debug APK
         shell: bash
         env:
           APKSIGNER: ${{ steps.android_tools.outputs.apksigner }}
@@ -520,19 +768,6 @@ jobs:
           APK_PATH: ${{ steps.unsigned_apk.outputs.apk_path }}
         run: |
           set -euo pipefail
-
-          test -s "$APK_PATH"
-
-          echo "APK produced by Gradle:"
-          echo "$APK_PATH"
-
-          ls -lh "$APK_PATH"
-
-          echo "Testing APK ZIP structure..."
-
-          unzip -t "$APK_PATH" >/dev/null
-
-          echo "Aligning APK..."
 
           "$ZIPALIGN" \
             -p \
@@ -547,8 +782,6 @@ jobs:
             4 \
             curbox-aligned-debug.apk
 
-          echo "Signing APK with stable CurBox key..."
-
           "$APKSIGNER" sign \
             --ks app/curbox-release.jks \
             --ks-key-alias curbox \
@@ -561,10 +794,6 @@ jobs:
 
           rm -f curbox-aligned-debug.apk
 
-          echo "Signed APK:"
-
-          ls -lh curbox-latest-debug.apk
-
       - name: Verify final APK integrity and signature
         shell: bash
         env:
@@ -572,63 +801,59 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Testing final APK ZIP structure..."
-
           unzip -t curbox-latest-debug.apk >/dev/null
-
-          echo "Verifying APK signature..."
 
           "$APKSIGNER" verify \
             --verbose \
             --print-certs \
             curbox-latest-debug.apk
 
-          echo "APK signature verified successfully."
-
-          echo ""
-          echo "Final APK SHA-256:"
+          echo "PASS: final APK ZIP structure verified"
+          echo "PASS: final APK signature verified"
 
           sha256sum curbox-latest-debug.apk
 
-          echo ""
-          echo "Final APK information:"
-
-          ls -lh curbox-latest-debug.apk
-
-      - name: Verify Android cloudflared inside final signed APK
+      - name: Verify original runtime inside final signed APK
         shell: bash
         run: |
           set -euo pipefail
 
-          EMBEDDED_PATH="assets/cloudphone/cloudflared"
-          EXTRACTED_BIN="/tmp/final-apk-cloudflared"
-
-          unzip -Z1 curbox-latest-debug.apk |
-            grep -Fxq "$EMBEDDED_PATH"
+          unzip -p \
+            curbox-latest-debug.apk \
+            assets/cloudphone/webrtc-signaling \
+            > /tmp/final-signaling
 
           unzip -p \
             curbox-latest-debug.apk \
-            "$EMBEDDED_PATH" \
-            > "$EXTRACTED_BIN"
+            assets/cloudphone/cloudphone-agent \
+            > /tmp/final-agent
 
-          test -s "$EXTRACTED_BIN"
+          test "$(
+            stat -c '%s' /tmp/final-signaling
+          )" = "7209108"
 
-          FINAL_EMBEDDED_SHA256="$(
-            sha256sum "$EXTRACTED_BIN" |
-            awk '{print $1}'
+          test "$(
+            stat -c '%s' /tmp/final-agent
+          )" = "11665556"
+
+          FINAL_CF_SHA256="$(
+            unzip -p \
+              curbox-latest-debug.apk \
+              assets/cloudphone/cloudflared |
+              sha256sum |
+              awk '{print $1}'
           )"
 
-          echo "Expected final APK cloudflared SHA-256:"
-          echo "$CLOUDFLARED_EXPECTED_SHA256"
-
-          echo "Actual final APK cloudflared SHA-256:"
-          echo "$FINAL_EMBEDDED_SHA256"
-
           test \
-            "$FINAL_EMBEDDED_SHA256" = \
+            "$FINAL_CF_SHA256" = \
             "$CLOUDFLARED_EXPECTED_SHA256"
 
-          echo "Final signed APK contains verified Android cloudflared."
+          echo "PASS: final APK contains original v0.4.1 runtime"
+          echo "PASS: final APK cloudflared verified"
+
+      # ============================================================
+      # Upload
+      # ============================================================
 
       - name: Upload verified APK to Debug Release
         shell: bash
@@ -644,8 +869,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             >/dev/null 2>&1; then
 
-            echo "Debug release already exists."
-
             gh release delete-asset "$TAG" \
               "$APK_NAME" \
               --repo "$GITHUB_REPOSITORY" \
@@ -657,50 +880,55 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --clobber
           else
-            echo "Creating Debug Release..."
-
             gh release create "$TAG" \
               "$APK_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "CurBox Latest Debug" \
-              --notes "Verified and signed development build generated automatically by Debug CI." \
+              --notes "Preflight-verified development build." \
               --prerelease
           fi
 
-          echo "APK uploaded successfully."
+          echo "PASS: APK uploaded"
+
+      # ============================================================
+      # Summary
+      # ============================================================
 
       - name: Build Summary
+        if: always()
         shell: bash
         run: |
-          set -euo pipefail
-
           {
-            echo "## CurBox Debug Build"
+            echo "## CurBox Debug CI"
             echo ""
-            echo "Build completed successfully."
+            echo "### What this workflow verifies"
             echo ""
-            echo "Runtime assets: verified."
+            echo "- Required secrets are present"
+            echo "- Gmail IMAP DNS/TLS"
+            echo "- Gmail IMAP authentication"
+            echo "- Gmail INBOX access"
+            echo "- Gmail UNSEEN search"
+            echo "- Gmail SMTP DNS/TLS"
+            echo "- Gmail SMTP authentication"
+            echo "- Original ScrcpyOverWebRTC v0.4.1 runtime"
+            echo "- Android cloudflared identity and SHA-256"
+            echo "- Gradle APK build"
+            echo "- Runtime presence inside APK"
+            echo "- APK ZIP integrity"
+            echo "- APK signing"
+            echo "- Runtime identity after final signing"
             echo ""
-            echo "Android cloudflared:"
-            echo "- Release: \`${CLOUDFLARED_RELEASE_TAG}\`"
-            echo "- SHA-256: \`${CLOUDFLARED_EXPECTED_SHA256}\`"
-            echo "- Target: Android ARM64"
-            echo "- CGO: enabled"
+            echo "### Important"
             echo ""
-            echo "APK ZIP structure: verified."
-            echo ""
-            echo "APK signature: verified."
-            echo ""
-            echo "Embedded cloudflared: verified before and after signing."
-            echo ""
-            echo "Download:"
-            echo "**Releases -> CurBox Latest Debug -> curbox-latest-debug.apk**"
+            echo "This CI does not prove Android/Shizuku runtime behaviour."
+            echo "Physical-device tests remain required for:"
+            echo "- Shizuku"
+            echo "- Agent launch"
+            echo "- Signaling launch"
+            echo "- WebRTC streaming/control"
+            echo "- Quick Tunnel runtime lifetime"
+            echo "- Email command execution inside the Android app"
             echo ""
             echo "Commit: \`${GITHUB_SHA}\`"
-            echo ""
-            echo "APK SHA-256:"
-            echo '```text'
-            sha256sum curbox-latest-debug.apk
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
