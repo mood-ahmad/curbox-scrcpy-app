@@ -5,27 +5,38 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.NFC" />
+
     <uses-feature
         android:name="android.hardware.nfc"
         android:required="false" />
+
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-    <!-- NEW: Required for ScrcpyOverWebRTC network access -->
+
+    <!-- Required for ScrcpyOverWebRTC and Direct ADB network access. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- NEW: Required for monitoring Wi-Fi and network state changes -->
+
+    <!-- Required for monitoring Wi-Fi and network state changes. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Granted once through Shizuku (pm grant) so grayscale can write secure
-         settings directly. -->
+
+    <!-- Required by the legacy mDNS compatibility path when CurBox acquires
+         WifiManager.MulticastLock during Direct ADB discovery. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+    <!-- Granted once through a privileged backend so CurBox can write secure
+         settings directly where supported. -->
     <uses-permission
         android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
+
     <application
         android:name=".Curbox"
         android:allowBackup="true"
@@ -50,7 +61,7 @@
             android:exported="false"
             android:launchMode="singleTop"
             android:theme="@style/Theme.Curbox.TransparentDialog" />
-        
+
         <activity
             android:name=".ui.activity.FragmentActivity"
             android:exported="true"
@@ -78,7 +89,9 @@
             <intent-filter>
                 <action android:name="android.nfc.action.NDEF_DISCOVERED" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="curbox" android:host="focus" />
+                <data
+                    android:scheme="curbox"
+                    android:host="focus" />
             </intent-filter>
         </activity>
 
@@ -95,6 +108,7 @@
             android:process=":app_blocker_service"
             android:foregroundServiceType="specialUse"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -102,6 +116,7 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/app_blocker_service_config" />
+
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="App blocking and usage monitoring for digital wellbeing" />
@@ -111,6 +126,7 @@
             android:name=".services.NodePickerService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
+
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Accessibility node inspection for building UI hider scripts" />
@@ -134,6 +150,7 @@
         <receiver
             android:name=".receivers.BootReceiver"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
@@ -146,6 +163,7 @@
             android:description="@string/admin_permission_desc"
             android:exported="false"
             android:permission="android.permission.BIND_DEVICE_ADMIN">
+
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
@@ -160,10 +178,12 @@
             android:authorities="${applicationId}.provider"
             android:exported="false"
             android:grantUriPermissions="true">
+
             <meta-data
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
@@ -172,34 +192,39 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
-        <meta-data android:name="android.app.shortcuts"
+        <meta-data
+            android:name="android.app.shortcuts"
             android:resource="@xml/shortcuts" />
 
-        <receiver android:name=".ui.widgets.ReelsWidgetProvider"
+        <receiver
+            android:name=".ui.widgets.ReelsWidgetProvider"
             android:label="Reel Stats"
             android:exported="false">
+
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="neth.iecal.curbox.reels.WIDGET_REFRESH" />
             </intent-filter>
+
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_reels_metadata" />
         </receiver>
 
-
-        <receiver android:name=".ui.widgets.ScreentimeWidgetProvider"
+        <receiver
+            android:name=".ui.widgets.ScreentimeWidgetProvider"
             android:label="ScreenTime Stats"
             android:exported="false">
+
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="neth.iecal.curbox.screentime.WIDGET_REFRESH" />
             </intent-filter>
+
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_screentime_metadata" />
         </receiver>
-
 
         <activity
             android:name=".ui.activity.PortraitCaptureActivity"
@@ -212,6 +237,7 @@
         <service
             android:name=".api.CurboxApiService"
             android:exported="true">
+
             <intent-filter>
                 <action android:name="neth.iecal.curbox.api.BIND" />
             </intent-filter>
@@ -223,11 +249,13 @@
             android:exported="true"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.Curbox.TransparentDialog">
+
             <intent-filter>
                 <action android:name="neth.iecal.curbox.api.REQUEST_PERMISSION" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
     </application>
 
 </manifest>
