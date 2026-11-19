@@ -152,7 +152,9 @@ class AdbPairingManager(
             )
 
             val initialization =
-                AdbChannelManager.initialize()
+                AdbChannelManager.initialize(
+                    appContext
+                )
 
             if (initialization.isFailure) {
                 finishWithError(
