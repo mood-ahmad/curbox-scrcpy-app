@@ -37,6 +37,7 @@ import neth.iecal.curbox.trackers.WebsiteUsageTracker
 import neth.iecal.curbox.ui.overlay.ReelsOverlayManager
 import neth.iecal.curbox.utils.privileged.adb.AdbPairingAccessibilityExtractor
 import neth.iecal.curbox.utils.privileged.adb.AdbPairingCaptureBridge
+import neth.iecal.curbox.utils.privileged.adb.AdbWirelessDebuggingAccessibilityNavigator
 
 @Suppress("DEPRECATION")
 class AppBlockerService : BaseBlockingService() {
@@ -140,7 +141,15 @@ class AppBlockerService : BaseBlockingService() {
                 this
             )
 
+        /*
+         * The Accessibility-side parts of Direct Access always start dormant.
+         * An explicit automatic pairing session in the main process must arm
+         * them through AdbPairingCaptureBridge.
+         */
         AdbPairingAccessibilityExtractor
+            .disarm()
+
+        AdbWirelessDebuggingAccessibilityNavigator
             .disarm()
 
         try {
@@ -155,12 +164,26 @@ class AppBlockerService : BaseBlockingService() {
                                     .CaptureStateListener {
 
                                 override fun onCaptureArmed() {
+                                    /*
+                                     * The navigator guides Android Settings
+                                     * towards the pairing-code dialog.
+                                     *
+                                     * The extractor is armed at the same time
+                                     * so it is ready before that dialog
+                                     * appears.
+                                     */
                                     AdbPairingAccessibilityExtractor
+                                        .arm()
+
+                                    AdbWirelessDebuggingAccessibilityNavigator
                                         .arm()
                                 }
 
                                 override fun onCaptureDisarmed() {
                                     AdbPairingAccessibilityExtractor
+                                        .disarm()
+
+                                    AdbWirelessDebuggingAccessibilityNavigator
                                         .disarm()
                                 }
                             }
@@ -202,10 +225,24 @@ class AppBlockerService : BaseBlockingService() {
         )
 
         /*
-         * Extraction immediately returns unless an explicit Direct Access
-         * pairing session has armed it through the cross-process bridge.
+         * Direct Access Settings navigation and pairing-code extraction are
+         * both dormant unless an explicit auto-pairing session has armed them.
          */
         try {
+            if (
+                AdbWirelessDebuggingAccessibilityNavigator
+                    .isArmed()
+            ) {
+                AdbWirelessDebuggingAccessibilityNavigator
+                    .navigate(
+                        packageName =
+                            event.packageName,
+                        root =
+                            rootInActiveWindow
+                                ?: event.source
+                    )
+            }
+
             AdbPairingAccessibilityExtractor
                 .onAccessibilityEvent(
                     context =
@@ -218,7 +255,7 @@ class AppBlockerService : BaseBlockingService() {
         } catch (t: Throwable) {
             Log.e(
                 "DirectADB",
-                "Pairing accessibility extraction failed",
+                "Wireless Debugging accessibility automation failed",
                 t
             )
 
@@ -606,9 +643,13 @@ class AppBlockerService : BaseBlockingService() {
 
     override fun onDestroy() {
         /*
-         * Stop pairing capture before tearing down the Accessibility service.
+         * Shut down the temporary Direct Access automation before destroying
+         * the Accessibility service.
          */
         AdbPairingAccessibilityExtractor
+            .disarm()
+
+        AdbWirelessDebuggingAccessibilityNavigator
             .disarm()
 
         AdbPairingCaptureBridge.unregister(
