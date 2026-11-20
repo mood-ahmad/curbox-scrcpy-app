@@ -33,6 +33,7 @@ class DirectAccessOrchestrator(
         WIRELESS_DEBUGGING_REQUIRED,
         DISCOVERING,
         PAIRING_REQUIRED,
+        WAITING_FOR_ACCESSIBILITY,
         WAITING_FOR_PAIRING_DIALOG,
         DISCOVERING_PAIRING,
         PAIRING,
@@ -87,7 +88,9 @@ class DirectAccessOrchestrator(
         )
 
     private val operationCounter =
-        AtomicLong(0L)
+        AtomicLong(
+            0L
+        )
 
     @Volatile
     private var currentState =
@@ -96,11 +99,6 @@ class DirectAccessOrchestrator(
     val state: State
         get() = currentState
 
-    /**
-     * Attempts to restore an existing Direct ADB relationship.
-     *
-     * This method never starts pairing by itself.
-     */
     fun ensureConnected(
         listener: Listener
     ) {
@@ -126,11 +124,7 @@ class DirectAccessOrchestrator(
     }
 
     /**
-     * Starts CurBox's preferred first-time pairing path.
-     *
-     * No pairing code is supplied by the caller. The Accessibility extractor
-     * waits for Android Settings to display the Wireless Debugging pairing
-     * dialog while mDNS discovers the associated pairing endpoint.
+     * Preferred automatic first-time setup / repair path.
      */
     fun startAutoPairing(
         listener: Listener
@@ -157,8 +151,7 @@ class DirectAccessOrchestrator(
     }
 
     /**
-     * Explicit pairing-code flow retained as a fallback when automatic
-     * extraction is unavailable on a device or Settings implementation.
+     * Manual pairing remains available as the compatibility fallback.
      */
     fun pairAndConnect(
         pairingCode: String,
@@ -251,7 +244,8 @@ class DirectAccessOrchestrator(
         )
 
         WirelessDebuggingController.enable(
-            context = appContext,
+            context =
+                appContext,
             listener =
                 object :
                     WirelessDebuggingController.Listener {
@@ -267,8 +261,10 @@ class DirectAccessOrchestrator(
                             onReady()
                         } else {
                             reportWirelessDebuggingRequired(
-                                operationId = operationId,
-                                listener = listener,
+                                operationId =
+                                    operationId,
+                                listener =
+                                    listener,
                                 cause =
                                     IllegalStateException(
                                         "Wireless Debugging remains disabled."
@@ -285,8 +281,10 @@ class DirectAccessOrchestrator(
                         }
 
                         reportWirelessDebuggingRequired(
-                            operationId = operationId,
-                            listener = listener,
+                            operationId =
+                                operationId,
+                            listener =
+                                listener,
                             cause =
                                 IllegalStateException(
                                     error
@@ -297,9 +295,6 @@ class DirectAccessOrchestrator(
         )
     }
 
-    /**
-     * Runs normal reconnect for an identity that has already been paired.
-     */
     private fun startReconnect(
         operationId: Long,
         listener: Listener
@@ -377,10 +372,6 @@ class DirectAccessOrchestrator(
         )
     }
 
-    /**
-     * Runs automatic pairing by combining Accessibility code detection with
-     * mDNS pairing discovery.
-     */
     private fun startAutomaticPairing(
         operationId: Long,
         listener: Listener
@@ -405,6 +396,9 @@ class DirectAccessOrchestrator(
                             when (stage) {
                                 AdbAutoPairingCoordinator.Stage.INITIALIZING ->
                                     State.INITIALIZING
+
+                                AdbAutoPairingCoordinator.Stage.WAITING_FOR_ACCESSIBILITY ->
+                                    State.WAITING_FOR_ACCESSIBILITY
 
                                 AdbAutoPairingCoordinator.Stage.WAITING_FOR_PAIRING_DIALOG ->
                                     State.WAITING_FOR_PAIRING_DIALOG
@@ -469,9 +463,6 @@ class DirectAccessOrchestrator(
         )
     }
 
-    /**
-     * Runs the manual pairing fallback.
-     */
     private fun startManualPairing(
         operationId: Long,
         pairingCode: String,
@@ -482,7 +473,8 @@ class DirectAccessOrchestrator(
         }
 
         pairingManager.pairAndConnect(
-            pairingCode = pairingCode,
+            pairingCode =
+                pairingCode,
             listener =
                 object :
                     AdbPairingManager.Listener {
@@ -563,8 +555,10 @@ class DirectAccessOrchestrator(
     private fun enableRecoveryAfterPairing() {
         DirectAccessLifecycleManager
             .setRecoveryEnabled(
-                context = appContext,
-                enabled = true
+                context =
+                    appContext,
+                enabled =
+                    true
             )
     }
 
@@ -593,7 +587,8 @@ class DirectAccessOrchestrator(
         pairingManager.cancel()
         autoPairingCoordinator.stop()
 
-        return operationCounter.incrementAndGet()
+        return operationCounter
+            .incrementAndGet()
     }
 
     private fun isCurrent(
