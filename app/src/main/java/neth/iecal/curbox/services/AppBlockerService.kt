@@ -69,8 +69,6 @@ class AppBlockerService : BaseBlockingService() {
     private var grayScaleFilter =
         GrayScaleFilter()
 
-    // Usage tracking, which used to live in its own accessibility service, now
-    // runs here so the user only has to grant one service.
     private val reelsOverlayManager by lazy {
         ReelsOverlayManager(
             this
@@ -161,18 +159,17 @@ class AppBlockerService : BaseBlockingService() {
         )
 
         /*
-         * Direct Access auto-pairing extraction is normally dormant.
+         * AppBlockerService lives in its own process.
          *
-         * AdbPairingAccessibilityExtractor ignores all events unless an
-         * explicit automatic-pairing session has armed it. It also filters
-         * events to Android Settings before inspecting the active window.
-         *
-         * Keeping this call here lets CurBox reuse its existing accessibility
-         * service instead of requiring the user to enable another one.
+         * The extractor reads only Android Settings events and forwards any
+         * Wireless ADB pairing information to CurBox's main process through
+         * AdbPairingCaptureBridge.
          */
         try {
             AdbPairingAccessibilityExtractor
                 .onAccessibilityEvent(
+                    context =
+                        this,
                     event =
                         event,
                     activeWindowRoot =
@@ -276,7 +273,6 @@ class AppBlockerService : BaseBlockingService() {
                     eventCopy
                 )
 
-        // If the channel is closed or rejected it, recycle immediately.
         if (
             result.isFailure
         ) {
@@ -345,7 +341,6 @@ class AppBlockerService : BaseBlockingService() {
                             )
                     }
                 } catch (t: Throwable) {
-                    // Don't log normal coroutine cancellations as crashes.
                     if (
                         t is
                         CancellationException
