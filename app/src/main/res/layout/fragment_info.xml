@@ -284,6 +284,7 @@
                         android:src="@drawable/baseline_arrow_forward_ios_24"
                         app:tint="?attr/colorOnSurfaceVariant"/>
                 </LinearLayout>
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -343,7 +344,70 @@
                         android:src="@drawable/baseline_arrow_forward_ios_24"
                         app:tint="?attr/colorOnSurfaceVariant"/>
                 </LinearLayout>
+
             </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Persistent entry point for Direct Access setup, repair and status. -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/card_direct_access"
+            style="?attr/materialCardViewOutlinedStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            app:cardCornerRadius="24dp"
+            app:strokeColor="?attr/colorOutlineVariant">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="28dp"
+                android:paddingVertical="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Direct Access"
+                    style="@style/TextAppearance.Material3.TitleMedium" />
+
+                <TextView
+                    android:id="@+id/text_direct_access_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Manage automatic pairing, privileged access, connection and recovery."
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    style="@style/TextAppearance.Material3.BodyMedium" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Manage Direct Access"
+                        android:textColor="?attr/colorPrimary"
+                        style="@style/TextAppearance.Material3.LabelLarge" />
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:src="@drawable/baseline_arrow_forward_ios_24"
+                        app:tint="?attr/colorPrimary" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
@@ -396,7 +460,9 @@
                     android:text="@string/usage_tracking_disabled_warning"
                     android:textColor="?attr/colorError"
                     style="@style/TextAppearance.Material3.BodySmall" />
+
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
@@ -435,7 +501,9 @@
                     android:layout_height="56dp"
                     app:cornerRadius="16dp"
                     android:text="@string/view_crash_logs"/>
+
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.button.MaterialButton
@@ -486,7 +554,9 @@
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
                     app:tint="?attr/colorOnSurfaceVariant"/>
+
             </LinearLayout>
+
         </com.google.android.material.card.MaterialCardView>
 
         <Space
@@ -494,4 +564,5 @@
             android:layout_height="300dp" />
 
     </LinearLayout>
+
 </androidx.core.widget.NestedScrollView>
