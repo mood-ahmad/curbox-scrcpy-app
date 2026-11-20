@@ -11,13 +11,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * This object runs inside the Accessibility-service process.
  *
- * Extraction is disabled by default. The Accessibility process must explicitly
- * arm it after receiving an ARM_CAPTURE message through
- * [AdbPairingCaptureBridge].
+ * Extraction is disabled by default. AppBlockerService explicitly arms it
+ * after receiving an ARM_CAPTURE request for a specific pairing session.
  *
- * Detected pairing information is forwarded to CurBox's main process through
- * [AdbPairingCaptureBridge], where [AdbAutoPairingCoordinator] owns the actual
- * network pairing operation.
+ * Every captured result is forwarded together with that session ID so the
+ * main process can reject stale results from an older pairing attempt.
  */
 object AdbPairingAccessibilityExtractor {
 
@@ -47,9 +45,6 @@ object AdbPairingAccessibilityExtractor {
 
     /**
      * Process-local capture state.
-     *
-     * This value lives inside :app_blocker_service and is changed only after
-     * that process receives ARM_CAPTURE or DISARM_CAPTURE.
      */
     private val armed =
         AtomicBoolean(
@@ -69,7 +64,10 @@ object AdbPairingAccessibilityExtractor {
     )
 
     /**
-     * Enables extraction for one explicit automatic-pairing session.
+     * Enables extraction for the current explicit automatic-pairing session.
+     *
+     * Session ownership itself lives in AppBlockerService. The extractor only
+     * controls whether tree inspection is currently allowed.
      */
     fun arm() {
         synchronized(deliveryLock) {
@@ -84,8 +82,6 @@ object AdbPairingAccessibilityExtractor {
 
     /**
      * Stops extraction.
-     *
-     * Calling this repeatedly is safe.
      */
     fun disarm() {
         synchronized(deliveryLock) {
@@ -103,17 +99,21 @@ object AdbPairingAccessibilityExtractor {
     }
 
     /**
-     * Processes one Accessibility event from AppBlockerService.
+     * Processes one Accessibility event belonging to [sessionId].
      *
-     * Events are ignored unless a pairing session is armed, and even while
-     * armed only Android Settings is inspected.
+     * Events are ignored unless extraction is armed. Even while armed, only
+     * Android Settings is inspected.
      */
     fun onAccessibilityEvent(
         context: Context,
+        sessionId: String,
         event: AccessibilityEvent,
         activeWindowRoot: AccessibilityNodeInfo?
     ) {
-        if (!armed.get()) {
+        if (
+            !armed.get() ||
+            sessionId.isBlank()
+        ) {
             return
         }
 
@@ -140,6 +140,8 @@ object AdbPairingAccessibilityExtractor {
         scan(
             context =
                 context.applicationContext,
+            sessionId =
+                sessionId,
             root =
                 root
         )
@@ -147,6 +149,7 @@ object AdbPairingAccessibilityExtractor {
 
     private fun scan(
         context: Context,
+        sessionId: String,
         root: AccessibilityNodeInfo
     ) {
         if (!armed.get()) {
@@ -163,8 +166,10 @@ object AdbPairingAccessibilityExtractor {
             String? = null
 
         walk(
-            node = root,
-            depth = 0
+            node =
+                root,
+            depth =
+                0
         ) { text ->
 
             if (!armed.get()) {
@@ -231,6 +236,8 @@ object AdbPairingAccessibilityExtractor {
         deliver(
             context =
                 context,
+            sessionId =
+                sessionId,
             info =
                 PairingInfo(
                     code =
@@ -245,18 +252,33 @@ object AdbPairingAccessibilityExtractor {
 
     /**
      * Deduplicates repeated Accessibility events from the same pairing dialog
-     * before forwarding the result to the main process.
+     * before forwarding the result.
+     *
+     * The session ID is included in the fingerprint so a legitimate new
+     * pairing attempt can never be suppressed by the previous attempt.
      */
     private fun deliver(
         context: Context,
+        sessionId: String,
         info: PairingInfo
     ) {
-        if (!armed.get()) {
+        if (
+            !armed.get() ||
+            sessionId.isBlank()
+        ) {
             return
         }
 
         val fingerprint =
             buildString {
+                append(
+                    sessionId
+                )
+
+                append(
+                    ':'
+                )
+
                 append(
                     info.code
                 )
@@ -290,13 +312,15 @@ object AdbPairingAccessibilityExtractor {
         AdbPairingCaptureBridge.publish(
             context =
                 context,
+            sessionId =
+                sessionId,
             info =
                 info
         )
     }
 
     /**
-     * Resets duplicate tracking without changing capture state.
+     * Clears duplicate tracking without changing capture state.
      */
     fun reset() {
         synchronized(deliveryLock) {
