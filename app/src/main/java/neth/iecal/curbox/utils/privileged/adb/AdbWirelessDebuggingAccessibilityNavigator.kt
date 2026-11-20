@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * The navigator is process-local to CurBox's Accessibility service.
  *
- * It never operates unless explicitly armed and it only inspects nodes from
- * Android Settings.
+ * Navigation is disabled by default, restricted to Android Settings, and
+ * enabled only during an explicitly armed Direct Access pairing session.
  */
 object AdbWirelessDebuggingAccessibilityNavigator {
 
@@ -25,20 +25,36 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             "com.android.settings"
         )
 
-    /*
-     * These labels describe the standard AOSP Settings UI.
+    /**
+     * AOSP preference key used by WirelessDebuggingFragment for the
+     * "Pair device with pairing code" preference.
      *
-     * Matching is intentionally case-insensitive and tolerant of surrounding
-     * text, but confined to Android Settings and an explicitly armed session.
+     * This is treated only as an additional signal. Accessibility does not
+     * guarantee that a Preference key becomes the node's view resource ID.
+     */
+    private const val AOSP_PAIR_BY_CODE_KEY =
+        "adb_pair_method_code_pref"
+
+    /*
+     * Text matching remains the compatibility fallback because Settings
+     * implementations and Accessibility trees differ between Android builds.
+     *
+     * Include the common English and Arabic labels used for the two actions.
      */
     private val wirelessDebuggingLabels =
         listOf(
-            "wireless debugging"
+            "wireless debugging",
+            "تصحيح الأخطاء لاسلكيًا",
+            "تصحيح الأخطاء اللاسلكي",
+            "التصحيح اللاسلكي"
         )
 
     private val pairByCodeLabels =
         listOf(
-            "pair device with pairing code"
+            "pair device with pairing code",
+            "إقران الجهاز باستخدام رمز الإقران",
+            "إقران جهاز باستخدام رمز الإقران",
+            "الإقران باستخدام رمز الإقران"
         )
 
     fun arm() {
@@ -60,7 +76,8 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     /**
      * Attempts one bounded navigation pass.
      *
-     * Returns true when CurBox performed a click during this pass.
+     * Pair-by-code is preferred over the Wireless Debugging entry because the
+     * user may already be inside Wireless Debugging when an event arrives.
      */
     fun navigate(
         packageName: CharSequence?,
@@ -86,71 +103,79 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             root
                 ?: return false
 
-        /*
-         * Prefer the pairing-code action when it is already visible.
-         *
-         * If it is not visible, look for Wireless Debugging itself.
-         */
-        if (
-            clickNodeMatching(
-                root =
+        val pairByCodeNode =
+            findNode(
+                node =
                     currentRoot,
+                depth =
+                    0,
                 labels =
-                    pairByCodeLabels
+                    pairByCodeLabels,
+                resourceIdHint =
+                    AOSP_PAIR_BY_CODE_KEY
+            )
+
+        if (
+            pairByCodeNode != null &&
+            performClick(
+                pairByCodeNode
             )
         ) {
             /*
-             * The pairing dialog should now be handled by
-             * AdbPairingAccessibilityExtractor.
-             *
-             * Stop navigation so repeated Accessibility events cannot click
-             * the pairing action again.
+             * The pairing dialog is now expected to appear. Navigation has
+             * finished; AdbPairingAccessibilityExtractor remains armed and
+             * owns capture of the temporary code.
              */
             disarm()
 
             return true
         }
 
-        return clickNodeMatching(
-            root =
-                currentRoot,
-            labels =
-                wirelessDebuggingLabels
-        )
-    }
-
-    private fun clickNodeMatching(
-        root: AccessibilityNodeInfo,
-        labels: List<String>
-    ): Boolean {
-        val node =
-            findMatchingNode(
+        val wirelessDebuggingNode =
+            findNode(
                 node =
-                    root,
+                    currentRoot,
                 depth =
                     0,
                 labels =
-                    labels
+                    wirelessDebuggingLabels,
+                resourceIdHint =
+                    null
             )
                 ?: return false
 
         return performClick(
-            node
+            wirelessDebuggingNode
         )
     }
 
-    private fun findMatchingNode(
+    private fun findNode(
         node: AccessibilityNodeInfo?,
         depth: Int,
-        labels: List<String>
+        labels: List<String>,
+        resourceIdHint: String?
     ): AccessibilityNodeInfo? {
         if (
             node == null ||
-            depth >
-            MAX_TREE_DEPTH ||
+            depth > MAX_TREE_DEPTH ||
             !armed.get()
         ) {
             return null
+        }
+
+        val resourceId =
+            node.viewIdResourceName
+                ?.trim()
+
+        if (
+            !resourceIdHint.isNullOrBlank() &&
+            resourceId
+                ?.contains(
+                    resourceIdHint,
+                    ignoreCase = true
+                ) == true
+        ) {
+            return node
         }
 
         val text =
@@ -185,7 +210,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             0 until node.childCount
         ) {
             val result =
-                findMatchingNode(
+                findNode(
                     node =
                         node.getChild(
                             index
@@ -193,7 +218,9 @@ object AdbWirelessDebuggingAccessibilityNavigator {
                     depth =
                         depth + 1,
                     labels =
-                        labels
+                        labels,
+                    resourceIdHint =
+                        resourceIdHint
                 )
 
             if (result != null) {
@@ -212,8 +239,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             return false
         }
 
-        return labels.any {
-            label ->
+        return labels.any { label ->
             text.contains(
                 other =
                     label,
@@ -224,9 +250,8 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     }
 
     /**
-     * Some Settings rows expose ACTION_CLICK on the parent container instead
-     * of the TextView containing the label, so walk upward until a clickable
-     * node is found.
+     * Preference rows frequently expose ACTION_CLICK on an ancestor container
+     * rather than on the TextView containing the label.
      */
     private fun performClick(
         startingNode: AccessibilityNodeInfo
@@ -240,8 +265,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
         while (
             current != null &&
-            depth <=
-            MAX_TREE_DEPTH
+            depth <= MAX_TREE_DEPTH
         ) {
             if (
                 current.isClickable &&
