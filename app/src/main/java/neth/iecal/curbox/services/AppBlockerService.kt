@@ -1,6 +1,7 @@
 package neth.iecal.curbox.services
 
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Intent
 import android.provider.Settings
 import android.util.Log
@@ -35,6 +36,7 @@ import neth.iecal.curbox.trackers.WebsiteObservation
 import neth.iecal.curbox.trackers.WebsiteUsageTracker
 import neth.iecal.curbox.ui.overlay.ReelsOverlayManager
 import neth.iecal.curbox.utils.privileged.adb.AdbPairingAccessibilityExtractor
+import neth.iecal.curbox.utils.privileged.adb.AdbPairingCaptureBridge
 
 @Suppress("DEPRECATION")
 class AppBlockerService : BaseBlockingService() {
@@ -111,6 +113,9 @@ class AppBlockerService : BaseBlockingService() {
     private lateinit var crashLogger:
         CrashLogger
 
+    private var pairingCaptureStateReceiver:
+        BroadcastReceiver? = null
+
     fun syncDndState() {
         val autoDndActive =
             autoDnd.isDndRequested()
@@ -134,6 +139,44 @@ class AppBlockerService : BaseBlockingService() {
             CrashLogger(
                 this
             )
+
+        AdbPairingAccessibilityExtractor
+            .disarm()
+
+        try {
+            pairingCaptureStateReceiver =
+                AdbPairingCaptureBridge
+                    .registerCaptureStateReceiver(
+                        context =
+                            this,
+                        listener =
+                            object :
+                                AdbPairingCaptureBridge
+                                    .CaptureStateListener {
+
+                                override fun onCaptureArmed() {
+                                    AdbPairingAccessibilityExtractor
+                                        .arm()
+                                }
+
+                                override fun onCaptureDisarmed() {
+                                    AdbPairingAccessibilityExtractor
+                                        .disarm()
+                                }
+                            }
+                    )
+        } catch (t: Throwable) {
+            Log.e(
+                "DirectADB",
+                "Failed to register pairing capture control receiver",
+                t
+            )
+
+            crashLogger
+                .logNonFatalError(
+                    Exception(t)
+                )
+        }
 
         try {
             rikka.shizuku.ShizukuProvider
@@ -159,11 +202,8 @@ class AppBlockerService : BaseBlockingService() {
         )
 
         /*
-         * AppBlockerService lives in its own process.
-         *
-         * The extractor reads only Android Settings events and forwards any
-         * Wireless ADB pairing information to CurBox's main process through
-         * AdbPairingCaptureBridge.
+         * Extraction immediately returns unless an explicit Direct Access
+         * pairing session has armed it through the cross-process bridge.
          */
         try {
             AdbPairingAccessibilityExtractor
@@ -565,6 +605,22 @@ class AppBlockerService : BaseBlockingService() {
     }
 
     override fun onDestroy() {
+        /*
+         * Stop pairing capture before tearing down the Accessibility service.
+         */
+        AdbPairingAccessibilityExtractor
+            .disarm()
+
+        AdbPairingCaptureBridge.unregister(
+            context =
+                this,
+            receiver =
+                pairingCaptureStateReceiver
+        )
+
+        pairingCaptureStateReceiver =
+            null
+
         super.onDestroy()
 
         try {
