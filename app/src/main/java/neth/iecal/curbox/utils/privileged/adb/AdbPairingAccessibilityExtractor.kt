@@ -1,24 +1,20 @@
 package neth.iecal.curbox.utils.privileged.adb
 
+import android.content.Context
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Extracts Wireless ADB pairing information from Android Settings'
- * accessibility tree while an explicit CurBox auto-pairing session is active.
+ * Accessibility tree.
  *
- * This component does not perform pairing itself.
+ * This object runs inside the Accessibility-service process.
  *
- * Responsibilities:
- * - Observe only while CurBox has explicitly armed auto-pairing.
- * - Ignore unrelated applications.
- * - Walk the active Settings window using a bounded traversal.
- * - Detect the six-digit Wireless Debugging pairing code.
- * - Detect the on-screen IP address and pairing port when available.
- * - Deliver each detected pairing dialog only once.
+ * Through [AdbPairingCaptureBridge], detected pairing information is forwarded
+ * to CurBox's main process where [AdbAutoPairingCoordinator] owns the actual
+ * pairing operation.
  *
- * Network pairing remains owned by the Direct ADB pairing layer.
+ * This component never performs network pairing itself.
  */
 object AdbPairingAccessibilityExtractor {
 
@@ -26,11 +22,8 @@ object AdbPairingAccessibilityExtractor {
         15
 
     /**
-     * Android's Settings package on AOSP and the Android variants CurBox
-     * currently targets.
-     *
-     * Keeping this strict prevents CurBox from scanning arbitrary application
-     * windows for six-digit numbers.
+     * Restrict inspection to Android Settings instead of scanning arbitrary
+     * application windows for six-digit values.
      */
     private val allowedSettingsPackages =
         setOf(
@@ -38,8 +31,12 @@ object AdbPairingAccessibilityExtractor {
         )
 
     /**
-     * Android shows the pairing code as six digits. Some Settings variants
-     * may visually separate it into two groups.
+     * Android Wireless Debugging uses a six-digit pairing code.
+     *
+     * Accept both:
+     *
+     * 123456
+     * 123 456
      */
     private val pairingCodeRegex =
         Regex(
@@ -47,27 +44,19 @@ object AdbPairingAccessibilityExtractor {
         )
 
     /**
-     * The Wireless Debugging pairing dialog can display an IPv4 address and
-     * temporary pairing port together.
+     * Matches the IPv4 address and temporary pairing port when Settings exposes
+     * both values in the Accessibility tree.
      *
-     * mDNS remains the preferred authority for the actual pairing endpoint;
-     * this value is primarily useful as a fallback and for correlating the
-     * dialog discovered through Accessibility.
+     * mDNS remains authoritative for the pairing endpoint. The captured port is
+     * forwarded as supplementary information only.
      */
     private val ipv4AndPortRegex =
         Regex(
             """(?:\d{1,3}\.){3}\d{1,3}:(\d{2,5})"""
         )
 
-    private val armed =
-        AtomicBoolean(false)
-
     private val deliveryLock =
         Any()
-
-    @Volatile
-    private var listener:
-        Listener? = null
 
     private var lastDeliveredFingerprint:
         String? = null
@@ -78,77 +67,16 @@ object AdbPairingAccessibilityExtractor {
         val rawAddress: String?
     )
 
-    interface Listener {
-
-        /**
-         * Called after CurBox finds a valid six-digit pairing code in Android
-         * Settings.
-         *
-         * [PairingInfo.port] can be null. The pairing layer should prefer the
-         * port discovered through _adb-tls-pairing._tcp and use this
-         * on-screen value only as a fallback.
-         */
-        fun onPairingInfoDetected(
-            info: PairingInfo
-        )
-    }
-
     /**
-     * Enables pairing-dialog extraction for an explicit CurBox setup attempt.
+     * Processes one Accessibility event from AppBlockerService.
      *
-     * Accessibility events are ignored completely until this method is called.
-     */
-    fun start(
-        listener: Listener
-    ) {
-        synchronized(deliveryLock) {
-            this.listener =
-                listener
-
-            lastDeliveredFingerprint =
-                null
-
-            armed.set(
-                true
-            )
-        }
-    }
-
-    /**
-     * Stops extraction and forgets the listener.
-     *
-     * Calling stop repeatedly is safe.
-     */
-    fun stop() {
-        synchronized(deliveryLock) {
-            armed.set(
-                false
-            )
-
-            listener =
-                null
-
-            lastDeliveredFingerprint =
-                null
-        }
-    }
-
-    /**
-     * Processes one Accessibility event.
-     *
-     * [activeWindowRoot] should normally be the AccessibilityService's
-     * rootInActiveWindow. event.source is preferred when it is available
-     * because the code and IP/port can be separate nodes inside the same
-     * Settings dialog.
+     * Only events belonging to Android Settings are inspected.
      */
     fun onAccessibilityEvent(
+        context: Context,
         event: AccessibilityEvent,
         activeWindowRoot: AccessibilityNodeInfo?
     ) {
-        if (!armed.get()) {
-            return
-        }
-
         val packageName =
             event.packageName
                 ?.toString()
@@ -170,17 +98,17 @@ object AdbPairingAccessibilityExtractor {
                 ?: return
 
         scan(
-            root
+            context =
+                context.applicationContext,
+            root =
+                root
         )
     }
 
     private fun scan(
+        context: Context,
         root: AccessibilityNodeInfo
     ) {
-        if (!armed.get()) {
-            return
-        }
-
         var code:
             String? = null
 
@@ -240,10 +168,6 @@ object AdbPairingAccessibilityExtractor {
                 }
             }
 
-            /*
-             * Once both values exist there is no reason to inspect the rest of
-             * the potentially large accessibility tree.
-             */
             code != null &&
                 port != null
         }
@@ -252,51 +176,45 @@ object AdbPairingAccessibilityExtractor {
             code ?: return
 
         deliver(
-            PairingInfo(
-                code =
-                    detectedCode,
-                port =
-                    port,
-                rawAddress =
-                    rawAddress
-            )
+            context =
+                context,
+            info =
+                PairingInfo(
+                    code =
+                        detectedCode,
+                    port =
+                        port,
+                    rawAddress =
+                        rawAddress
+                )
         )
     }
 
+    /**
+     * Deduplicates repeated Accessibility events from the same pairing dialog
+     * before forwarding the capture across processes.
+     */
     private fun deliver(
+        context: Context,
         info: PairingInfo
     ) {
-        if (!armed.get()) {
-            return
-        }
+        val fingerprint =
+            buildString {
+                append(
+                    info.code
+                )
 
-        val currentListener:
-            Listener
+                append(
+                    ':'
+                )
 
-        synchronized(deliveryLock) {
-            if (!armed.get()) {
-                return
+                append(
+                    info.port
+                        ?: -1
+                )
             }
 
-            val activeListener =
-                listener ?: return
-
-            val fingerprint =
-                buildString {
-                    append(
-                        info.code
-                    )
-
-                    append(
-                        ':'
-                    )
-
-                    append(
-                        info.port
-                            ?: -1
-                    )
-                }
-
+        synchronized(deliveryLock) {
             if (
                 fingerprint ==
                 lastDeliveredFingerprint
@@ -306,23 +224,29 @@ object AdbPairingAccessibilityExtractor {
 
             lastDeliveredFingerprint =
                 fingerprint
-
-            currentListener =
-                activeListener
         }
 
-        currentListener
-            .onPairingInfoDetected(
+        AdbPairingCaptureBridge.publish(
+            context =
+                context,
+            info =
                 info
-            )
+        )
     }
 
     /**
-     * Finds the topmost node belonging to the event's window.
+     * Clears duplicate-detection state before a new explicit pairing attempt.
      *
-     * The walk is bounded so a malformed or unusual Accessibility tree cannot
-     * cause unbounded traversal.
+     * This does not arm or disarm Accessibility. The main-process coordinator
+     * controls whether a broadcast receiver exists to consume captures.
      */
+    fun reset() {
+        synchronized(deliveryLock) {
+            lastDeliveredFingerprint =
+                null
+        }
+    }
+
     private fun findRoot(
         node: AccessibilityNodeInfo
     ): AccessibilityNodeInfo {
@@ -350,11 +274,6 @@ object AdbPairingAccessibilityExtractor {
         return current
     }
 
-    /**
-     * Depth-first traversal of node text.
-     *
-     * Returning true from [visit] stops traversal immediately.
-     */
     private fun walk(
         node: AccessibilityNodeInfo?,
         depth: Int,
