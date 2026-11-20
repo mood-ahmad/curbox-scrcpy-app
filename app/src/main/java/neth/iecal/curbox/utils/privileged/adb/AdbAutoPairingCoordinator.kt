@@ -2,6 +2,8 @@ package neth.iecal.curbox.utils.privileged.adb
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -16,9 +18,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 2. Register the main-process bridge receiver for that session.
  * 3. Send ARM_CAPTURE(sessionId).
  * 4. Wait for ARMED_ACK(sessionId).
- * 5. Only after ACK, start mDNS pairing discovery.
- * 6. Combine the captured pairing code with the mDNS endpoint.
- * 7. Pair and establish a verified Direct ADB connection.
+ * 5. Fail cleanly if Accessibility does not acknowledge in time.
+ * 6. Only after ACK, start mDNS pairing discovery.
+ * 7. Combine the captured pairing code with the mDNS endpoint.
+ * 8. Pair and establish a verified Direct ADB connection.
  *
  * Captures and acknowledgements belonging to older sessions are ignored.
  */
@@ -26,12 +29,31 @@ class AdbAutoPairingCoordinator(
     context: Context
 ) {
 
+    companion object {
+
+        /**
+         * The Accessibility process normally acknowledges immediately after
+         * receiving ARM_CAPTURE.
+         *
+         * This timeout prevents Direct Access from remaining indefinitely in
+         * WAITING_FOR_ACCESSIBILITY when the Accessibility process or receiver
+         * is unavailable.
+         */
+        private const val ACCESSIBILITY_ACK_TIMEOUT_MS =
+            5_000L
+    }
+
     private val appContext =
         context.applicationContext
 
     private val discoveryManager =
         AdbDiscoveryManager(
             appContext
+        )
+
+    private val mainHandler =
+        Handler(
+            Looper.getMainLooper()
         )
 
     private val lock =
@@ -70,6 +92,9 @@ class AdbAutoPairingCoordinator(
 
     private var pairingDiscoveryStarted =
         false
+
+    private var accessibilityAckTimeout:
+        Runnable? = null
 
     enum class Stage {
         INITIALIZING,
@@ -233,8 +258,8 @@ class AdbAutoPairingCoordinator(
 
         try {
             /*
-             * Mark locally before sending the request so even a very fast ACK
-             * cannot race with our local session state.
+             * Mark capture as requested before broadcasting ARM. This ensures
+             * that even an immediate ACK cannot race with local state.
              */
             synchronized(lock) {
                 if (
@@ -249,6 +274,10 @@ class AdbAutoPairingCoordinator(
                     true
             }
 
+            scheduleAccessibilityAckTimeout(
+                sessionId
+            )
+
             AdbPairingCaptureBridge.armCapture(
                 context =
                     appContext,
@@ -256,6 +285,8 @@ class AdbAutoPairingCoordinator(
                     sessionId
             )
         } catch (t: Throwable) {
+            cancelAccessibilityAckTimeout()
+
             synchronized(lock) {
                 if (
                     activeSessionId ==
@@ -273,9 +304,12 @@ class AdbAutoPairingCoordinator(
     }
 
     /**
-     * Stops the active session while preserving CurBox's ADB identity.
+     * Stops the active session while preserving CurBox's persistent ADB
+     * identity.
      */
     fun stop() {
+        cancelAccessibilityAckTimeout()
+
         val sessionId:
             String?
 
@@ -362,9 +396,8 @@ class AdbAutoPairingCoordinator(
     }
 
     /**
-     * Accessibility is now actually armed for this exact session.
-     *
-     * mDNS discovery is deliberately not started before this acknowledgement.
+     * Accessibility confirmed that the extractor and Settings navigator are
+     * armed for this exact session.
      */
     private fun handleCaptureAcknowledged(
         sessionId: String
@@ -390,6 +423,8 @@ class AdbAutoPairingCoordinator(
             return
         }
 
+        cancelAccessibilityAckTimeout()
+
         publishStage(
             Stage.WAITING_FOR_PAIRING_DIALOG
         )
@@ -397,6 +432,76 @@ class AdbAutoPairingCoordinator(
         startPairingDiscovery(
             sessionId
         )
+    }
+
+    /**
+     * Starts a bounded wait for the Accessibility process to acknowledge ARM.
+     */
+    private fun scheduleAccessibilityAckTimeout(
+        sessionId: String
+    ) {
+        cancelAccessibilityAckTimeout()
+
+        val timeout =
+            Runnable {
+                val timedOut =
+                    synchronized(lock) {
+                        running &&
+                            activeSessionId ==
+                            sessionId &&
+                            !captureAcknowledged
+                    }
+
+                if (!timedOut) {
+                    return@Runnable
+                }
+
+                fail(
+                    IllegalStateException(
+                        "CurBox Accessibility service did not become ready for automatic pairing."
+                    )
+                )
+            }
+
+        synchronized(lock) {
+            if (
+                !running ||
+                activeSessionId !=
+                sessionId
+            ) {
+                return
+            }
+
+            accessibilityAckTimeout =
+                timeout
+        }
+
+        mainHandler.postDelayed(
+            timeout,
+            ACCESSIBILITY_ACK_TIMEOUT_MS
+        )
+    }
+
+    /**
+     * Removes any pending ACK timeout.
+     */
+    private fun cancelAccessibilityAckTimeout() {
+        val timeout =
+            synchronized(lock) {
+                val current =
+                    accessibilityAckTimeout
+
+                accessibilityAckTimeout =
+                    null
+
+                current
+            }
+
+        if (timeout != null) {
+            mainHandler.removeCallbacks(
+                timeout
+            )
+        }
     }
 
     private fun startPairingDiscovery(
@@ -523,10 +628,6 @@ class AdbAutoPairingCoordinator(
         )
     }
 
-    /**
-     * Starts pairing only when both independently obtained values belong to
-     * the current acknowledged session.
-     */
     private fun tryStartPairing(
         sessionId: String
     ) {
@@ -584,10 +685,8 @@ class AdbAutoPairingCoordinator(
                 currentEndpoint
         }
 
-        /*
-         * Pairing data has been captured. Accessibility no longer needs access
-         * to the Settings pairing dialog while TLS pairing continues.
-         */
+        cancelAccessibilityAckTimeout()
+
         disarmCapture(
             sessionId
         )
@@ -771,6 +870,8 @@ class AdbAutoPairingCoordinator(
     private fun finishConnected(
         sessionId: String
     ) {
+        cancelAccessibilityAckTimeout()
+
         val currentListener:
             Listener?
 
@@ -814,10 +915,6 @@ class AdbAutoPairingCoordinator(
                 false
         }
 
-        /*
-         * Normally capture is already disarmed before TLS pairing starts.
-         * Calling with this session again is harmless cleanup.
-         */
         try {
             AdbPairingCaptureBridge.disarmCapture(
                 context =
@@ -843,6 +940,8 @@ class AdbAutoPairingCoordinator(
     private fun fail(
         error: Throwable
     ) {
+        cancelAccessibilityAckTimeout()
+
         val sessionId:
             String?
 
@@ -958,10 +1057,6 @@ class AdbAutoPairingCoordinator(
                     sessionId
             )
         } catch (_: Throwable) {
-            /*
-             * Pairing can continue because local capture ownership has already
-             * been stopped.
-             */
         }
     }
 
