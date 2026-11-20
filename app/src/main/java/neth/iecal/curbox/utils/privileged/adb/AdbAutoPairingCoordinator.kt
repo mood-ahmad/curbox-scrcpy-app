@@ -14,14 +14,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Flow:
  *
- * 1. Create a new session ID.
- * 2. Register the main-process bridge receiver for that session.
- * 3. Send ARM_CAPTURE(sessionId).
- * 4. Wait for ARMED_ACK(sessionId).
- * 5. Fail cleanly if Accessibility does not acknowledge in time.
- * 6. Only after ACK, start mDNS pairing discovery.
- * 7. Combine the captured pairing code with the mDNS endpoint.
- * 8. Pair and establish a verified Direct ADB connection.
+ * 1. Verify that CurBox's Accessibility service is enabled.
+ * 2. Create a new session ID.
+ * 3. Register the main-process bridge receiver for that session.
+ * 4. Send ARM_CAPTURE(sessionId).
+ * 5. Wait for ARMED_ACK(sessionId).
+ * 6. Fail cleanly if Accessibility does not acknowledge in time.
+ * 7. Only after ACK, start mDNS pairing discovery.
+ * 8. Combine the captured pairing code with the mDNS endpoint.
+ * 9. Pair and establish a verified Direct ADB connection.
  *
  * Captures and acknowledgements belonging to older sessions are ignored.
  */
@@ -125,6 +126,29 @@ class AdbAutoPairingCoordinator(
         listener: Listener
     ) {
         stop()
+
+        /*
+         * Fail immediately when CurBox's Accessibility service is not enabled.
+         *
+         * There is no reason to create a session, register bridge receivers,
+         * generate/load the Direct ADB transport, or wait for the ACK timeout
+         * when Android is already reporting that AppBlockerService is not an
+         * enabled Accessibility service.
+         */
+        if (
+            !AccessibilityServiceStatus
+                .isAppBlockerServiceEnabled(
+                    appContext
+                )
+        ) {
+            listener.onError(
+                IllegalStateException(
+                    "CurBox Accessibility service must be enabled before automatic pairing."
+                )
+            )
+
+            return
+        }
 
         val sessionId =
             UUID.randomUUID()
@@ -482,9 +506,6 @@ class AdbAutoPairingCoordinator(
         )
     }
 
-    /**
-     * Removes any pending ACK timeout.
-     */
     private fun cancelAccessibilityAckTimeout() {
         val timeout =
             synchronized(lock) {
