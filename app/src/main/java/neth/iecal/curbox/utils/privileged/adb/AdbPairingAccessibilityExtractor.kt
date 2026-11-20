@@ -3,6 +3,7 @@ package neth.iecal.curbox.utils.privileged.adb
 import android.content.Context
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Extracts Wireless ADB pairing information from Android Settings'
@@ -10,30 +11,26 @@ import android.view.accessibility.AccessibilityNodeInfo
  *
  * This object runs inside the Accessibility-service process.
  *
- * Through [AdbPairingCaptureBridge], detected pairing information is forwarded
- * to CurBox's main process where [AdbAutoPairingCoordinator] owns the actual
- * pairing operation.
+ * Extraction is disabled by default. The Accessibility process must explicitly
+ * arm it after receiving an ARM_CAPTURE message through
+ * [AdbPairingCaptureBridge].
  *
- * This component never performs network pairing itself.
+ * Detected pairing information is forwarded to CurBox's main process through
+ * [AdbPairingCaptureBridge], where [AdbAutoPairingCoordinator] owns the actual
+ * network pairing operation.
  */
 object AdbPairingAccessibilityExtractor {
 
     private const val MAX_TREE_DEPTH =
         15
 
-    /**
-     * Restrict inspection to Android Settings instead of scanning arbitrary
-     * application windows for six-digit values.
-     */
     private val allowedSettingsPackages =
         setOf(
             "com.android.settings"
         )
 
     /**
-     * Android Wireless Debugging uses a six-digit pairing code.
-     *
-     * Accept both:
+     * Accept:
      *
      * 123456
      * 123 456
@@ -43,16 +40,20 @@ object AdbPairingAccessibilityExtractor {
             """^\d{3}\s?\d{3}$"""
         )
 
-    /**
-     * Matches the IPv4 address and temporary pairing port when Settings exposes
-     * both values in the Accessibility tree.
-     *
-     * mDNS remains authoritative for the pairing endpoint. The captured port is
-     * forwarded as supplementary information only.
-     */
     private val ipv4AndPortRegex =
         Regex(
             """(?:\d{1,3}\.){3}\d{1,3}:(\d{2,5})"""
+        )
+
+    /**
+     * Process-local capture state.
+     *
+     * This value lives inside :app_blocker_service and is changed only after
+     * that process receives ARM_CAPTURE or DISARM_CAPTURE.
+     */
+    private val armed =
+        AtomicBoolean(
+            false
         )
 
     private val deliveryLock =
@@ -68,15 +69,54 @@ object AdbPairingAccessibilityExtractor {
     )
 
     /**
+     * Enables extraction for one explicit automatic-pairing session.
+     */
+    fun arm() {
+        synchronized(deliveryLock) {
+            lastDeliveredFingerprint =
+                null
+
+            armed.set(
+                true
+            )
+        }
+    }
+
+    /**
+     * Stops extraction.
+     *
+     * Calling this repeatedly is safe.
+     */
+    fun disarm() {
+        synchronized(deliveryLock) {
+            armed.set(
+                false
+            )
+
+            lastDeliveredFingerprint =
+                null
+        }
+    }
+
+    fun isArmed(): Boolean {
+        return armed.get()
+    }
+
+    /**
      * Processes one Accessibility event from AppBlockerService.
      *
-     * Only events belonging to Android Settings are inspected.
+     * Events are ignored unless a pairing session is armed, and even while
+     * armed only Android Settings is inspected.
      */
     fun onAccessibilityEvent(
         context: Context,
         event: AccessibilityEvent,
         activeWindowRoot: AccessibilityNodeInfo?
     ) {
+        if (!armed.get()) {
+            return
+        }
+
         val packageName =
             event.packageName
                 ?.toString()
@@ -109,6 +149,10 @@ object AdbPairingAccessibilityExtractor {
         context: Context,
         root: AccessibilityNodeInfo
     ) {
+        if (!armed.get()) {
+            return
+        }
+
         var code:
             String? = null
 
@@ -122,6 +166,10 @@ object AdbPairingAccessibilityExtractor {
             node = root,
             depth = 0
         ) { text ->
+
+            if (!armed.get()) {
+                return@walk true
+            }
 
             if (code == null) {
                 val candidate =
@@ -172,8 +220,13 @@ object AdbPairingAccessibilityExtractor {
                 port != null
         }
 
+        if (!armed.get()) {
+            return
+        }
+
         val detectedCode =
-            code ?: return
+            code
+                ?: return
 
         deliver(
             context =
@@ -192,12 +245,16 @@ object AdbPairingAccessibilityExtractor {
 
     /**
      * Deduplicates repeated Accessibility events from the same pairing dialog
-     * before forwarding the capture across processes.
+     * before forwarding the result to the main process.
      */
     private fun deliver(
         context: Context,
         info: PairingInfo
     ) {
+        if (!armed.get()) {
+            return
+        }
+
         val fingerprint =
             buildString {
                 append(
@@ -215,6 +272,10 @@ object AdbPairingAccessibilityExtractor {
             }
 
         synchronized(deliveryLock) {
+            if (!armed.get()) {
+                return
+            }
+
             if (
                 fingerprint ==
                 lastDeliveredFingerprint
@@ -235,10 +296,7 @@ object AdbPairingAccessibilityExtractor {
     }
 
     /**
-     * Clears duplicate-detection state before a new explicit pairing attempt.
-     *
-     * This does not arm or disarm Accessibility. The main-process coordinator
-     * controls whether a broadcast receiver exists to consume captures.
+     * Resets duplicate tracking without changing capture state.
      */
     fun reset() {
         synchronized(deliveryLock) {
@@ -285,6 +343,10 @@ object AdbPairingAccessibilityExtractor {
             MAX_TREE_DEPTH
         ) {
             return false
+        }
+
+        if (!armed.get()) {
+            return true
         }
 
         val text =
