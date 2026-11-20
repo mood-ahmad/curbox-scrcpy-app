@@ -2,23 +2,25 @@ package neth.iecal.curbox.utils.privileged.adb
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Coordinates automatic Wireless ADB pairing.
  *
- * Two independent signals have to meet:
+ * Every automatic pairing attempt owns a unique session ID.
  *
- * 1. The Accessibility-service process captures the temporary pairing code
- *    and sends it to the main process through AdbPairingCaptureBridge.
+ * Flow:
  *
- * 2. mDNS discovers the current _adb-tls-pairing._tcp endpoint.
+ * 1. Create a new session ID.
+ * 2. Register the main-process bridge receiver for that session.
+ * 3. Send ARM_CAPTURE(sessionId).
+ * 4. Wait for ARMED_ACK(sessionId).
+ * 5. Only after ACK, start mDNS pairing discovery.
+ * 6. Combine the captured pairing code with the mDNS endpoint.
+ * 7. Pair and establish a verified Direct ADB connection.
  *
- * Either signal may arrive first. The coordinator stores both and starts
- * pairing exactly once when both are available.
- *
- * Accessibility capture is explicitly armed only while this coordinator owns
- * an active automatic-pairing session.
+ * Captures and acknowledgements belonging to older sessions are ignored.
  */
 class AdbAutoPairingCoordinator(
     context: Context
@@ -42,6 +44,9 @@ class AdbAutoPairingCoordinator(
     private var running =
         false
 
+    private var activeSessionId:
+        String? = null
+
     private var pairingCode:
         String? = null
 
@@ -60,8 +65,15 @@ class AdbAutoPairingCoordinator(
     private var captureArmed =
         false
 
+    private var captureAcknowledged =
+        false
+
+    private var pairingDiscoveryStarted =
+        false
+
     enum class Stage {
         INITIALIZING,
+        WAITING_FOR_ACCESSIBILITY,
         WAITING_FOR_PAIRING_DIALOG,
         WAITING_FOR_DISCOVERY,
         PAIRING,
@@ -84,21 +96,21 @@ class AdbAutoPairingCoordinator(
         )
     }
 
-    /**
-     * Starts one automatic-pairing session.
-     *
-     * The main process first prepares its receiver, then explicitly arms the
-     * Accessibility-service process. This ordering prevents a captured code
-     * from being sent before the main process is ready to consume it.
-     */
     fun start(
         listener: Listener
     ) {
         stop()
 
+        val sessionId =
+            UUID.randomUUID()
+                .toString()
+
         synchronized(lock) {
             this.listener =
                 listener
+
+            activeSessionId =
+                sessionId
 
             pairingCode =
                 null
@@ -108,6 +120,15 @@ class AdbAutoPairingCoordinator(
 
             pairingEndpoint =
                 null
+
+            captureArmed =
+                false
+
+            captureAcknowledged =
+                false
+
+            pairingDiscoveryStarted =
+                false
 
             pairingStarted.set(
                 false
@@ -137,7 +158,7 @@ class AdbAutoPairingCoordinator(
             return
         }
 
-        if (!isRunning()) {
+        if (!isCurrentSession(sessionId)) {
             return
         }
 
@@ -146,23 +167,41 @@ class AdbAutoPairingCoordinator(
                 AdbPairingCaptureBridge.register(
                     context =
                         appContext,
+                    expectedSessionId =
+                        sessionId,
                     listener =
                         object :
                             AdbPairingCaptureBridge.Listener {
 
+                            override fun onCaptureArmed(
+                                sessionId: String
+                            ) {
+                                handleCaptureAcknowledged(
+                                    sessionId
+                                )
+                            }
+
                             override fun onPairingInfoDetected(
+                                sessionId: String,
                                 info:
                                     AdbPairingAccessibilityExtractor.PairingInfo
                             ) {
                                 handleAccessibilityInfo(
-                                    info
+                                    sessionId =
+                                        sessionId,
+                                    info =
+                                        info
                                 )
                             }
                         }
                 )
 
             synchronized(lock) {
-                if (!running) {
+                if (
+                    !running ||
+                    activeSessionId !=
+                    sessionId
+                ) {
                     AdbPairingCaptureBridge.unregister(
                         context =
                             appContext,
@@ -184,67 +223,49 @@ class AdbAutoPairingCoordinator(
             return
         }
 
-        if (!isRunning()) {
+        if (!isCurrentSession(sessionId)) {
             return
         }
 
-        /*
-         * The main-process receiver is ready. The Accessibility process may
-         * now begin inspecting Android Settings for the pairing dialog.
-         */
+        publishStage(
+            Stage.WAITING_FOR_ACCESSIBILITY
+        )
+
         try {
-            AdbPairingCaptureBridge.armCapture(
-                appContext
-            )
-
+            /*
+             * Mark locally before sending the request so even a very fast ACK
+             * cannot race with our local session state.
+             */
             synchronized(lock) {
-                if (!running) {
-                    AdbPairingCaptureBridge.disarmCapture(
-                        appContext
-                    )
-
+                if (
+                    !running ||
+                    activeSessionId !=
+                    sessionId
+                ) {
                     return
                 }
 
                 captureArmed =
                     true
             }
-        } catch (t: Throwable) {
-            fail(
-                t
+
+            AdbPairingCaptureBridge.armCapture(
+                context =
+                    appContext,
+                sessionId =
+                    sessionId
             )
-
-            return
-        }
-
-        publishStage(
-            Stage.WAITING_FOR_PAIRING_DIALOG
-        )
-
-        try {
-            discoveryManager.discoverPairing(
-                object :
-                    AdbDiscoveryManager.Listener {
-
-                    override fun onEndpointFound(
-                        endpoint:
-                            AdbDiscoveryManager.Endpoint
-                    ) {
-                        handlePairingEndpoint(
-                            endpoint
-                        )
-                    }
-
-                    override fun onError(
-                        error: Throwable
-                    ) {
-                        fail(
-                            error
-                        )
-                    }
+        } catch (t: Throwable) {
+            synchronized(lock) {
+                if (
+                    activeSessionId ==
+                    sessionId
+                ) {
+                    captureArmed =
+                        false
                 }
-            )
-        } catch (t: Throwable) {
+            }
+
             fail(
                 t
             )
@@ -252,10 +273,12 @@ class AdbAutoPairingCoordinator(
     }
 
     /**
-     * Stops the current automatic-pairing session without deleting CurBox's
-     * persistent ADB identity.
+     * Stops the active session while preserving CurBox's ADB identity.
      */
     fun stop() {
+        val sessionId:
+            String?
+
         val receiver:
             BroadcastReceiver?
 
@@ -263,8 +286,20 @@ class AdbAutoPairingCoordinator(
             Boolean
 
         synchronized(lock) {
+            sessionId =
+                activeSessionId
+
+            receiver =
+                captureReceiver
+
+            shouldDisarm =
+                captureArmed
+
             running =
                 false
+
+            activeSessionId =
+                null
 
             listener =
                 null
@@ -278,27 +313,36 @@ class AdbAutoPairingCoordinator(
             pairingEndpoint =
                 null
 
-            pairingStarted.set(
-                false
-            )
-
-            receiver =
-                captureReceiver
-
             captureReceiver =
                 null
 
-            shouldDisarm =
-                captureArmed
-
             captureArmed =
                 false
+
+            captureAcknowledged =
+                false
+
+            pairingDiscoveryStarted =
+                false
+
+            pairingStarted.set(
+                false
+            )
         }
 
-        if (shouldDisarm) {
-            AdbPairingCaptureBridge.disarmCapture(
-                appContext
-            )
+        if (
+            shouldDisarm &&
+            !sessionId.isNullOrBlank()
+        ) {
+            try {
+                AdbPairingCaptureBridge.disarmCapture(
+                    context =
+                        appContext,
+                    sessionId =
+                        sessionId
+                )
+            } catch (_: Throwable) {
+            }
         }
 
         AdbPairingCaptureBridge.unregister(
@@ -317,12 +361,129 @@ class AdbAutoPairingCoordinator(
         }
     }
 
+    /**
+     * Accessibility is now actually armed for this exact session.
+     *
+     * mDNS discovery is deliberately not started before this acknowledgement.
+     */
+    private fun handleCaptureAcknowledged(
+        sessionId: String
+    ) {
+        val shouldStartDiscovery =
+            synchronized(lock) {
+                if (
+                    !running ||
+                    activeSessionId !=
+                    sessionId ||
+                    captureAcknowledged
+                ) {
+                    false
+                } else {
+                    captureAcknowledged =
+                        true
+
+                    true
+                }
+            }
+
+        if (!shouldStartDiscovery) {
+            return
+        }
+
+        publishStage(
+            Stage.WAITING_FOR_PAIRING_DIALOG
+        )
+
+        startPairingDiscovery(
+            sessionId
+        )
+    }
+
+    private fun startPairingDiscovery(
+        sessionId: String
+    ) {
+        synchronized(lock) {
+            if (
+                !running ||
+                activeSessionId !=
+                sessionId ||
+                !captureAcknowledged ||
+                pairingDiscoveryStarted
+            ) {
+                return
+            }
+
+            pairingDiscoveryStarted =
+                true
+        }
+
+        try {
+            discoveryManager.discoverPairing(
+                object :
+                    AdbDiscoveryManager.Listener {
+
+                    override fun onEndpointFound(
+                        endpoint:
+                            AdbDiscoveryManager.Endpoint
+                    ) {
+                        if (
+                            !isCurrentSession(
+                                sessionId
+                            )
+                        ) {
+                            return
+                        }
+
+                        handlePairingEndpoint(
+                            sessionId =
+                                sessionId,
+                            endpoint =
+                                endpoint
+                        )
+                    }
+
+                    override fun onError(
+                        error: Throwable
+                    ) {
+                        if (
+                            !isCurrentSession(
+                                sessionId
+                            )
+                        ) {
+                            return
+                        }
+
+                        fail(
+                            error
+                        )
+                    }
+                }
+            )
+        } catch (t: Throwable) {
+            if (
+                isCurrentSession(
+                    sessionId
+                )
+            ) {
+                fail(
+                    t
+                )
+            }
+        }
+    }
+
     private fun handleAccessibilityInfo(
+        sessionId: String,
         info:
             AdbPairingAccessibilityExtractor.PairingInfo
     ) {
         synchronized(lock) {
-            if (!running) {
+            if (
+                !running ||
+                activeSessionId !=
+                sessionId ||
+                !captureAcknowledged
+            ) {
                 return
             }
 
@@ -333,15 +494,23 @@ class AdbAutoPairingCoordinator(
                 info.port
         }
 
-        tryStartPairing()
+        tryStartPairing(
+            sessionId
+        )
     }
 
     private fun handlePairingEndpoint(
+        sessionId: String,
         endpoint:
             AdbDiscoveryManager.Endpoint
     ) {
         synchronized(lock) {
-            if (!running) {
+            if (
+                !running ||
+                activeSessionId !=
+                sessionId ||
+                !captureAcknowledged
+            ) {
                 return
             }
 
@@ -349,14 +518,18 @@ class AdbAutoPairingCoordinator(
                 endpoint
         }
 
-        tryStartPairing()
+        tryStartPairing(
+            sessionId
+        )
     }
 
     /**
-     * Starts network pairing only after both the captured code and mDNS
-     * endpoint are available.
+     * Starts pairing only when both independently obtained values belong to
+     * the current acknowledged session.
      */
-    private fun tryStartPairing() {
+    private fun tryStartPairing(
+        sessionId: String
+    ) {
         val code:
             String
 
@@ -364,7 +537,12 @@ class AdbAutoPairingCoordinator(
             AdbDiscoveryManager.Endpoint
 
         synchronized(lock) {
-            if (!running) {
+            if (
+                !running ||
+                activeSessionId !=
+                sessionId ||
+                !captureAcknowledged
+            ) {
                 return
             }
 
@@ -407,11 +585,12 @@ class AdbAutoPairingCoordinator(
         }
 
         /*
-         * The pairing dialog has already yielded the information CurBox needs.
-         * Stop Accessibility capture immediately instead of leaving it armed
-         * while TLS pairing and connection continue.
+         * Pairing data has been captured. Accessibility no longer needs access
+         * to the Settings pairing dialog while TLS pairing continues.
          */
-        disarmCapture()
+        disarmCapture(
+            sessionId
+        )
 
         unregisterCaptureReceiver()
         discoveryManager.stop()
@@ -423,6 +602,8 @@ class AdbAutoPairingCoordinator(
         Thread(
             {
                 performPairing(
+                    sessionId =
+                        sessionId,
                     endpoint =
                         endpoint,
                     code =
@@ -434,6 +615,7 @@ class AdbAutoPairingCoordinator(
     }
 
     private fun performPairing(
+        sessionId: String,
         endpoint:
             AdbDiscoveryManager.Endpoint,
         code: String
@@ -448,7 +630,11 @@ class AdbAutoPairingCoordinator(
                     code
             )
 
-        if (!isRunning()) {
+        if (
+            !isCurrentSession(
+                sessionId
+            )
+        ) {
             return
         }
 
@@ -463,11 +649,19 @@ class AdbAutoPairingCoordinator(
             return
         }
 
-        discoverConnectionEndpoint()
+        discoverConnectionEndpoint(
+            sessionId
+        )
     }
 
-    private fun discoverConnectionEndpoint() {
-        if (!isRunning()) {
+    private fun discoverConnectionEndpoint(
+        sessionId: String
+    ) {
+        if (
+            !isCurrentSession(
+                sessionId
+            )
+        ) {
             return
         }
 
@@ -483,18 +677,33 @@ class AdbAutoPairingCoordinator(
                     endpoint:
                         AdbDiscoveryManager.Endpoint
                 ) {
-                    if (!isRunning()) {
+                    if (
+                        !isCurrentSession(
+                            sessionId
+                        )
+                    ) {
                         return
                     }
 
                     connect(
-                        endpoint
+                        sessionId =
+                            sessionId,
+                        endpoint =
+                            endpoint
                     )
                 }
 
                 override fun onError(
                     error: Throwable
                 ) {
+                    if (
+                        !isCurrentSession(
+                            sessionId
+                        )
+                    ) {
+                        return
+                    }
+
                     fail(
                         error
                     )
@@ -504,10 +713,15 @@ class AdbAutoPairingCoordinator(
     }
 
     private fun connect(
+        sessionId: String,
         endpoint:
             AdbDiscoveryManager.Endpoint
     ) {
-        if (!isRunning()) {
+        if (
+            !isCurrentSession(
+                sessionId
+            )
+        ) {
             return
         }
 
@@ -527,7 +741,11 @@ class AdbAutoPairingCoordinator(
                             endpoint.port
                     )
 
-                if (!isRunning()) {
+                if (
+                    !isCurrentSession(
+                        sessionId
+                    )
+                ) {
                     return@Thread
                 }
 
@@ -542,18 +760,26 @@ class AdbAutoPairingCoordinator(
                     return@Thread
                 }
 
-                finishConnected()
+                finishConnected(
+                    sessionId
+                )
             },
             "CurBox-AdbAutoConnect"
         ).start()
     }
 
-    private fun finishConnected() {
+    private fun finishConnected(
+        sessionId: String
+    ) {
         val currentListener:
             Listener?
 
         synchronized(lock) {
-            if (!running) {
+            if (
+                !running ||
+                activeSessionId !=
+                sessionId
+            ) {
                 return
             }
 
@@ -566,6 +792,9 @@ class AdbAutoPairingCoordinator(
             listener =
                 null
 
+            activeSessionId =
+                null
+
             pairingCode =
                 null
 
@@ -574,9 +803,31 @@ class AdbAutoPairingCoordinator(
 
             pairingEndpoint =
                 null
+
+            captureArmed =
+                false
+
+            captureAcknowledged =
+                false
+
+            pairingDiscoveryStarted =
+                false
         }
 
-        disarmCapture()
+        /*
+         * Normally capture is already disarmed before TLS pairing starts.
+         * Calling with this session again is harmless cleanup.
+         */
+        try {
+            AdbPairingCaptureBridge.disarmCapture(
+                context =
+                    appContext,
+                sessionId =
+                    sessionId
+            )
+        } catch (_: Throwable) {
+        }
+
         unregisterCaptureReceiver()
         discoveryManager.stop()
 
@@ -592,6 +843,9 @@ class AdbAutoPairingCoordinator(
     private fun fail(
         error: Throwable
     ) {
+        val sessionId:
+            String?
+
         val currentListener:
             Listener?
 
@@ -599,6 +853,9 @@ class AdbAutoPairingCoordinator(
             if (!running) {
                 return
             }
+
+            sessionId =
+                activeSessionId
 
             running =
                 false
@@ -609,6 +866,9 @@ class AdbAutoPairingCoordinator(
             listener =
                 null
 
+            activeSessionId =
+                null
+
             pairingCode =
                 null
 
@@ -617,9 +877,29 @@ class AdbAutoPairingCoordinator(
 
             pairingEndpoint =
                 null
+
+            captureArmed =
+                false
+
+            captureAcknowledged =
+                false
+
+            pairingDiscoveryStarted =
+                false
         }
 
-        disarmCapture()
+        if (!sessionId.isNullOrBlank()) {
+            try {
+                AdbPairingCaptureBridge.disarmCapture(
+                    context =
+                        appContext,
+                    sessionId =
+                        sessionId
+                )
+            } catch (_: Throwable) {
+            }
+        }
+
         unregisterCaptureReceiver()
         discoveryManager.stop()
 
@@ -647,10 +927,16 @@ class AdbAutoPairingCoordinator(
             )
     }
 
-    private fun disarmCapture() {
+    private fun disarmCapture(
+        sessionId: String
+    ) {
         val shouldDisarm =
             synchronized(lock) {
-                if (!captureArmed) {
+                if (
+                    !captureArmed ||
+                    activeSessionId !=
+                    sessionId
+                ) {
                     false
                 } else {
                     captureArmed =
@@ -660,17 +946,22 @@ class AdbAutoPairingCoordinator(
                 }
             }
 
-        if (shouldDisarm) {
-            try {
-                AdbPairingCaptureBridge.disarmCapture(
-                    appContext
-                )
-            } catch (_: Throwable) {
-                /*
-                 * Local state is already disarmed. Cleanup must not replace the
-                 * original pairing result with a broadcast-cleanup failure.
-                 */
-            }
+        if (!shouldDisarm) {
+            return
+        }
+
+        try {
+            AdbPairingCaptureBridge.disarmCapture(
+                context =
+                    appContext,
+                sessionId =
+                    sessionId
+            )
+        } catch (_: Throwable) {
+            /*
+             * Pairing can continue because local capture ownership has already
+             * been stopped.
+             */
         }
     }
 
@@ -692,5 +983,15 @@ class AdbAutoPairingCoordinator(
             receiver =
                 receiver
         )
+    }
+
+    private fun isCurrentSession(
+        sessionId: String
+    ): Boolean {
+        return synchronized(lock) {
+            running &&
+                activeSessionId ==
+                sessionId
+        }
     }
 }
