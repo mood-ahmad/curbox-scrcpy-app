@@ -34,6 +34,20 @@ class DirectAccessSetupFragment : Fragment() {
     private var manualFallbackVisible =
         false
 
+    /**
+     * True only while the current automatic-pairing attempt intends to open
+     * Android Settings after Accessibility has acknowledged readiness.
+     */
+    private var openSettingsWhenAccessibilityReady =
+        false
+
+    /**
+     * Prevents repeated state callbacks from opening Settings more than once
+     * for the same automatic-pairing attempt.
+     */
+    private var settingsOpenedForCurrentAttempt =
+        false
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -70,16 +84,9 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .openWirelessDebuggingButton
             .setOnClickListener {
-                /*
-                 * Arm automatic pairing before leaving CurBox.
-                 *
-                 * The main process starts listening for the capture and for
-                 * the mDNS pairing endpoint. The user can then open Android's
-                 * pairing-code dialog without having to return to CurBox to
-                 * type the code.
-                 */
                 startAutomaticPairing(
-                    openSettingsAfterStart = true
+                    openSettingsAfterReady =
+                        true
                 )
             }
 
@@ -90,7 +97,8 @@ class DirectAccessSetupFragment : Fragment() {
                     startManualPairing()
                 } else {
                     startAutomaticPairing(
-                        openSettingsAfterStart = true
+                        openSettingsAfterReady =
+                            true
                     )
                 }
             }
@@ -139,6 +147,12 @@ class DirectAccessSetupFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
+
         orchestrator?.cancel()
 
         orchestrator =
@@ -158,6 +172,12 @@ class DirectAccessSetupFragment : Fragment() {
         val currentOrchestrator =
             orchestrator
                 ?: return
+
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
 
         setOperationInProgress(
             true
@@ -186,8 +206,15 @@ class DirectAccessSetupFragment : Fragment() {
         )
     }
 
+    /**
+     * Starts automatic pairing but deliberately does not leave CurBox yet.
+     *
+     * Developer Options is opened only after the orchestrator reaches
+     * WAITING_FOR_PAIRING_DIALOG. That state is published after the
+     * Accessibility process has returned ARMED_ACK for the current session.
+     */
     private fun startAutomaticPairing(
-        openSettingsAfterStart: Boolean
+        openSettingsAfterReady: Boolean
     ) {
         if (operationInProgress) {
             return
@@ -198,6 +225,12 @@ class DirectAccessSetupFragment : Fragment() {
                 ?: return
 
         manualFallbackVisible =
+            false
+
+        openSettingsWhenAccessibilityReady =
+            openSettingsAfterReady
+
+        settingsOpenedForCurrentAttempt =
             false
 
         setOperationInProgress(
@@ -221,11 +254,20 @@ class DirectAccessSetupFragment : Fragment() {
                 onConnected =
                     ::applyPersistentPrivilegesAndFinish,
                 onFailure = { error ->
+                    openSettingsWhenAccessibilityReady =
+                        false
+
                     showManualFallback(
                         error
                     )
                 },
                 onWirelessRequired = {
+                    openSettingsWhenAccessibilityReady =
+                        false
+
+                    settingsOpenedForCurrentAttempt =
+                        false
+
                     setOperationInProgress(
                         false
                     )
@@ -235,24 +277,22 @@ class DirectAccessSetupFragment : Fragment() {
                     binding
                         .statusText
                         .text =
-                        "Enable Wireless Debugging, then choose “Pair device with pairing code”. CurBox will read the pairing code automatically."
+                        "Enable Wireless Debugging, then return to CurBox and start automatic pairing again."
 
                     updateWirelessDebuggingStatus()
 
-                    if (openSettingsAfterStart) {
+                    /*
+                     * Automatic capture has not been armed in this path because
+                     * Wireless Debugging is still unavailable. Settings can be
+                     * opened to let the user enable it, but a new automatic
+                     * pairing attempt must be started afterwards.
+                     */
+                    if (openSettingsAfterReady) {
                         openDeveloperOptions()
                     }
                 }
             )
         )
-
-        if (
-            openSettingsAfterStart &&
-            currentOrchestrator
-                .isWirelessDebuggingEnabled()
-        ) {
-            openDeveloperOptions()
-        }
     }
 
     private fun startManualPairing() {
@@ -263,6 +303,12 @@ class DirectAccessSetupFragment : Fragment() {
         val currentOrchestrator =
             orchestrator
                 ?: return
+
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
 
         val pairingCode =
             binding
@@ -322,6 +368,9 @@ class DirectAccessSetupFragment : Fragment() {
             context
                 ?.applicationContext
                 ?: return
+
+        openSettingsWhenAccessibilityReady =
+            false
 
         PersistentPrivilegesManager.apply(
             context =
@@ -397,11 +446,18 @@ class DirectAccessSetupFragment : Fragment() {
                     showState(
                         state
                     )
+
+                    maybeOpenSettingsAfterAccessibilityReady(
+                        state
+                    )
                 }
             }
 
             override fun onConnected() {
                 postToUi {
+                    openSettingsWhenAccessibilityReady =
+                        false
+
                     onConnected()
                 }
             }
@@ -436,6 +492,9 @@ class DirectAccessSetupFragment : Fragment() {
                 cause: Throwable?
             ) {
                 postToUi {
+                    openSettingsWhenAccessibilityReady =
+                        false
+
                     setOperationInProgress(
                         false
                     )
@@ -466,6 +525,9 @@ class DirectAccessSetupFragment : Fragment() {
                 error: Throwable
             ) {
                 postToUi {
+                    openSettingsWhenAccessibilityReady =
+                        false
+
                     setOperationInProgress(
                         false
                     )
@@ -488,6 +550,35 @@ class DirectAccessSetupFragment : Fragment() {
                 }
             }
         }
+    }
+
+    /**
+     * WAITING_FOR_PAIRING_DIALOG is our UI-level readiness signal:
+     *
+     * the current session has received ARMED_ACK and automatic capture is
+     * actually ready before Android Settings is opened.
+     */
+    private fun maybeOpenSettingsAfterAccessibilityReady(
+        state: DirectAccessOrchestrator.State
+    ) {
+        if (
+            state !=
+            DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG
+        ) {
+            return
+        }
+
+        if (
+            !openSettingsWhenAccessibilityReady ||
+            settingsOpenedForCurrentAttempt
+        ) {
+            return
+        }
+
+        settingsOpenedForCurrentAttempt =
+            true
+
+        openDeveloperOptions()
     }
 
     private fun showState(
@@ -519,7 +610,7 @@ class DirectAccessSetupFragment : Fragment() {
                     "Preparing automatic pairing. Waiting for Accessibility to become ready."
 
                 DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG ->
-                    "Waiting for Android's pairing-code window. CurBox will capture the code automatically."
+                    "Accessibility is ready. Opening Android's Wireless Debugging setup…"
 
                 DirectAccessOrchestrator.State.DISCOVERING_PAIRING ->
                     "Pairing code captured. Waiting for the pairing service…"
@@ -546,6 +637,12 @@ class DirectAccessSetupFragment : Fragment() {
             true
 
         manualFallbackVisible =
+            false
+
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
             false
 
         binding
@@ -585,6 +682,12 @@ class DirectAccessSetupFragment : Fragment() {
         manualFallbackVisible =
             false
 
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
+
         setOperationInProgress(
             false
         )
@@ -614,7 +717,7 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "Start automatic pairing, then open Android's “Pair device with pairing code” window. CurBox will capture the code automatically."
+            "Start automatic pairing. CurBox will prepare Accessibility first, then open Android Settings and capture the pairing code automatically."
 
         updateWirelessDebuggingStatus()
     }
@@ -624,6 +727,9 @@ class DirectAccessSetupFragment : Fragment() {
     ) {
         manualFallbackVisible =
             true
+
+        openSettingsWhenAccessibilityReady =
+            false
 
         setOperationInProgress(
             false
