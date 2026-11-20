@@ -140,6 +140,7 @@ class DirectAccessSetupFragment : Fragment() {
 
     override fun onDestroyView() {
         orchestrator?.cancel()
+
         orchestrator =
             null
 
@@ -149,10 +150,6 @@ class DirectAccessSetupFragment : Fragment() {
         super.onDestroyView()
     }
 
-    /**
-     * Attempts normal reconnect using an identity that completed pairing
-     * previously.
-     */
     private fun startExistingConnectionRecovery() {
         if (operationInProgress) {
             return
@@ -189,16 +186,6 @@ class DirectAccessSetupFragment : Fragment() {
         )
     }
 
-    /**
-     * Preferred pairing path.
-     *
-     * CurBox listens for two independent pieces of information:
-     *
-     * - the pairing code captured from Android Settings by Accessibility;
-     * - the pairing endpoint advertised through mDNS.
-     *
-     * The user does not need to copy or type the six-digit code.
-     */
     private fun startAutomaticPairing(
         openSettingsAfterStart: Boolean
     ) {
@@ -259,13 +246,6 @@ class DirectAccessSetupFragment : Fragment() {
             )
         )
 
-        /*
-         * Once the coordinator has been armed, leave CurBox and let the user
-         * open Android's Wireless Debugging pairing-code dialog.
-         *
-         * The Accessibility process can capture the dialog while CurBox's
-         * main process remains ready to receive the result.
-         */
         if (
             openSettingsAfterStart &&
             currentOrchestrator
@@ -275,11 +255,6 @@ class DirectAccessSetupFragment : Fragment() {
         }
     }
 
-    /**
-     * Manual six-digit pairing remains available only as a fallback for a
-     * Settings implementation whose pairing dialog cannot be interpreted
-     * through Accessibility.
-     */
     private fun startManualPairing() {
         if (operationInProgress) {
             return
@@ -342,12 +317,6 @@ class DirectAccessSetupFragment : Fragment() {
         )
     }
 
-    /**
-     * A verified ADB connection exists at this point.
-     *
-     * Apply the privileges CurBox wants to persist beyond the ADB command
-     * session before enabling Continue.
-     */
     private fun applyPersistentPrivilegesAndFinish() {
         val appContext =
             context
@@ -410,9 +379,6 @@ class DirectAccessSetupFragment : Fragment() {
         )
     }
 
-    /**
-     * Shared adapter around DirectAccessOrchestrator.Listener.
-     */
     private fun createListener(
         onConnected: () -> Unit,
         onFailure: ((Throwable?) -> Unit)? = null,
@@ -548,6 +514,9 @@ class DirectAccessSetupFragment : Fragment() {
 
                 DirectAccessOrchestrator.State.PAIRING_REQUIRED ->
                     "Pairing is required."
+
+                DirectAccessOrchestrator.State.WAITING_FOR_ACCESSIBILITY ->
+                    "Preparing automatic pairing. Waiting for Accessibility to become ready."
 
                 DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG ->
                     "Waiting for Android's pairing-code window. CurBox will capture the code automatically."
