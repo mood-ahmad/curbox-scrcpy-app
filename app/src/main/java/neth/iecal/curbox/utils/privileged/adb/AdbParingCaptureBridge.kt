@@ -7,17 +7,33 @@ import android.content.IntentFilter
 import androidx.core.content.ContextCompat
 
 /**
- * Cross-process bridge between CurBox's Accessibility process and the main
- * application process during automatic Wireless ADB pairing.
+ * Cross-process bridge used by CurBox automatic Wireless ADB pairing.
  *
- * AppBlockerService runs in :app_blocker_service, while Direct Access pairing
- * coordination runs in the main process. Static objects therefore cannot be
- * used to transfer the captured pairing information between them.
+ * Direct Access coordination runs in the main application process while
+ * AppBlockerService runs in :app_blocker_service.
  *
- * This bridge uses package-scoped explicit broadcasts so pairing information
- * is delivered only inside CurBox.
+ * The bridge carries three kinds of messages:
+ *
+ * 1. ARM_CAPTURE
+ *    The main process explicitly starts a pairing-capture session.
+ *
+ * 2. DISARM_CAPTURE
+ *    The main process ends the pairing-capture session.
+ *
+ * 3. PAIRING_CAPTURED
+ *    The Accessibility process sends the detected pairing code and optional
+ *    on-screen pairing endpoint information back to the main process.
+ *
+ * All broadcasts are package-scoped. Dynamically registered receivers are
+ * also marked not exported.
  */
 object AdbPairingCaptureBridge {
+
+    private const val ACTION_ARM_CAPTURE =
+        "neth.iecal.curbox.action.ADB_PAIRING_ARM_CAPTURE"
+
+    private const val ACTION_DISARM_CAPTURE =
+        "neth.iecal.curbox.action.ADB_PAIRING_DISARM_CAPTURE"
 
     private const val ACTION_PAIRING_CAPTURED =
         "neth.iecal.curbox.action.ADB_PAIRING_CAPTURED"
@@ -32,8 +48,46 @@ object AdbPairingCaptureBridge {
         "pairing_raw_address"
 
     interface Listener {
+
         fun onPairingInfoDetected(
-            info: AdbPairingAccessibilityExtractor.PairingInfo
+            info:
+                AdbPairingAccessibilityExtractor.PairingInfo
+        )
+    }
+
+    interface CaptureStateListener {
+
+        fun onCaptureArmed()
+
+        fun onCaptureDisarmed()
+    }
+
+    /**
+     * Tells CurBox's Accessibility process that an explicit automatic-pairing
+     * attempt has started.
+     */
+    fun armCapture(
+        context: Context
+    ) {
+        sendControlBroadcast(
+            context =
+                context,
+            action =
+                ACTION_ARM_CAPTURE
+        )
+    }
+
+    /**
+     * Tells CurBox's Accessibility process to stop pairing-dialog extraction.
+     */
+    fun disarmCapture(
+        context: Context
+    ) {
+        sendControlBroadcast(
+            context =
+                context,
+            action =
+                ACTION_DISARM_CAPTURE
         )
     }
 
@@ -43,7 +97,8 @@ object AdbPairingCaptureBridge {
      */
     fun publish(
         context: Context,
-        info: AdbPairingAccessibilityExtractor.PairingInfo
+        info:
+            AdbPairingAccessibilityExtractor.PairingInfo
     ) {
         val intent =
             Intent(
@@ -75,10 +130,8 @@ object AdbPairingCaptureBridge {
     }
 
     /**
-     * Registers the main-process receiver used during an active automatic
-     * pairing attempt.
-     *
-     * The returned BroadcastReceiver must later be passed to [unregister].
+     * Registers the main-process receiver used to receive captured pairing
+     * information.
      */
     fun register(
         context: Context,
@@ -159,7 +212,58 @@ object AdbPairingCaptureBridge {
     }
 
     /**
-     * Removes a receiver previously returned by [register].
+     * Registers a receiver inside the Accessibility-service process for the
+     * main process' ARM/DISARM messages.
+     */
+    fun registerCaptureStateReceiver(
+        context: Context,
+        listener: CaptureStateListener
+    ): BroadcastReceiver {
+        val appContext =
+            context.applicationContext
+
+        val receiver =
+            object : BroadcastReceiver() {
+
+                override fun onReceive(
+                    context: Context?,
+                    intent: Intent?
+                ) {
+                    when (
+                        intent?.action
+                    ) {
+                        ACTION_ARM_CAPTURE ->
+                            listener.onCaptureArmed()
+
+                        ACTION_DISARM_CAPTURE ->
+                            listener.onCaptureDisarmed()
+                    }
+                }
+            }
+
+        val filter =
+            IntentFilter().apply {
+                addAction(
+                    ACTION_ARM_CAPTURE
+                )
+
+                addAction(
+                    ACTION_DISARM_CAPTURE
+                )
+            }
+
+        ContextCompat.registerReceiver(
+            appContext,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+
+        return receiver
+    }
+
+    /**
+     * Removes a dynamically registered receiver.
      */
     fun unregister(
         context: Context,
@@ -179,4 +283,23 @@ object AdbPairingCaptureBridge {
             // Already unregistered.
         }
     }
+
+    private fun sendControlBroadcast(
+        context: Context,
+        action: String
+    ) {
+        val intent =
+            Intent(
+                action
+            ).apply {
+                setPackage(
+                    context.packageName
+                )
+            }
+
+        context.sendBroadcast(
+            intent
+        )
+    }
 }
+
