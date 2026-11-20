@@ -117,6 +117,16 @@ class AppBlockerService : BaseBlockingService() {
     private var pairingCaptureStateReceiver:
         BroadcastReceiver? = null
 
+    /**
+     * Session currently owned by this Accessibility process.
+     *
+     * A DISARM belonging to an older session must never disable a newer
+     * automatic-pairing attempt.
+     */
+    @Volatile
+    private var activePairingSessionId:
+        String? = null
+
     fun syncDndState() {
         val autoDndActive =
             autoDnd.isDndRequested()
@@ -141,11 +151,9 @@ class AppBlockerService : BaseBlockingService() {
                 this
             )
 
-        /*
-         * The Accessibility-side parts of Direct Access always start dormant.
-         * An explicit automatic pairing session in the main process must arm
-         * them through AdbPairingCaptureBridge.
-         */
+        activePairingSessionId =
+            null
+
         AdbPairingAccessibilityExtractor
             .disarm()
 
@@ -163,28 +171,20 @@ class AppBlockerService : BaseBlockingService() {
                                 AdbPairingCaptureBridge
                                     .CaptureStateListener {
 
-                                override fun onCaptureArmed() {
-                                    /*
-                                     * The navigator guides Android Settings
-                                     * towards the pairing-code dialog.
-                                     *
-                                     * The extractor is armed at the same time
-                                     * so it is ready before that dialog
-                                     * appears.
-                                     */
-                                    AdbPairingAccessibilityExtractor
-                                        .arm()
-
-                                    AdbWirelessDebuggingAccessibilityNavigator
-                                        .arm()
+                                override fun onCaptureArmRequested(
+                                    sessionId: String
+                                ) {
+                                    handlePairingCaptureArm(
+                                        sessionId
+                                    )
                                 }
 
-                                override fun onCaptureDisarmed() {
-                                    AdbPairingAccessibilityExtractor
-                                        .disarm()
-
-                                    AdbWirelessDebuggingAccessibilityNavigator
-                                        .disarm()
+                                override fun onCaptureDisarmRequested(
+                                    sessionId: String
+                                ) {
+                                    handlePairingCaptureDisarm(
+                                        sessionId
+                                    )
                                 }
                             }
                     )
@@ -215,6 +215,88 @@ class AppBlockerService : BaseBlockingService() {
         }
     }
 
+    /**
+     * Activates exactly one explicit automatic-pairing session.
+     *
+     * ACK is sent only after both Accessibility components have been armed.
+     */
+    private fun handlePairingCaptureArm(
+        sessionId: String
+    ) {
+        if (sessionId.isBlank()) {
+            return
+        }
+
+        activePairingSessionId =
+            sessionId
+
+        AdbPairingAccessibilityExtractor
+            .reset()
+
+        AdbPairingAccessibilityExtractor
+            .arm()
+
+        AdbWirelessDebuggingAccessibilityNavigator
+            .arm()
+
+        try {
+            AdbPairingCaptureBridge
+                .acknowledgeArmed(
+                    context =
+                        this,
+                    sessionId =
+                        sessionId
+                )
+        } catch (t: Throwable) {
+            /*
+             * If ACK cannot be sent, leave this attempt dormant instead of
+             * scanning Settings without a main-process owner.
+             */
+            activePairingSessionId =
+                null
+
+            AdbPairingAccessibilityExtractor
+                .disarm()
+
+            AdbWirelessDebuggingAccessibilityNavigator
+                .disarm()
+
+            Log.e(
+                "DirectADB",
+                "Failed to acknowledge pairing capture session",
+                t
+            )
+
+            crashLogger
+                .logNonFatalError(
+                    Exception(t)
+                )
+        }
+    }
+
+    /**
+     * Only the matching session may disarm the current Accessibility attempt.
+     */
+    private fun handlePairingCaptureDisarm(
+        sessionId: String
+    ) {
+        if (
+            activePairingSessionId !=
+            sessionId
+        ) {
+            return
+        }
+
+        activePairingSessionId =
+            null
+
+        AdbPairingAccessibilityExtractor
+            .disarm()
+
+        AdbWirelessDebuggingAccessibilityNavigator
+            .disarm()
+    }
+
     override fun onAccessibilityEvent(
         event: AccessibilityEvent?
     ) {
@@ -224,34 +306,39 @@ class AppBlockerService : BaseBlockingService() {
             event
         )
 
-        /*
-         * Direct Access Settings navigation and pairing-code extraction are
-         * both dormant unless an explicit auto-pairing session has armed them.
-         */
         try {
+            val sessionId =
+                activePairingSessionId
+
             if (
-                AdbWirelessDebuggingAccessibilityNavigator
-                    .isArmed()
+                !sessionId.isNullOrBlank()
             ) {
-                AdbWirelessDebuggingAccessibilityNavigator
-                    .navigate(
-                        packageName =
-                            event.packageName,
-                        root =
+                if (
+                    AdbWirelessDebuggingAccessibilityNavigator
+                        .isArmed()
+                ) {
+                    AdbWirelessDebuggingAccessibilityNavigator
+                        .navigate(
+                            packageName =
+                                event.packageName,
+                            root =
+                                rootInActiveWindow
+                                    ?: event.source
+                        )
+                }
+
+                AdbPairingAccessibilityExtractor
+                    .onAccessibilityEvent(
+                        context =
+                            this,
+                        sessionId =
+                            sessionId,
+                        event =
+                            event,
+                        activeWindowRoot =
                             rootInActiveWindow
-                                ?: event.source
                     )
             }
-
-            AdbPairingAccessibilityExtractor
-                .onAccessibilityEvent(
-                    context =
-                        this,
-                    event =
-                        event,
-                    activeWindowRoot =
-                        rootInActiveWindow
-                )
         } catch (t: Throwable) {
             Log.e(
                 "DirectADB",
@@ -642,10 +729,9 @@ class AppBlockerService : BaseBlockingService() {
     }
 
     override fun onDestroy() {
-        /*
-         * Shut down the temporary Direct Access automation before destroying
-         * the Accessibility service.
-         */
+        activePairingSessionId =
+            null
+
         AdbPairingAccessibilityExtractor
             .disarm()
 
