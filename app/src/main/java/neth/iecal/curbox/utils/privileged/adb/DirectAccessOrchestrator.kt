@@ -12,17 +12,15 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Bootstrap rules:
  *
- * - If Wireless Debugging is already enabled, CurBox can immediately attempt
- *   discovery and reconnection.
+ * - Existing paired installations attempt normal reconnect first.
  *
- * - If Wireless Debugging is disabled but another privileged backend can
- *   enable it, CurBox attempts to enable and verify it before ADB discovery.
+ * - First-time setup prefers automatic pairing. Accessibility captures the
+ *   temporary pairing code while mDNS discovers the pairing endpoint.
  *
- * - Direct ADB itself is never treated as a way to bootstrap Wireless
- *   Debugging while Direct ADB is disconnected.
+ * - Manual pairing-code entry remains available as a fallback.
  *
- * - Automatic lifecycle recovery is enabled only after an explicit pairing
- *   flow has completed and produced a verified Direct ADB connection.
+ * - Automatic lifecycle recovery is enabled only after a pairing flow has
+ *   completed and produced a verified Direct ADB connection.
  */
 class DirectAccessOrchestrator(
     context: Context
@@ -35,6 +33,7 @@ class DirectAccessOrchestrator(
         WIRELESS_DEBUGGING_REQUIRED,
         DISCOVERING,
         PAIRING_REQUIRED,
+        WAITING_FOR_PAIRING_DIALOG,
         DISCOVERING_PAIRING,
         PAIRING,
         DISCOVERING_CONNECTION,
@@ -50,29 +49,14 @@ class DirectAccessOrchestrator(
         ) {
         }
 
-        /**
-         * Direct ADB is connected and has passed transport health
-         * verification.
-         */
         fun onConnected() {
         }
 
-        /**
-         * Wireless Debugging could not be enabled automatically.
-         *
-         * The caller can direct the user to Android's Wireless Debugging
-         * settings and retry after it has been enabled.
-         */
         fun onWirelessDebuggingRequired(
             cause: Throwable?
         ) {
         }
 
-        /**
-         * Automatic reconnect did not succeed.
-         *
-         * The caller may now offer the explicit pairing-code flow.
-         */
         fun onPairingRequired(
             cause: Throwable?
         ) {
@@ -97,6 +81,11 @@ class DirectAccessOrchestrator(
             appContext
         )
 
+    private val autoPairingCoordinator =
+        AdbAutoPairingCoordinator(
+            appContext
+        )
+
     private val operationCounter =
         AtomicLong(0L)
 
@@ -110,10 +99,7 @@ class DirectAccessOrchestrator(
     /**
      * Attempts to restore an existing Direct ADB relationship.
      *
-     * This never starts pairing automatically and never asks for a pairing
-     * code. Wireless Debugging is checked first because there is no useful ADB
-     * discovery/reconnect operation while Android has Wireless Debugging
-     * disabled.
+     * This method never starts pairing by itself.
      */
     fun ensureConnected(
         listener: Listener
@@ -140,11 +126,39 @@ class DirectAccessOrchestrator(
     }
 
     /**
-     * Starts the explicit pairing flow after the user supplies the pairing
-     * code shown by Android Wireless Debugging.
+     * Starts CurBox's preferred first-time pairing path.
      *
-     * Wireless Debugging is checked first because the pairing mDNS endpoint is
-     * advertised by Android's Wireless Debugging pairing server.
+     * No pairing code is supplied by the caller. The Accessibility extractor
+     * waits for Android Settings to display the Wireless Debugging pairing
+     * dialog while mDNS discovers the associated pairing endpoint.
+     */
+    fun startAutoPairing(
+        listener: Listener
+    ) {
+        val operationId =
+            beginNewOperation()
+
+        publishState(
+            operationId,
+            listener,
+            State.INITIALIZING
+        )
+
+        ensureWirelessDebugging(
+            operationId = operationId,
+            listener = listener,
+            onReady = {
+                startAutomaticPairing(
+                    operationId = operationId,
+                    listener = listener
+                )
+            }
+        )
+    }
+
+    /**
+     * Explicit pairing-code flow retained as a fallback when automatic
+     * extraction is unavailable on a device or Settings implementation.
      */
     fun pairAndConnect(
         pairingCode: String,
@@ -163,7 +177,7 @@ class DirectAccessOrchestrator(
             operationId = operationId,
             listener = listener,
             onReady = {
-                startPairing(
+                startManualPairing(
                     operationId = operationId,
                     pairingCode = pairingCode,
                     listener = listener
@@ -172,45 +186,35 @@ class DirectAccessOrchestrator(
         )
     }
 
-    /**
-     * Returns Android's current Wireless Debugging setting.
-     */
     fun isWirelessDebuggingEnabled(): Boolean {
         return WirelessDebuggingController.isEnabled(
             appContext
         )
     }
 
-    /**
-     * Cancels discovery/setup activity owned by this orchestrator.
-     *
-     * An already established ADB session is intentionally left connected.
-     */
     fun cancel() {
         operationCounter.incrementAndGet()
 
         connectionManager.cancel()
         pairingManager.cancel()
+        autoPairingCoordinator.stop()
 
         currentState =
-            if (AdbChannelManager.isConnected()) {
+            if (
+                AdbChannelManager.isConnected()
+            ) {
                 State.CONNECTED
             } else {
                 State.IDLE
             }
     }
 
-    /**
-     * Disconnects the current ADB session while preserving CurBox's identity
-     * and lifecycle-recovery preference for future reconnect attempts.
-     *
-     * Wireless Debugging itself is intentionally left unchanged.
-     */
     fun disconnect() {
         operationCounter.incrementAndGet()
 
         connectionManager.cancel()
         pairingManager.cancel()
+        autoPairingCoordinator.stop()
 
         AdbChannelManager.disconnect()
 
@@ -218,21 +222,10 @@ class DirectAccessOrchestrator(
             State.IDLE
     }
 
-    /**
-     * Current verified connection state from the shared ADB channel.
-     */
     fun isConnected(): Boolean {
         return AdbChannelManager.isConnected()
     }
 
-    /**
-     * Ensures Android reports Wireless Debugging as enabled before CurBox
-     * starts any discovery operation.
-     *
-     * WirelessDebuggingController verifies the state again after attempting a
-     * privileged change, so reaching [onReady] means the setting read-back
-     * succeeded.
-     */
     private fun ensureWirelessDebugging(
         operationId: Long,
         listener: Listener,
@@ -274,10 +267,8 @@ class DirectAccessOrchestrator(
                             onReady()
                         } else {
                             reportWirelessDebuggingRequired(
-                                operationId =
-                                    operationId,
-                                listener =
-                                    listener,
+                                operationId = operationId,
+                                listener = listener,
                                 cause =
                                     IllegalStateException(
                                         "Wireless Debugging remains disabled."
@@ -294,10 +285,8 @@ class DirectAccessOrchestrator(
                         }
 
                         reportWirelessDebuggingRequired(
-                            operationId =
-                                operationId,
-                            listener =
-                                listener,
+                            operationId = operationId,
+                            listener = listener,
                             cause =
                                 IllegalStateException(
                                     error
@@ -309,7 +298,7 @@ class DirectAccessOrchestrator(
     }
 
     /**
-     * Starts normal reconnect after Wireless Debugging is known to be enabled.
+     * Runs normal reconnect for an identity that has already been paired.
      */
     private fun startReconnect(
         operationId: Long,
@@ -374,12 +363,6 @@ class DirectAccessOrchestrator(
                             return
                         }
 
-                        /*
-                         * Do not destroy the stored ADB identity here.
-                         *
-                         * Discovery or authentication failure does not prove
-                         * that the identity itself should be reset.
-                         */
                         publishState(
                             operationId,
                             listener,
@@ -395,12 +378,101 @@ class DirectAccessOrchestrator(
     }
 
     /**
-     * Starts explicit pairing after Wireless Debugging is known to be enabled.
-     *
-     * Lifecycle recovery is enabled only after this explicit setup flow has
-     * produced a verified connection.
+     * Runs automatic pairing by combining Accessibility code detection with
+     * mDNS pairing discovery.
      */
-    private fun startPairing(
+    private fun startAutomaticPairing(
+        operationId: Long,
+        listener: Listener
+    ) {
+        if (!isCurrent(operationId)) {
+            return
+        }
+
+        autoPairingCoordinator.start(
+            object :
+                AdbAutoPairingCoordinator.Listener {
+
+                    override fun onStageChanged(
+                        stage:
+                            AdbAutoPairingCoordinator.Stage
+                    ) {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        val mappedState =
+                            when (stage) {
+                                AdbAutoPairingCoordinator.Stage.INITIALIZING ->
+                                    State.INITIALIZING
+
+                                AdbAutoPairingCoordinator.Stage.WAITING_FOR_PAIRING_DIALOG ->
+                                    State.WAITING_FOR_PAIRING_DIALOG
+
+                                AdbAutoPairingCoordinator.Stage.WAITING_FOR_DISCOVERY ->
+                                    State.DISCOVERING_PAIRING
+
+                                AdbAutoPairingCoordinator.Stage.PAIRING ->
+                                    State.PAIRING
+
+                                AdbAutoPairingCoordinator.Stage.DISCOVERING_CONNECTION ->
+                                    State.DISCOVERING_CONNECTION
+
+                                AdbAutoPairingCoordinator.Stage.CONNECTING ->
+                                    State.CONNECTING
+
+                                AdbAutoPairingCoordinator.Stage.CONNECTED ->
+                                    State.CONNECTED
+                            }
+
+                        publishState(
+                            operationId,
+                            listener,
+                            mappedState
+                        )
+                    }
+
+                    override fun onConnected() {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        enableRecoveryAfterPairing()
+
+                        publishState(
+                            operationId,
+                            listener,
+                            State.CONNECTED
+                        )
+
+                        listener.onConnected()
+                    }
+
+                    override fun onError(
+                        error: Throwable
+                    ) {
+                        if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        publishState(
+                            operationId,
+                            listener,
+                            State.ERROR
+                        )
+
+                        listener.onError(
+                            error
+                        )
+                    }
+                }
+        )
+    }
+
+    /**
+     * Runs the manual pairing fallback.
+     */
+    private fun startManualPairing(
         operationId: Long,
         pairingCode: String,
         listener: Listener
@@ -410,8 +482,7 @@ class DirectAccessOrchestrator(
         }
 
         pairingManager.pairAndConnect(
-            pairingCode =
-                pairingCode,
+            pairingCode = pairingCode,
             listener =
                 object :
                     AdbPairingManager.Listener {
@@ -457,18 +528,7 @@ class DirectAccessOrchestrator(
                             return
                         }
 
-                        /*
-                         * The explicit pairing flow has now produced a
-                         * verified Direct ADB connection. From this point on,
-                         * lifecycle recovery may reuse the stored identity.
-                         */
-                        DirectAccessLifecycleManager
-                            .setRecoveryEnabled(
-                                context =
-                                    appContext,
-                                enabled =
-                                    true
-                            )
+                        enableRecoveryAfterPairing()
 
                         publishState(
                             operationId,
@@ -500,6 +560,14 @@ class DirectAccessOrchestrator(
         )
     }
 
+    private fun enableRecoveryAfterPairing() {
+        DirectAccessLifecycleManager
+            .setRecoveryEnabled(
+                context = appContext,
+                enabled = true
+            )
+    }
+
     private fun reportWirelessDebuggingRequired(
         operationId: Long,
         listener: Listener,
@@ -523,6 +591,7 @@ class DirectAccessOrchestrator(
     private fun beginNewOperation(): Long {
         connectionManager.cancel()
         pairingManager.cancel()
+        autoPairingCoordinator.stop()
 
         return operationCounter.incrementAndGet()
     }
