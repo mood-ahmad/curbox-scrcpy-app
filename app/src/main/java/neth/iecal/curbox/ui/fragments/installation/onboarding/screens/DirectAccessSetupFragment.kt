@@ -31,6 +31,9 @@ class DirectAccessSetupFragment : Fragment() {
     private var directAccessConnected =
         false
 
+    private var manualFallbackVisible =
+        false
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -67,13 +70,29 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .openWirelessDebuggingButton
             .setOnClickListener {
-                openDeveloperOptions()
+                /*
+                 * Arm automatic pairing before leaving CurBox.
+                 *
+                 * The main process starts listening for the capture and for
+                 * the mDNS pairing endpoint. The user can then open Android's
+                 * pairing-code dialog without having to return to CurBox to
+                 * type the code.
+                 */
+                startAutomaticPairing(
+                    openSettingsAfterStart = true
+                )
             }
 
         binding
             .pairButton
             .setOnClickListener {
-                startPairing()
+                if (manualFallbackVisible) {
+                    startManualPairing()
+                } else {
+                    startAutomaticPairing(
+                        openSettingsAfterStart = true
+                    )
+                }
             }
 
         binding
@@ -92,19 +111,6 @@ class DirectAccessSetupFragment : Fragment() {
 
         updateWirelessDebuggingStatus()
 
-        /*
-         * There are three possible entry states:
-         *
-         * 1. Direct ADB is already connected.
-         *    The setup is ready immediately.
-         *
-         * 2. Direct Access was successfully paired before, but the current
-         *    process has not restored the connection yet.
-         *    Attempt normal reconnect using the stored identity.
-         *
-         * 3. Direct Access has never completed pairing.
-         *    Show the pairing UI.
-         */
         when {
             orchestrator
                 ?.isConnected() == true -> {
@@ -119,7 +125,7 @@ class DirectAccessSetupFragment : Fragment() {
             }
 
             else -> {
-                showPairingState()
+                showAutomaticPairingState()
             }
         }
     }
@@ -134,18 +140,18 @@ class DirectAccessSetupFragment : Fragment() {
 
     override fun onDestroyView() {
         orchestrator?.cancel()
-        orchestrator = null
+        orchestrator =
+            null
 
-        _binding = null
+        _binding =
+            null
 
         super.onDestroyView()
     }
 
     /**
-     * Attempts normal reconnect using the identity established by a previous
-     * successful pairing.
-     *
-     * No pairing code is requested unless that reconnect fails.
+     * Attempts normal reconnect using an identity that completed pairing
+     * previously.
      */
     private fun startExistingConnectionRecovery() {
         if (operationInProgress) {
@@ -153,13 +159,14 @@ class DirectAccessSetupFragment : Fragment() {
         }
 
         val currentOrchestrator =
-            orchestrator ?: return
+            orchestrator
+                ?: return
 
         setOperationInProgress(
             true
         )
 
-        hidePairingControls()
+        hidePairingCodeInput()
 
         binding
             .statusText
@@ -167,143 +174,119 @@ class DirectAccessSetupFragment : Fragment() {
             "Restoring Direct Access…"
 
         currentOrchestrator.ensureConnected(
-            object :
-                DirectAccessOrchestrator.Listener {
+            createListener(
+                onConnected =
+                    ::applyPersistentPrivilegesAndFinish,
+                onPairingRequired = {
+                    showAutomaticPairingState()
 
-                override fun onStateChanged(
-                    state:
-                        DirectAccessOrchestrator.State
-                ) {
-                    postToUi {
-                        showState(
-                            state
-                        )
-                    }
+                    binding
+                        .statusText
+                        .text =
+                        "The existing Direct Access connection could not be restored. Start automatic pairing to repair it."
                 }
-
-                override fun onConnected() {
-                    postToUi {
-                        setOperationInProgress(
-                            false
-                        )
-
-                        showConnectedState()
-                    }
-                }
-
-                override fun onWirelessDebuggingRequired(
-                    cause: Throwable?
-                ) {
-                    postToUi {
-                        setOperationInProgress(
-                            false
-                        )
-
-                        directAccessConnected =
-                            false
-
-                        binding
-                            .continueButton
-                            .isEnabled =
-                            false
-
-                        showPairingControls()
-
-                        binding
-                            .statusText
-                            .text =
-                            "Wireless Debugging must be enabled before CurBox can restore Direct Access."
-
-                        updateWirelessDebuggingStatus()
-                    }
-                }
-
-                override fun onPairingRequired(
-                    cause: Throwable?
-                ) {
-                    postToUi {
-                        setOperationInProgress(
-                            false
-                        )
-
-                        directAccessConnected =
-                            false
-
-                        binding
-                            .continueButton
-                            .isEnabled =
-                            false
-
-                        showPairingControls()
-
-                        binding
-                            .statusText
-                            .text =
-                            "CurBox could not restore the existing Direct Access connection. Pair this device again using a new pairing code."
-                    }
-                }
-
-                override fun onError(
-                    error: Throwable
-                ) {
-                    postToUi {
-                        setOperationInProgress(
-                            false
-                        )
-
-                        directAccessConnected =
-                            false
-
-                        binding
-                            .continueButton
-                            .isEnabled =
-                            false
-
-                        showPairingControls()
-
-                        binding
-                            .statusText
-                            .text =
-                            buildString {
-                                append(
-                                    "Direct Access could not be restored."
-                                )
-
-                                error.message
-                                    ?.takeIf {
-                                        it.isNotBlank()
-                                    }
-                                    ?.let {
-                                        append(
-                                            "\n"
-                                        )
-
-                                        append(
-                                            it
-                                        )
-                                    }
-                            }
-                    }
-                }
-            }
+            )
         )
     }
 
     /**
-     * Starts explicit pairing using the code currently displayed by Android's
-     * Wireless Debugging pairing screen.
+     * Preferred pairing path.
+     *
+     * CurBox listens for two independent pieces of information:
+     *
+     * - the pairing code captured from Android Settings by Accessibility;
+     * - the pairing endpoint advertised through mDNS.
+     *
+     * The user does not need to copy or type the six-digit code.
      */
-    private fun startPairing() {
+    private fun startAutomaticPairing(
+        openSettingsAfterStart: Boolean
+    ) {
         if (operationInProgress) {
             return
         }
 
         val currentOrchestrator =
-            orchestrator ?: return
+            orchestrator
+                ?: return
 
-        val appContext =
-            context
-                ?.applicationContext
+        manualFallbackVisible =
+            false
+
+        setOperationInProgress(
+            true
+        )
+
+        hidePairingCodeInput()
+
+        binding
+            .pairButton
+            .text =
+            "Automatic pairing"
+
+        binding
+            .statusText
+            .text =
+            "Preparing automatic pairing…"
+
+        currentOrchestrator.startAutoPairing(
+            createListener(
+                onConnected =
+                    ::applyPersistentPrivilegesAndFinish,
+                onFailure = { error ->
+                    showManualFallback(
+                        error
+                    )
+                },
+                onWirelessRequired = {
+                    setOperationInProgress(
+                        false
+                    )
+
+                    hidePairingCodeInput()
+
+                    binding
+                        .statusText
+                        .text =
+                        "Enable Wireless Debugging, then choose “Pair device with pairing code”. CurBox will read the pairing code automatically."
+
+                    updateWirelessDebuggingStatus()
+
+                    if (openSettingsAfterStart) {
+                        openDeveloperOptions()
+                    }
+                }
+            )
+        )
+
+        /*
+         * Once the coordinator has been armed, leave CurBox and let the user
+         * open Android's Wireless Debugging pairing-code dialog.
+         *
+         * The Accessibility process can capture the dialog while CurBox's
+         * main process remains ready to receive the result.
+         */
+        if (
+            openSettingsAfterStart &&
+            currentOrchestrator
+                .isWirelessDebuggingEnabled()
+        ) {
+            openDeveloperOptions()
+        }
+    }
+
+    /**
+     * Manual six-digit pairing remains available only as a fallback for a
+     * Settings implementation whose pairing dialog cannot be interpreted
+     * through Accessibility.
+     */
+    private fun startManualPairing() {
+        if (operationInProgress) {
+            return
+        }
+
+        val currentOrchestrator =
+            orchestrator
                 ?: return
 
         val pairingCode =
@@ -341,189 +324,204 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "Preparing Direct Access…"
+            "Pairing manually…"
 
         currentOrchestrator.pairAndConnect(
             pairingCode =
                 pairingCode,
             listener =
-                object :
-                    DirectAccessOrchestrator.Listener {
-
-                    override fun onStateChanged(
-                        state:
-                            DirectAccessOrchestrator.State
-                    ) {
-                        postToUi {
-                            showState(
-                                state
-                            )
-                        }
-                    }
-
-                    override fun onConnected() {
-                        /*
-                         * The explicit pairing flow reaches this callback only
-                         * after pairing and the verified ADB connection have
-                         * succeeded.
-                         *
-                         * Apply CurBox's persistent privileged grants while
-                         * DirectAdbBackend is now available.
-                         */
-                        PersistentPrivilegesManager.apply(
-                            context =
-                                appContext,
-                            listener =
-                                object :
-                                    PersistentPrivilegesManager.Listener {
-
-                                    override fun onComplete(
-                                        result:
-                                            PersistentPrivilegesManager.Result
-                                    ) {
-                                        postToUi {
-                                            setOperationInProgress(
-                                                false
-                                            )
-
-                                            if (result.success) {
-                                                showConnectedState()
-                                            } else {
-                                                directAccessConnected =
-                                                    false
-
-                                                binding
-                                                    .continueButton
-                                                    .isEnabled =
-                                                    false
-
-                                                showPairingControls()
-
-                                                binding
-                                                    .statusText
-                                                    .text =
-                                                    buildString {
-                                                        append(
-                                                            "Direct ADB connected, but CurBox could not apply persistent privileges."
-                                                        )
-
-                                                        result.error
-                                                            ?.takeIf {
-                                                                it.isNotBlank()
-                                                            }
-                                                            ?.let {
-                                                                append(
-                                                                    "\n"
-                                                                )
-
-                                                                append(
-                                                                    it
-                                                                )
-                                                            }
-                                                    }
-                                            }
-                                        }
-                                    }
-                                }
+                createListener(
+                    onConnected =
+                        ::applyPersistentPrivilegesAndFinish,
+                    onFailure = { error ->
+                        showManualFallback(
+                            error
                         )
                     }
+                )
+        )
+    }
 
-                    override fun onWirelessDebuggingRequired(
-                        cause: Throwable?
+    /**
+     * A verified ADB connection exists at this point.
+     *
+     * Apply the privileges CurBox wants to persist beyond the ADB command
+     * session before enabling Continue.
+     */
+    private fun applyPersistentPrivilegesAndFinish() {
+        val appContext =
+            context
+                ?.applicationContext
+                ?: return
+
+        PersistentPrivilegesManager.apply(
+            context =
+                appContext,
+            listener =
+                object :
+                    PersistentPrivilegesManager.Listener {
+
+                    override fun onComplete(
+                        result:
+                            PersistentPrivilegesManager.Result
                     ) {
                         postToUi {
                             setOperationInProgress(
                                 false
                             )
 
-                            directAccessConnected =
-                                false
+                            if (result.success) {
+                                showConnectedState()
+                            } else {
+                                directAccessConnected =
+                                    false
 
-                            binding
-                                .continueButton
-                                .isEnabled =
-                                false
+                                binding
+                                    .continueButton
+                                    .isEnabled =
+                                    false
 
-                            showPairingControls()
+                                binding
+                                    .statusText
+                                    .text =
+                                    buildString {
+                                        append(
+                                            "Direct ADB connected, but CurBox could not apply persistent privileges."
+                                        )
 
-                            binding
-                                .statusText
-                                .text =
-                                "Wireless Debugging must be enabled in Developer Options."
+                                        result.error
+                                            ?.takeIf {
+                                                it.isNotBlank()
+                                            }
+                                            ?.let {
+                                                append(
+                                                    "\n"
+                                                )
 
-                            updateWirelessDebuggingStatus()
-                        }
-                    }
-
-                    override fun onPairingRequired(
-                        cause: Throwable?
-                    ) {
-                        postToUi {
-                            setOperationInProgress(
-                                false
-                            )
-
-                            directAccessConnected =
-                                false
-
-                            binding
-                                .continueButton
-                                .isEnabled =
-                                false
-
-                            showPairingControls()
-
-                            binding
-                                .statusText
-                                .text =
-                                "Pairing is required. Open Wireless Debugging, choose pairing by code, then try again."
-                        }
-                    }
-
-                    override fun onError(
-                        error: Throwable
-                    ) {
-                        postToUi {
-                            setOperationInProgress(
-                                false
-                            )
-
-                            directAccessConnected =
-                                false
-
-                            binding
-                                .continueButton
-                                .isEnabled =
-                                false
-
-                            showPairingControls()
-
-                            binding
-                                .statusText
-                                .text =
-                                buildString {
-                                    append(
-                                        "Direct Access setup failed."
-                                    )
-
-                                    error.message
-                                        ?.takeIf {
-                                            it.isNotBlank()
-                                        }
-                                        ?.let {
-                                            append(
-                                                "\n"
-                                            )
-
-                                            append(
-                                                it
-                                            )
-                                        }
-                                }
+                                                append(
+                                                    it
+                                                )
+                                            }
+                                    }
+                            }
                         }
                     }
                 }
         )
+    }
+
+    /**
+     * Shared adapter around DirectAccessOrchestrator.Listener.
+     */
+    private fun createListener(
+        onConnected: () -> Unit,
+        onFailure: ((Throwable?) -> Unit)? = null,
+        onWirelessRequired: (() -> Unit)? = null,
+        onPairingRequired: (() -> Unit)? = null
+    ): DirectAccessOrchestrator.Listener {
+
+        return object :
+            DirectAccessOrchestrator.Listener {
+
+            override fun onStateChanged(
+                state:
+                    DirectAccessOrchestrator.State
+            ) {
+                postToUi {
+                    showState(
+                        state
+                    )
+                }
+            }
+
+            override fun onConnected() {
+                postToUi {
+                    onConnected()
+                }
+            }
+
+            override fun onWirelessDebuggingRequired(
+                cause: Throwable?
+            ) {
+                postToUi {
+                    setOperationInProgress(
+                        false
+                    )
+
+                    directAccessConnected =
+                        false
+
+                    binding
+                        .continueButton
+                        .isEnabled =
+                        false
+
+                    if (onWirelessRequired != null) {
+                        onWirelessRequired()
+                    } else {
+                        showManualFallback(
+                            cause
+                        )
+                    }
+                }
+            }
+
+            override fun onPairingRequired(
+                cause: Throwable?
+            ) {
+                postToUi {
+                    setOperationInProgress(
+                        false
+                    )
+
+                    directAccessConnected =
+                        false
+
+                    binding
+                        .continueButton
+                        .isEnabled =
+                        false
+
+                    if (onPairingRequired != null) {
+                        onPairingRequired()
+                    } else {
+                        onFailure
+                            ?.invoke(
+                                cause
+                            )
+                            ?: showManualFallback(
+                                cause
+                            )
+                    }
+                }
+            }
+
+            override fun onError(
+                error: Throwable
+            ) {
+                postToUi {
+                    setOperationInProgress(
+                        false
+                    )
+
+                    directAccessConnected =
+                        false
+
+                    binding
+                        .continueButton
+                        .isEnabled =
+                        false
+
+                    onFailure
+                        ?.invoke(
+                            error
+                        )
+                        ?: showManualFallback(
+                            error
+                        )
+                }
+            }
+        }
     }
 
     private fun showState(
@@ -551,11 +549,14 @@ class DirectAccessSetupFragment : Fragment() {
                 DirectAccessOrchestrator.State.PAIRING_REQUIRED ->
                     "Pairing is required."
 
+                DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG ->
+                    "Waiting for Android's pairing-code window. CurBox will capture the code automatically."
+
                 DirectAccessOrchestrator.State.DISCOVERING_PAIRING ->
-                    "Looking for the pairing service…"
+                    "Pairing code captured. Waiting for the pairing service…"
 
                 DirectAccessOrchestrator.State.PAIRING ->
-                    "Pairing CurBox with this device…"
+                    "Pairing CurBox automatically…"
 
                 DirectAccessOrchestrator.State.DISCOVERING_CONNECTION ->
                     "Pairing succeeded. Looking for the ADB connection…"
@@ -567,7 +568,7 @@ class DirectAccessSetupFragment : Fragment() {
                     "Direct ADB connected."
 
                 DirectAccessOrchestrator.State.ERROR ->
-                    "Direct Access setup failed."
+                    "Automatic Direct Access setup failed."
             }
     }
 
@@ -575,12 +576,25 @@ class DirectAccessSetupFragment : Fragment() {
         directAccessConnected =
             true
 
+        manualFallbackVisible =
+            false
+
         binding
             .pairingCodeLayout
             .error =
             null
 
-        hidePairingControls()
+        hidePairingCodeInput()
+
+        binding
+            .openWirelessDebuggingButton
+            .visibility =
+            View.GONE
+
+        binding
+            .pairButton
+            .visibility =
+            View.GONE
 
         binding
             .statusText
@@ -595,15 +609,33 @@ class DirectAccessSetupFragment : Fragment() {
         updateWirelessDebuggingStatus()
     }
 
-    private fun showPairingState() {
+    private fun showAutomaticPairingState() {
         directAccessConnected =
+            false
+
+        manualFallbackVisible =
             false
 
         setOperationInProgress(
             false
         )
 
-        showPairingControls()
+        hidePairingCodeInput()
+
+        binding
+            .openWirelessDebuggingButton
+            .visibility =
+            View.VISIBLE
+
+        binding
+            .pairButton
+            .visibility =
+            View.VISIBLE
+
+        binding
+            .pairButton
+            .text =
+            "Start automatic pairing"
 
         binding
             .continueButton
@@ -613,12 +645,21 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "Open Wireless Debugging, choose pairing by code, then enter the 6-digit code below."
+            "Start automatic pairing, then open Android's “Pair device with pairing code” window. CurBox will capture the code automatically."
 
         updateWirelessDebuggingStatus()
     }
 
-    private fun showPairingControls() {
+    private fun showManualFallback(
+        cause: Throwable?
+    ) {
+        manualFallbackVisible =
+            true
+
+        setOperationInProgress(
+            false
+        )
+
         binding
             .pairingCodeLayout
             .visibility =
@@ -628,23 +669,57 @@ class DirectAccessSetupFragment : Fragment() {
             .pairButton
             .visibility =
             View.VISIBLE
+
+        binding
+            .pairButton
+            .text =
+            "Pair manually"
 
         binding
             .openWirelessDebuggingButton
             .visibility =
             View.VISIBLE
+
+        binding
+            .continueButton
+            .isEnabled =
+            false
+
+        binding
+            .statusText
+            .text =
+            buildString {
+                append(
+                    "Automatic pairing could not complete. Manual pairing is available as a fallback."
+                )
+
+                cause
+                    ?.message
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        append(
+                            "\n"
+                        )
+
+                        append(
+                            it
+                        )
+                    }
+            }
     }
 
-    private fun hidePairingControls() {
+    private fun hidePairingCodeInput() {
         binding
             .pairingCodeLayout
             .visibility =
             View.GONE
 
         binding
-            .pairButton
-            .visibility =
-            View.GONE
+            .pairingCodeLayout
+            .error =
+            null
     }
 
     private fun setOperationInProgress(
@@ -679,11 +754,8 @@ class DirectAccessSetupFragment : Fragment() {
     }
 
     private fun updateWirelessDebuggingStatus() {
-        val currentOrchestrator =
-            orchestrator
-
         val enabled =
-            currentOrchestrator
+            orchestrator
                 ?.isWirelessDebuggingEnabled() ==
                 true
 
@@ -719,7 +791,8 @@ class DirectAccessSetupFragment : Fragment() {
         action: () -> Unit
     ) {
         val currentActivity =
-            activity ?: return
+            activity
+                ?: return
 
         currentActivity.runOnUiThread {
             if (_binding == null) {
