@@ -16,6 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Either signal may arrive first. The coordinator stores both and starts
  * pairing exactly once when both are available.
+ *
+ * Accessibility capture is explicitly armed only while this coordinator owns
+ * an active automatic-pairing session.
  */
 class AdbAutoPairingCoordinator(
     context: Context
@@ -54,6 +57,9 @@ class AdbAutoPairingCoordinator(
     private var captureReceiver:
         BroadcastReceiver? = null
 
+    private var captureArmed =
+        false
+
     enum class Stage {
         INITIALIZING,
         WAITING_FOR_PAIRING_DIALOG,
@@ -79,17 +85,18 @@ class AdbAutoPairingCoordinator(
     }
 
     /**
-     * Arms automatic pairing in the main process.
+     * Starts one automatic-pairing session.
      *
-     * Pairing information captured by AppBlockerService arrives through the
-     * cross-process bridge, while pairing endpoint discovery runs through mDNS.
+     * The main process first prepares its receiver, then explicitly arms the
+     * Accessibility-service process. This ordering prevents a captured code
+     * from being sent before the main process is ready to consume it.
      */
     fun start(
         listener: Listener
     ) {
-        synchronized(lock) {
-            stopLocked()
+        stop()
 
+        synchronized(lock) {
             this.listener =
                 listener
 
@@ -177,38 +184,131 @@ class AdbAutoPairingCoordinator(
             return
         }
 
+        if (!isRunning()) {
+            return
+        }
+
+        /*
+         * The main-process receiver is ready. The Accessibility process may
+         * now begin inspecting Android Settings for the pairing dialog.
+         */
+        try {
+            AdbPairingCaptureBridge.armCapture(
+                appContext
+            )
+
+            synchronized(lock) {
+                if (!running) {
+                    AdbPairingCaptureBridge.disarmCapture(
+                        appContext
+                    )
+
+                    return
+                }
+
+                captureArmed =
+                    true
+            }
+        } catch (t: Throwable) {
+            fail(
+                t
+            )
+
+            return
+        }
+
         publishStage(
             Stage.WAITING_FOR_PAIRING_DIALOG
         )
 
-        discoveryManager.discoverPairing(
-            object :
-                AdbDiscoveryManager.Listener {
+        try {
+            discoveryManager.discoverPairing(
+                object :
+                    AdbDiscoveryManager.Listener {
 
-                override fun onEndpointFound(
-                    endpoint:
-                        AdbDiscoveryManager.Endpoint
-                ) {
-                    handlePairingEndpoint(
-                        endpoint
-                    )
-                }
+                    override fun onEndpointFound(
+                        endpoint:
+                            AdbDiscoveryManager.Endpoint
+                    ) {
+                        handlePairingEndpoint(
+                            endpoint
+                        )
+                    }
 
-                override fun onError(
-                    error: Throwable
-                ) {
-                    fail(
-                        error
-                    )
+                    override fun onError(
+                        error: Throwable
+                    ) {
+                        fail(
+                            error
+                        )
+                    }
                 }
-            }
-        )
+            )
+        } catch (t: Throwable) {
+            fail(
+                t
+            )
+        }
     }
 
+    /**
+     * Stops the current automatic-pairing session without deleting CurBox's
+     * persistent ADB identity.
+     */
     fun stop() {
+        val receiver:
+            BroadcastReceiver?
+
+        val shouldDisarm:
+            Boolean
+
         synchronized(lock) {
-            stopLocked()
+            running =
+                false
+
+            listener =
+                null
+
+            pairingCode =
+                null
+
+            accessibilityPort =
+                null
+
+            pairingEndpoint =
+                null
+
+            pairingStarted.set(
+                false
+            )
+
+            receiver =
+                captureReceiver
+
+            captureReceiver =
+                null
+
+            shouldDisarm =
+                captureArmed
+
+            captureArmed =
+                false
         }
+
+        if (shouldDisarm) {
+            AdbPairingCaptureBridge.disarmCapture(
+                appContext
+            )
+        }
+
+        AdbPairingCaptureBridge.unregister(
+            context =
+                appContext,
+            receiver =
+                receiver
+        )
+
+        discoveryManager.stop()
     }
 
     fun isRunning(): Boolean {
@@ -252,6 +352,10 @@ class AdbAutoPairingCoordinator(
         tryStartPairing()
     }
 
+    /**
+     * Starts network pairing only after both the captured code and mDNS
+     * endpoint are available.
+     */
     private fun tryStartPairing() {
         val code:
             String
@@ -303,13 +407,13 @@ class AdbAutoPairingCoordinator(
         }
 
         /*
-         * Both inputs have been captured.
-         *
-         * The bridge receiver is no longer needed. The Settings-side extractor
-         * is disabled separately by the Accessibility process after capture.
+         * The pairing dialog has already yielded the information CurBox needs.
+         * Stop Accessibility capture immediately instead of leaving it armed
+         * while TLS pairing and connection continue.
          */
-        unregisterCaptureReceiver()
+        disarmCapture()
 
+        unregisterCaptureReceiver()
         discoveryManager.stop()
 
         publishStage(
@@ -445,33 +549,34 @@ class AdbAutoPairingCoordinator(
     }
 
     private fun finishConnected() {
-        val currentListener =
-            synchronized(lock) {
-                if (!running) {
-                    return
-                }
+        val currentListener:
+            Listener?
 
-                running =
-                    false
-
-                val value =
-                    listener
-
-                listener =
-                    null
-
-                pairingCode =
-                    null
-
-                accessibilityPort =
-                    null
-
-                pairingEndpoint =
-                    null
-
-                value
+        synchronized(lock) {
+            if (!running) {
+                return
             }
 
+            running =
+                false
+
+            currentListener =
+                listener
+
+            listener =
+                null
+
+            pairingCode =
+                null
+
+            accessibilityPort =
+                null
+
+            pairingEndpoint =
+                null
+        }
+
+        disarmCapture()
         unregisterCaptureReceiver()
         discoveryManager.stop()
 
@@ -487,33 +592,34 @@ class AdbAutoPairingCoordinator(
     private fun fail(
         error: Throwable
     ) {
-        val currentListener =
-            synchronized(lock) {
-                if (!running) {
-                    return
-                }
+        val currentListener:
+            Listener?
 
-                running =
-                    false
-
-                val value =
-                    listener
-
-                listener =
-                    null
-
-                pairingCode =
-                    null
-
-                accessibilityPort =
-                    null
-
-                pairingEndpoint =
-                    null
-
-                value
+        synchronized(lock) {
+            if (!running) {
+                return
             }
 
+            running =
+                false
+
+            currentListener =
+                listener
+
+            listener =
+                null
+
+            pairingCode =
+                null
+
+            accessibilityPort =
+                null
+
+            pairingEndpoint =
+                null
+        }
+
+        disarmCapture()
         unregisterCaptureReceiver()
         discoveryManager.stop()
 
@@ -541,6 +647,33 @@ class AdbAutoPairingCoordinator(
             )
     }
 
+    private fun disarmCapture() {
+        val shouldDisarm =
+            synchronized(lock) {
+                if (!captureArmed) {
+                    false
+                } else {
+                    captureArmed =
+                        false
+
+                    true
+                }
+            }
+
+        if (shouldDisarm) {
+            try {
+                AdbPairingCaptureBridge.disarmCapture(
+                    appContext
+                )
+            } catch (_: Throwable) {
+                /*
+                 * Local state is already disarmed. Cleanup must not replace the
+                 * original pairing result with a broadcast-cleanup failure.
+                 */
+            }
+        }
+    }
+
     private fun unregisterCaptureReceiver() {
         val receiver =
             synchronized(lock) {
@@ -559,41 +692,5 @@ class AdbAutoPairingCoordinator(
             receiver =
                 receiver
         )
-    }
-
-    private fun stopLocked() {
-        running =
-            false
-
-        listener =
-            null
-
-        pairingCode =
-            null
-
-        accessibilityPort =
-            null
-
-        pairingEndpoint =
-            null
-
-        pairingStarted.set(
-            false
-        )
-
-        val receiver =
-            captureReceiver
-
-        captureReceiver =
-            null
-
-        AdbPairingCaptureBridge.unregister(
-            context =
-                appContext,
-            receiver =
-                receiver
-        )
-
-        discoveryManager.stop()
     }
 }
