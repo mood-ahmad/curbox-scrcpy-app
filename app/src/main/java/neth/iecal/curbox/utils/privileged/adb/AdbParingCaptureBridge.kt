@@ -12,17 +12,25 @@ import androidx.core.content.ContextCompat
  * Direct Access coordination runs in the main application process while
  * AppBlockerService runs in :app_blocker_service.
  *
- * The bridge carries three kinds of messages:
+ * Every automatic-pairing attempt has a unique session ID.
+ *
+ * The bridge carries four kinds of messages:
  *
  * 1. ARM_CAPTURE
- *    The main process explicitly starts a pairing-capture session.
+ *    Main process -> Accessibility process.
+ *    Starts capture for one specific session.
  *
- * 2. DISARM_CAPTURE
- *    The main process ends the pairing-capture session.
+ * 2. ARMED_ACK
+ *    Accessibility process -> Main process.
+ *    Confirms that the extractor and navigator are armed for that session.
  *
  * 3. PAIRING_CAPTURED
- *    The Accessibility process sends the detected pairing code and optional
- *    on-screen pairing endpoint information back to the main process.
+ *    Accessibility process -> Main process.
+ *    Carries the pairing code and optional on-screen endpoint information.
+ *
+ * 4. DISARM_CAPTURE
+ *    Main process -> Accessibility process.
+ *    Ends capture for the matching session.
  *
  * All broadcasts are package-scoped. Dynamically registered receivers are
  * also marked not exported.
@@ -32,11 +40,17 @@ object AdbPairingCaptureBridge {
     private const val ACTION_ARM_CAPTURE =
         "neth.iecal.curbox.action.ADB_PAIRING_ARM_CAPTURE"
 
+    private const val ACTION_ARMED_ACK =
+        "neth.iecal.curbox.action.ADB_PAIRING_ARMED_ACK"
+
     private const val ACTION_DISARM_CAPTURE =
         "neth.iecal.curbox.action.ADB_PAIRING_DISARM_CAPTURE"
 
     private const val ACTION_PAIRING_CAPTURED =
         "neth.iecal.curbox.action.ADB_PAIRING_CAPTURED"
+
+    private const val EXTRA_SESSION_ID =
+        "pairing_session_id"
 
     private const val EXTRA_CODE =
         "pairing_code"
@@ -49,7 +63,21 @@ object AdbPairingCaptureBridge {
 
     interface Listener {
 
+        /**
+         * Called after the Accessibility process confirms that capture is
+         * armed for this exact pairing session.
+         */
+        fun onCaptureArmed(
+            sessionId: String
+        ) {
+        }
+
+        /**
+         * Called when pairing information belonging to this exact session is
+         * received from the Accessibility process.
+         */
         fun onPairingInfoDetected(
+            sessionId: String,
             info:
                 AdbPairingAccessibilityExtractor.PairingInfo
         )
@@ -57,55 +85,112 @@ object AdbPairingCaptureBridge {
 
     interface CaptureStateListener {
 
-        fun onCaptureArmed()
+        /**
+         * Main process requested capture for [sessionId].
+         *
+         * The Accessibility process must arm its extractor/navigator and then
+         * call [acknowledgeArmed].
+         */
+        fun onCaptureArmRequested(
+            sessionId: String
+        )
 
-        fun onCaptureDisarmed()
+        /**
+         * Main process ended [sessionId].
+         */
+        fun onCaptureDisarmRequested(
+            sessionId: String
+        )
     }
 
     /**
-     * Tells CurBox's Accessibility process that an explicit automatic-pairing
-     * attempt has started.
+     * Requests that the Accessibility process arm automatic pairing capture.
      */
     fun armCapture(
-        context: Context
+        context: Context,
+        sessionId: String
     ) {
+        requireSessionId(
+            sessionId
+        )
+
         sendControlBroadcast(
             context =
                 context,
             action =
-                ACTION_ARM_CAPTURE
+                ACTION_ARM_CAPTURE,
+            sessionId =
+                sessionId
         )
     }
 
     /**
-     * Tells CurBox's Accessibility process to stop pairing-dialog extraction.
+     * Confirms to the main process that Accessibility capture is ready.
+     */
+    fun acknowledgeArmed(
+        context: Context,
+        sessionId: String
+    ) {
+        requireSessionId(
+            sessionId
+        )
+
+        sendSessionBroadcast(
+            context =
+                context,
+            action =
+                ACTION_ARMED_ACK,
+            sessionId =
+                sessionId
+        )
+    }
+
+    /**
+     * Requests that the Accessibility process stop capture for [sessionId].
      */
     fun disarmCapture(
-        context: Context
+        context: Context,
+        sessionId: String
     ) {
+        requireSessionId(
+            sessionId
+        )
+
         sendControlBroadcast(
             context =
                 context,
             action =
-                ACTION_DISARM_CAPTURE
+                ACTION_DISARM_CAPTURE,
+            sessionId =
+                sessionId
         )
     }
 
     /**
-     * Sends pairing information from the Accessibility-service process to
-     * CurBox's main process.
+     * Sends captured pairing information from the Accessibility process to the
+     * main process.
      */
     fun publish(
         context: Context,
+        sessionId: String,
         info:
             AdbPairingAccessibilityExtractor.PairingInfo
     ) {
+        requireSessionId(
+            sessionId
+        )
+
         val intent =
             Intent(
                 ACTION_PAIRING_CAPTURED
             ).apply {
                 setPackage(
                     context.packageName
+                )
+
+                putExtra(
+                    EXTRA_SESSION_ID,
+                    sessionId
                 )
 
                 putExtra(
@@ -130,13 +215,23 @@ object AdbPairingCaptureBridge {
     }
 
     /**
-     * Registers the main-process receiver used to receive captured pairing
-     * information.
+     * Registers the main-process receiver.
+     *
+     * It receives both the Accessibility-ready acknowledgement and captured
+     * pairing information.
+     *
+     * [expectedSessionId] prevents data from a previous pairing attempt from
+     * being delivered into the current attempt.
      */
     fun register(
         context: Context,
+        expectedSessionId: String,
         listener: Listener
     ): BroadcastReceiver {
+        requireSessionId(
+            expectedSessionId
+        )
+
         val appContext =
             context.applicationContext
 
@@ -147,64 +242,63 @@ object AdbPairingCaptureBridge {
                     context: Context?,
                     intent: Intent?
                 ) {
-                    if (
-                        intent?.action !=
-                        ACTION_PAIRING_CAPTURED
-                    ) {
-                        return
-                    }
+                    val currentIntent =
+                        intent
+                            ?: return
 
-                    val code =
-                        intent.getStringExtra(
-                            EXTRA_CODE
-                        )
+                    val sessionId =
+                        currentIntent
+                            .getStringExtra(
+                                EXTRA_SESSION_ID
+                            )
                             ?.trim()
                             .orEmpty()
 
                     if (
-                        code.length != 6 ||
-                        code.any {
-                            !it.isDigit()
-                        }
+                        sessionId !=
+                        expectedSessionId
                     ) {
                         return
                     }
 
-                    val rawPort =
-                        intent.getIntExtra(
-                            EXTRA_PORT,
-                            -1
-                        )
-
-                    val port =
-                        rawPort.takeIf {
-                            it in 1..65535
+                    when (
+                        currentIntent.action
+                    ) {
+                        ACTION_ARMED_ACK -> {
+                            listener.onCaptureArmed(
+                                sessionId
+                            )
                         }
 
-                    val rawAddress =
-                        intent.getStringExtra(
-                            EXTRA_RAW_ADDRESS
-                        )
-
-                    listener.onPairingInfoDetected(
-                        AdbPairingAccessibilityExtractor.PairingInfo(
-                            code =
-                                code,
-                            port =
-                                port,
-                            rawAddress =
-                                rawAddress
-                        )
-                    )
+                        ACTION_PAIRING_CAPTURED -> {
+                            deliverPairingCapture(
+                                intent =
+                                    currentIntent,
+                                sessionId =
+                                    sessionId,
+                                listener =
+                                    listener
+                            )
+                        }
+                    }
                 }
+            }
+
+        val filter =
+            IntentFilter().apply {
+                addAction(
+                    ACTION_ARMED_ACK
+                )
+
+                addAction(
+                    ACTION_PAIRING_CAPTURED
+                )
             }
 
         ContextCompat.registerReceiver(
             appContext,
             receiver,
-            IntentFilter(
-                ACTION_PAIRING_CAPTURED
-            ),
+            filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
 
@@ -212,8 +306,11 @@ object AdbPairingCaptureBridge {
     }
 
     /**
-     * Registers a receiver inside the Accessibility-service process for the
-     * main process' ARM/DISARM messages.
+     * Registers the receiver living in :app_blocker_service.
+     *
+     * ARM and DISARM requests are delivered with their session IDs so the
+     * Accessibility process can reject a stale DISARM belonging to an older
+     * attempt.
      */
     fun registerCaptureStateReceiver(
         context: Context,
@@ -229,14 +326,38 @@ object AdbPairingCaptureBridge {
                     context: Context?,
                     intent: Intent?
                 ) {
-                    when (
-                        intent?.action
-                    ) {
-                        ACTION_ARM_CAPTURE ->
-                            listener.onCaptureArmed()
+                    val currentIntent =
+                        intent
+                            ?: return
 
-                        ACTION_DISARM_CAPTURE ->
-                            listener.onCaptureDisarmed()
+                    val sessionId =
+                        currentIntent
+                            .getStringExtra(
+                                EXTRA_SESSION_ID
+                            )
+                            ?.trim()
+                            .orEmpty()
+
+                    if (
+                        sessionId.isEmpty()
+                    ) {
+                        return
+                    }
+
+                    when (
+                        currentIntent.action
+                    ) {
+                        ACTION_ARM_CAPTURE -> {
+                            listener.onCaptureArmRequested(
+                                sessionId
+                            )
+                        }
+
+                        ACTION_DISARM_CAPTURE -> {
+                            listener.onCaptureDisarmRequested(
+                                sessionId
+                            )
+                        }
                     }
                 }
             }
@@ -284,9 +405,78 @@ object AdbPairingCaptureBridge {
         }
     }
 
+    private fun deliverPairingCapture(
+        intent: Intent,
+        sessionId: String,
+        listener: Listener
+    ) {
+        val code =
+            intent
+                .getStringExtra(
+                    EXTRA_CODE
+                )
+                ?.trim()
+                .orEmpty()
+
+        if (
+            code.length != 6 ||
+            code.any {
+                !it.isDigit()
+            }
+        ) {
+            return
+        }
+
+        val rawPort =
+            intent.getIntExtra(
+                EXTRA_PORT,
+                -1
+            )
+
+        val port =
+            rawPort.takeIf {
+                it in 1..65535
+            }
+
+        val rawAddress =
+            intent.getStringExtra(
+                EXTRA_RAW_ADDRESS
+            )
+
+        listener.onPairingInfoDetected(
+            sessionId =
+                sessionId,
+            info =
+                AdbPairingAccessibilityExtractor.PairingInfo(
+                    code =
+                        code,
+                    port =
+                        port,
+                    rawAddress =
+                        rawAddress
+                )
+        )
+    }
+
     private fun sendControlBroadcast(
         context: Context,
-        action: String
+        action: String,
+        sessionId: String
+    ) {
+        sendSessionBroadcast(
+            context =
+                context,
+            action =
+                action,
+            sessionId =
+                sessionId
+        )
+    }
+
+    private fun sendSessionBroadcast(
+        context: Context,
+        action: String,
+        sessionId: String
     ) {
         val intent =
             Intent(
@@ -295,11 +485,25 @@ object AdbPairingCaptureBridge {
                 setPackage(
                     context.packageName
                 )
+
+                putExtra(
+                    EXTRA_SESSION_ID,
+                    sessionId
+                )
             }
 
         context.sendBroadcast(
             intent
         )
     }
-}
 
+    private fun requireSessionId(
+        sessionId: String
+    ) {
+        require(
+            sessionId.isNotBlank()
+        ) {
+            "ADB pairing session ID must not be blank."
+        }
+    }
+}
