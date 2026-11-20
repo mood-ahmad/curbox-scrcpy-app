@@ -35,17 +35,9 @@ class DirectAccessFragment : Fragment() {
     private var operationInProgress =
         false
 
-    /**
-     * True while the current automatic-pairing attempt intends to open
-     * Android Settings after Accessibility acknowledges readiness.
-     */
     private var openSettingsWhenAccessibilityReady =
         false
 
-    /**
-     * Prevents repeated state callbacks from launching Settings more than once
-     * during the same automatic-pairing attempt.
-     */
     private var settingsOpenedForCurrentAttempt =
         false
 
@@ -150,13 +142,6 @@ class DirectAccessFragment : Fragment() {
         super.onDestroyView()
     }
 
-    /**
-     * Starts automatic pairing without immediately leaving CurBox.
-     *
-     * Settings is opened only after WAITING_FOR_PAIRING_DIALOG is received,
-     * which means the Accessibility process has acknowledged that its
-     * extractor and navigator are armed for the current session.
-     */
     private fun startAutomaticPairing(
         openSettingsAfterReady: Boolean
     ) {
@@ -189,14 +174,13 @@ class DirectAccessFragment : Fragment() {
             createListener(
                 onConnected =
                     ::applyPersistentPrivilegesAndFinish,
-                onFailure = { error ->
-                    openSettingsWhenAccessibilityReady =
-                        false
 
-                    showAutomaticPairingFailure(
+                onFailure = { error ->
+                    handleAutomaticPairingFailure(
                         error
                     )
                 },
+
                 onWirelessRequired = {
                     openSettingsWhenAccessibilityReady =
                         false
@@ -215,11 +199,6 @@ class DirectAccessFragment : Fragment() {
 
                     renderStatus()
 
-                    /*
-                     * Automatic capture is not active on this path because
-                     * Wireless Debugging could not be enabled yet. Settings is
-                     * opened only so the user can enable it.
-                     */
                     if (openSettingsAfterReady) {
                         openDeveloperOptions()
                     }
@@ -266,6 +245,7 @@ class DirectAccessFragment : Fragment() {
 
                     renderStatus()
                 },
+
                 onPairingRequired = {
                     setOperationInProgress(
                         false
@@ -337,10 +317,12 @@ class DirectAccessFragment : Fragment() {
         currentOrchestrator.pairAndConnect(
             pairingCode =
                 pairingCode,
+
             listener =
                 createListener(
                     onConnected =
                         ::applyPersistentPrivilegesAndFinish,
+
                     onFailure = { error ->
                         setOperationInProgress(
                             false
@@ -393,6 +375,7 @@ class DirectAccessFragment : Fragment() {
         PersistentPrivilegesManager.apply(
             context =
                 appContext,
+
             listener =
                 object :
                     PersistentPrivilegesManager.Listener {
@@ -586,9 +569,62 @@ class DirectAccessFragment : Fragment() {
     }
 
     /**
-     * WAITING_FOR_PAIRING_DIALOG is emitted only after ARMED_ACK for the
-     * current automatic-pairing session.
+     * Accessibility availability is a prerequisite failure, not a pairing
+     * failure. Send the user to Accessibility Settings instead of presenting
+     * manual pairing as the primary solution.
      */
+    private fun handleAutomaticPairingFailure(
+        error: Throwable?
+    ) {
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
+
+        setOperationInProgress(
+            false
+        )
+
+        if (
+            isAccessibilityUnavailableError(
+                error
+            )
+        ) {
+            hideManualPairing()
+
+            binding
+                .operationStatus
+                .text =
+                "CurBox Accessibility service must be enabled before automatic pairing. Enable CurBox in Accessibility settings, then return and start automatic pairing again."
+
+            openAccessibilitySettings()
+
+            return
+        }
+
+        showAutomaticPairingFailure(
+            error
+        )
+    }
+
+    private fun isAccessibilityUnavailableError(
+        error: Throwable?
+    ): Boolean {
+        val message =
+            error
+                ?.message
+                ?.lowercase()
+                .orEmpty()
+
+        return message.contains(
+            "accessibility service must be enabled"
+        ) ||
+            message.contains(
+                "accessibility service did not become ready"
+            )
+    }
+
     private fun maybeOpenSettingsAfterAccessibilityReady(
         state: DirectAccessOrchestrator.State
     ) {
@@ -852,6 +888,24 @@ class DirectAccessFragment : Fragment() {
         renderStatus()
     }
 
+    private fun openAccessibilitySettings() {
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_ACCESSIBILITY_SETTINGS
+                )
+            )
+        } catch (
+            _: ActivityNotFoundException
+        ) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_SETTINGS
+                )
+            )
+        }
+    }
+
     private fun openDeveloperOptions() {
         try {
             startActivity(
@@ -886,4 +940,3 @@ class DirectAccessFragment : Fragment() {
         }
     }
 }
-
