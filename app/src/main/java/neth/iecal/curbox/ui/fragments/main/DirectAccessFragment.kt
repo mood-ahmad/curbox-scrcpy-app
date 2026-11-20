@@ -78,8 +78,8 @@ class DirectAccessFragment : Fragment() {
             .setOnClickListener {
                 /*
                  * Arm CurBox before opening Settings so the main process is
-                 * already waiting for both the Accessibility capture and mDNS
-                 * pairing endpoint when Android displays the pairing dialog.
+                 * already waiting for both Accessibility capture and mDNS
+                 * pairing discovery.
                  */
                 startAutomaticPairing(
                     openSettingsAfterStart = true
@@ -133,14 +133,6 @@ class DirectAccessFragment : Fragment() {
         super.onDestroyView()
     }
 
-    /**
-     * Preferred setup and repair path.
-     *
-     * CurBox arms the automatic pairing coordinator first. Android Settings
-     * can then display "Pair device with pairing code"; AppBlockerService
-     * captures the temporary pairing information through Accessibility and
-     * forwards it to the main process.
-     */
     private fun startAutomaticPairing(
         openSettingsAfterStart: Boolean
     ) {
@@ -191,10 +183,6 @@ class DirectAccessFragment : Fragment() {
             )
         )
 
-        /*
-         * If Wireless Debugging is already enabled, the coordinator remains
-         * armed while Settings is opened.
-         */
         if (
             openSettingsAfterStart &&
             currentOrchestrator
@@ -204,12 +192,6 @@ class DirectAccessFragment : Fragment() {
         }
     }
 
-    /**
-     * Reuses the persisted ADB identity.
-     *
-     * This does not pair automatically. If Android no longer trusts the
-     * identity, the user can run automatic repair afterwards.
-     */
     private fun reconnect() {
         if (operationInProgress) {
             return
@@ -258,9 +240,6 @@ class DirectAccessFragment : Fragment() {
         )
     }
 
-    /**
-     * Manual six-digit pairing remains a compatibility fallback.
-     */
     private fun startManualPairing() {
         if (operationInProgress) {
             return
@@ -349,10 +328,6 @@ class DirectAccessFragment : Fragment() {
         )
     }
 
-    /**
-     * Runs after automatic or manual pairing has produced a verified ADB
-     * connection.
-     */
     private fun applyPersistentPrivilegesAndFinish() {
         val appContext =
             context
@@ -559,6 +534,9 @@ class DirectAccessFragment : Fragment() {
                 DirectAccessOrchestrator.State.PAIRING_REQUIRED ->
                     "The stored identity needs pairing again."
 
+                DirectAccessOrchestrator.State.WAITING_FOR_ACCESSIBILITY ->
+                    "Preparing automatic pairing. Waiting for Accessibility to become ready."
+
                 DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG ->
                     "Waiting for Android's pairing-code window. CurBox will capture the code automatically."
 
@@ -651,10 +629,6 @@ class DirectAccessFragment : Fragment() {
             View.VISIBLE
     }
 
-    /**
-     * Renders persistent/current Direct Access state independently from the
-     * transient operation message.
-     */
     private fun renderStatus() {
         val currentOrchestrator =
             orchestrator
