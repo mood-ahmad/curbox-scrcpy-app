@@ -1,5 +1,6 @@
 package neth.iecal.curbox.utils.privileged.adb
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -8,13 +9,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Two independent signals have to meet:
  *
- * 1. Accessibility discovers the temporary six-digit pairing code.
+ * 1. The Accessibility-service process captures the temporary pairing code
+ *    and sends it to the main process through AdbPairingCaptureBridge.
+ *
  * 2. mDNS discovers the current _adb-tls-pairing._tcp endpoint.
  *
  * Either signal may arrive first. The coordinator stores both and starts
  * pairing exactly once when both are available.
- *
- * Pairing itself remains owned by AdbChannelManager.
  */
 class AdbAutoPairingCoordinator(
     context: Context
@@ -50,6 +51,9 @@ class AdbAutoPairingCoordinator(
     private var listener:
         Listener? = null
 
+    private var captureReceiver:
+        BroadcastReceiver? = null
+
     enum class Stage {
         INITIALIZING,
         WAITING_FOR_PAIRING_DIALOG,
@@ -67,25 +71,18 @@ class AdbAutoPairingCoordinator(
         ) {
         }
 
-        /**
-         * Automatic pairing and the verified initial ADB connection succeeded.
-         */
         fun onConnected()
 
-        /**
-         * Automatic pairing failed.
-         */
         fun onError(
             error: Throwable
         )
     }
 
     /**
-     * Arms automatic pairing.
+     * Arms automatic pairing in the main process.
      *
-     * From this point until [stop], the Accessibility extractor is allowed to
-     * inspect Android Settings events for the Wireless Debugging pairing
-     * dialog.
+     * Pairing information captured by AppBlockerService arrives through the
+     * cross-process bridge, while pairing endpoint discovery runs through mDNS.
      */
     fun start(
         listener: Listener
@@ -137,26 +134,48 @@ class AdbAutoPairingCoordinator(
             return
         }
 
-        /*
-         * Accessibility and mDNS are intentionally armed together.
-         *
-         * Android may show the code before NSD resolves the advertised
-         * pairing service, or NSD may resolve first.
-         */
-        AdbPairingAccessibilityExtractor.start(
-            object :
-                AdbPairingAccessibilityExtractor.Listener {
+        try {
+            val receiver =
+                AdbPairingCaptureBridge.register(
+                    context =
+                        appContext,
+                    listener =
+                        object :
+                            AdbPairingCaptureBridge.Listener {
 
-                override fun onPairingInfoDetected(
-                    info:
-                        AdbPairingAccessibilityExtractor.PairingInfo
-                ) {
-                    handleAccessibilityInfo(
-                        info
+                            override fun onPairingInfoDetected(
+                                info:
+                                    AdbPairingAccessibilityExtractor.PairingInfo
+                            ) {
+                                handleAccessibilityInfo(
+                                    info
+                                )
+                            }
+                        }
+                )
+
+            synchronized(lock) {
+                if (!running) {
+                    AdbPairingCaptureBridge.unregister(
+                        context =
+                            appContext,
+                        receiver =
+                            receiver
                     )
+
+                    return
                 }
+
+                captureReceiver =
+                    receiver
             }
-        )
+        } catch (t: Throwable) {
+            fail(
+                t
+            )
+
+            return
+        }
 
         publishStage(
             Stage.WAITING_FOR_PAIRING_DIALOG
@@ -186,11 +205,6 @@ class AdbAutoPairingCoordinator(
         )
     }
 
-    /**
-     * Cancels automatic pairing.
-     *
-     * Calling this repeatedly is safe.
-     */
     fun stop() {
         synchronized(lock) {
             stopLocked()
@@ -207,10 +221,6 @@ class AdbAutoPairingCoordinator(
         info:
             AdbPairingAccessibilityExtractor.PairingInfo
     ) {
-        if (!isRunning()) {
-            return
-        }
-
         synchronized(lock) {
             if (!running) {
                 return
@@ -230,10 +240,6 @@ class AdbAutoPairingCoordinator(
         endpoint:
             AdbDiscoveryManager.Endpoint
     ) {
-        if (!isRunning()) {
-            return
-        }
-
         synchronized(lock) {
             if (!running) {
                 return
@@ -246,18 +252,7 @@ class AdbAutoPairingCoordinator(
         tryStartPairing()
     }
 
-    /**
-     * Starts pairing only when both independently discovered pieces are ready.
-     *
-     * The mDNS endpoint is authoritative. The port read from Accessibility is
-     * retained only as diagnostic/fallback information and is not allowed to
-     * override a resolved mDNS endpoint.
-     */
     private fun tryStartPairing() {
-        if (!isRunning()) {
-            return
-        }
-
         val code:
             String
 
@@ -308,10 +303,13 @@ class AdbAutoPairingCoordinator(
         }
 
         /*
-         * No more pairing-dialog scanning or pairing-service discovery is
-         * required after both values have been captured.
+         * Both inputs have been captured.
+         *
+         * The bridge receiver is no longer needed. The Settings-side extractor
+         * is disabled separately by the Accessibility process after capture.
          */
-        AdbPairingAccessibilityExtractor.stop()
+        unregisterCaptureReceiver()
+
         discoveryManager.stop()
 
         publishStage(
@@ -364,10 +362,6 @@ class AdbAutoPairingCoordinator(
         discoverConnectionEndpoint()
     }
 
-    /**
-     * Pairing and normal ADB connection use different dynamically advertised
-     * endpoints, so rediscover the TLS connection service after pairing.
-     */
     private fun discoverConnectionEndpoint() {
         if (!isRunning()) {
             return
@@ -478,7 +472,7 @@ class AdbAutoPairingCoordinator(
                 value
             }
 
-        AdbPairingAccessibilityExtractor.stop()
+        unregisterCaptureReceiver()
         discoveryManager.stop()
 
         currentListener
@@ -520,7 +514,7 @@ class AdbAutoPairingCoordinator(
                 value
             }
 
-        AdbPairingAccessibilityExtractor.stop()
+        unregisterCaptureReceiver()
         discoveryManager.stop()
 
         currentListener
@@ -547,6 +541,26 @@ class AdbAutoPairingCoordinator(
             )
     }
 
+    private fun unregisterCaptureReceiver() {
+        val receiver =
+            synchronized(lock) {
+                val current =
+                    captureReceiver
+
+                captureReceiver =
+                    null
+
+                current
+            }
+
+        AdbPairingCaptureBridge.unregister(
+            context =
+                appContext,
+            receiver =
+                receiver
+        )
+    }
+
     private fun stopLocked() {
         running =
             false
@@ -567,7 +581,19 @@ class AdbAutoPairingCoordinator(
             false
         )
 
-        AdbPairingAccessibilityExtractor.stop()
+        val receiver =
+            captureReceiver
+
+        captureReceiver =
+            null
+
+        AdbPairingCaptureBridge.unregister(
+            context =
+                appContext,
+            receiver =
+                receiver
+        )
+
         discoveryManager.stop()
     }
 }
