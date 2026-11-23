@@ -528,12 +528,6 @@ class DirectAccessSetupFragment : Fragment() {
         }
     }
 
-    /**
-     * Handles errors specific to automatic pairing.
-     *
-     * Accessibility being disabled is a prerequisite failure, not a pairing
-     * failure, so manual pairing should not be presented as the primary fix.
-     */
     private fun handleAutomaticPairingFailure(
         error: Throwable?
     ) {
@@ -669,11 +663,14 @@ class DirectAccessSetupFragment : Fragment() {
                 DirectAccessOrchestrator.State.PAIRING ->
                     "Pairing CurBox automatically…"
 
+                DirectAccessOrchestrator.State.PAIRED ->
+                    "CurBox is paired. Preparing the Direct ADB connection…"
+
                 DirectAccessOrchestrator.State.DISCOVERING_CONNECTION ->
-                    "Pairing succeeded. Looking for the ADB connection…"
+                    "CurBox is paired. Looking for the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.CONNECTING ->
-                    "Connecting to Direct ADB…"
+                    "CurBox is paired. Connecting to Direct ADB…"
 
                 DirectAccessOrchestrator.State.CONNECTED ->
                     "Direct ADB connected."
