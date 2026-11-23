@@ -19,6 +19,9 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * - Manual pairing-code entry remains available as a fallback.
  *
+ * - Once automatic pairing succeeds, later discovery/connection failures are
+ *   reported separately so callers do not request another pairing operation.
+ *
  * - Automatic lifecycle recovery is enabled only after a pairing flow has
  *   completed and produced a verified Direct ADB connection.
  */
@@ -37,15 +40,7 @@ class DirectAccessOrchestrator(
         WAITING_FOR_PAIRING_DIALOG,
         DISCOVERING_PAIRING,
         PAIRING,
-
-        /**
-         * Android has accepted CurBox as a paired Wireless ADB client.
-         *
-         * Direct ADB still needs to discover and establish the normal TLS
-         * connection before the feature can be considered fully connected.
-         */
         PAIRED,
-
         DISCOVERING_CONNECTION,
         CONNECTING,
         CONNECTED,
@@ -69,6 +64,18 @@ class DirectAccessOrchestrator(
 
         fun onPairingRequired(
             cause: Throwable?
+        ) {
+        }
+
+        /**
+         * Pairing with Android has already succeeded, but establishing the
+         * normal Direct ADB connection afterwards failed.
+         *
+         * The caller should retry normal connection rather than asking for
+         * another pairing code.
+         */
+        fun onPairedConnectionFailed(
+            cause: Throwable
         ) {
         }
 
@@ -396,6 +403,9 @@ class DirectAccessOrchestrator(
             return
         }
 
+        var pairingSucceeded =
+            false
+
         autoPairingCoordinator.start(
             object :
                 AdbAutoPairingCoordinator.Listener {
@@ -406,6 +416,14 @@ class DirectAccessOrchestrator(
                     ) {
                         if (!isCurrent(operationId)) {
                             return
+                        }
+
+                        if (
+                            stage ==
+                            AdbAutoPairingCoordinator.Stage.PAIRED
+                        ) {
+                            pairingSucceeded =
+                                true
                         }
 
                         val mappedState =
@@ -465,6 +483,26 @@ class DirectAccessOrchestrator(
                         error: Throwable
                     ) {
                         if (!isCurrent(operationId)) {
+                            return
+                        }
+
+                        if (pairingSucceeded) {
+                            /*
+                             * Android has already accepted CurBox's persistent
+                             * ADB identity. Do not present another pairing flow
+                             * merely because post-pair discovery or connection
+                             * failed.
+                             */
+                            publishState(
+                                operationId,
+                                listener,
+                                State.ERROR
+                            )
+
+                            listener.onPairedConnectionFailed(
+                                error
+                            )
+
                             return
                         }
 
