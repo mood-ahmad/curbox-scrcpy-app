@@ -34,6 +34,16 @@ class DirectAccessSetupFragment : Fragment() {
     private var manualFallbackVisible =
         false
 
+    /**
+     * True after Android has accepted CurBox's ADB identity but the normal
+     * Direct ADB connection could not be established.
+     *
+     * In this state the primary button retries connection only. It must not
+     * start another pairing operation.
+     */
+    private var retryConnectionVisible =
+        false
+
     private var openSettingsWhenAccessibilityReady =
         false
 
@@ -85,13 +95,22 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .pairButton
             .setOnClickListener {
-                if (manualFallbackVisible) {
-                    startManualPairing()
-                } else {
-                    startAutomaticPairing(
-                        openSettingsAfterReady =
-                            true
-                    )
+
+                when {
+                    retryConnectionVisible -> {
+                        retryPairedConnection()
+                    }
+
+                    manualFallbackVisible -> {
+                        startManualPairing()
+                    }
+
+                    else -> {
+                        startAutomaticPairing(
+                            openSettingsAfterReady =
+                                true
+                        )
+                    }
                 }
             }
 
@@ -165,6 +184,12 @@ class DirectAccessSetupFragment : Fragment() {
             orchestrator
                 ?: return
 
+        manualFallbackVisible =
+            false
+
+        retryConnectionVisible =
+            false
+
         openSettingsWhenAccessibilityReady =
             false
 
@@ -192,7 +217,7 @@ class DirectAccessSetupFragment : Fragment() {
                     binding
                         .statusText
                         .text =
-                        "The existing Direct Access connection could not be restored. Start automatic pairing to repair it."
+                        "The stored Direct Access identity could not be restored. Automatic pairing is required to repair it."
                 }
             )
         )
@@ -210,6 +235,9 @@ class DirectAccessSetupFragment : Fragment() {
                 ?: return
 
         manualFallbackVisible =
+            false
+
+        retryConnectionVisible =
             false
 
         openSettingsWhenAccessibilityReady =
@@ -238,16 +266,21 @@ class DirectAccessSetupFragment : Fragment() {
             createListener(
                 onConnected =
                     ::applyPersistentPrivilegesAndFinish,
+
                 onFailure = { error ->
                     handleAutomaticPairingFailure(
                         error
                     )
                 },
+
                 onWirelessRequired = {
                     openSettingsWhenAccessibilityReady =
                         false
 
                     settingsOpenedForCurrentAttempt =
+                        false
+
+                    retryConnectionVisible =
                         false
 
                     setOperationInProgress(
@@ -266,6 +299,76 @@ class DirectAccessSetupFragment : Fragment() {
                     if (openSettingsAfterReady) {
                         openDeveloperOptions()
                     }
+                },
+
+                onPairedConnectionFailed = { error ->
+                    showPairedConnectionFailure(
+                        error
+                    )
+                }
+            )
+        )
+    }
+
+    /**
+     * Retries only the normal Direct ADB connection.
+     *
+     * Android has already accepted CurBox's persistent identity at this point,
+     * so no pairing dialog or pairing code is requested again.
+     */
+    private fun retryPairedConnection() {
+        if (operationInProgress) {
+            return
+        }
+
+        val currentOrchestrator =
+            orchestrator
+                ?: return
+
+        retryConnectionVisible =
+            false
+
+        manualFallbackVisible =
+            false
+
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
+
+        hidePairingCodeInput()
+
+        setOperationInProgress(
+            true
+        )
+
+        binding
+            .pairButton
+            .text =
+            "Retry connection"
+
+        binding
+            .statusText
+            .text =
+            "CurBox is already paired. Retrying the Direct ADB connection…"
+
+        currentOrchestrator.ensureConnected(
+            createListener(
+                onConnected =
+                    ::applyPersistentPrivilegesAndFinish,
+
+                onPairingRequired = {
+                    /*
+                     * A normal reconnect could not authenticate/restore the
+                     * stored relationship. Only now return to pairing setup.
+                     */
+                    showAutomaticPairingState()
+
+                    binding
+                        .statusText
+                        .text =
+                        "The saved Direct ADB pairing could not be restored. Start automatic pairing to repair it."
                 }
             )
         )
@@ -279,6 +382,9 @@ class DirectAccessSetupFragment : Fragment() {
         val currentOrchestrator =
             orchestrator
                 ?: return
+
+        retryConnectionVisible =
+            false
 
         openSettingsWhenAccessibilityReady =
             false
@@ -330,6 +436,7 @@ class DirectAccessSetupFragment : Fragment() {
                 createListener(
                     onConnected =
                         ::applyPersistentPrivilegesAndFinish,
+
                     onFailure = { error ->
                         showManualFallback(
                             error
@@ -346,6 +453,9 @@ class DirectAccessSetupFragment : Fragment() {
                 ?: return
 
         openSettingsWhenAccessibilityReady =
+            false
+
+        retryConnectionVisible =
             false
 
         PersistentPrivilegesManager.apply(
@@ -408,7 +518,8 @@ class DirectAccessSetupFragment : Fragment() {
         onConnected: () -> Unit,
         onFailure: ((Throwable?) -> Unit)? = null,
         onWirelessRequired: (() -> Unit)? = null,
-        onPairingRequired: (() -> Unit)? = null
+        onPairingRequired: (() -> Unit)? = null,
+        onPairedConnectionFailed: ((Throwable) -> Unit)? = null
     ): DirectAccessOrchestrator.Listener {
 
         return object :
@@ -497,6 +608,33 @@ class DirectAccessSetupFragment : Fragment() {
                 }
             }
 
+            override fun onPairedConnectionFailed(
+                cause: Throwable
+            ) {
+                postToUi {
+                    openSettingsWhenAccessibilityReady =
+                        false
+
+                    setOperation )
+
+                    directAccessConnected =
+                        false
+
+                    binding
+                        .continueButton
+                        .isEnabled =
+                        false
+
+                    onPairedConnectionFailed
+                        ?.invoke(
+                            cause
+                        )
+                        ?: showPairedConnectionFailure(
+                            cause
+                        )
+                }
+            }
+
             override fun onError(
                 error: Throwable
             ) {
@@ -528,6 +666,72 @@ class DirectAccessSetupFragment : Fragment() {
         }
     }
 
+    private fun showPairedConnectionFailure(
+        cause: Throwable?
+    ) {
+        manualFallbackVisible =
+            false
+
+        retryConnectionVisible =
+            true
+
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
+
+        setOperationInProgress(
+            false
+        )
+
+        hidePairingCodeInput()
+
+        binding
+            .pairButton
+            .visibility =
+            View.VISIBLE
+
+        binding
+            .pairButton
+            .text =
+            "Retry connection"
+
+        binding
+            .openWirelessDebuggingButton
+            .visibility =
+            View.GONE
+
+        binding
+            .continueButton
+            .isEnabled =
+            false
+
+        binding
+            .statusText
+            .text =
+            buildString {
+                append(
+                    "CurBox paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again."
+                )
+
+                cause
+                    ?.message
+                    ?.takeIf {
+                        it.isNotBlank()
+                    }
+                    ?.let {
+                        append(
+                            "\n"
+                        )
+
+                        append(
+                            it
+                        )
+                    }
+            }
+    }
+
     private fun handleAutomaticPairingFailure(
         error: Throwable?
     ) {
@@ -535,6 +739,9 @@ class DirectAccessSetupFragment : Fragment() {
             false
 
         settingsOpenedForCurrentAttempt =
+            false
+
+        retryConnectionVisible =
             false
 
         setOperationInProgress(
@@ -546,33 +753,6 @@ class DirectAccessSetupFragment : Fragment() {
                 error
             )
         ) {
-            manualFallbackVisible =
-                false
-
-            hidePairingCodeInput()
-
-            binding
-                .pairButton
-                .visibility =
-                View.VISIBLE
-
-            binding
-                .pairButton
-                .text =
-                "Start automatic pairing"
-
-            binding
-                .openWirelessDebuggingButton
-                .visibility =
-                View.VISIBLE
-
-            binding
-                .continueButton
-                .isEnabled =
-                false
-
-            binding
-                .statusText
                 .text =
                 "CurBox Accessibility service must be enabled before automatic pairing. Enable CurBox in Accessibility settings, then return and start automatic pairing again."
 
@@ -581,34 +761,7 @@ class DirectAccessSetupFragment : Fragment() {
             return
         }
 
-        showManualFallback(
-            error
-        )
-    }
-
-    private fun isAccessibilityUnavailableError(
-        error: Throwable?
-    ): Boolean {
-        val message =
-            error
-                ?.message
-                ?.lowercase()
-                .orEmpty()
-
-        return message.contains(
-            "accessibility service must be enabled"
-        ) ||
-            message.contains(
-                "accessibility service did not become ready"
-            )
-    }
-
-    private fun maybeOpenSettingsAfterAccessibilityReady(
-        state: DirectAccessOrchestrator.State
-    ) {
-        if (
-            state !=
-            DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG
+        showManualAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG
         ) {
             return
         }
@@ -676,7 +829,7 @@ class DirectAccessSetupFragment : Fragment() {
                     "Direct ADB connected."
 
                 DirectAccessOrchestrator.State.ERROR ->
-                    "Automatic Direct Access setup failed."
+                    "Direct Access operation failed."
             }
     }
 
@@ -685,6 +838,9 @@ class DirectAccessSetupFragment : Fragment() {
             true
 
         manualFallbackVisible =
+            false
+
+        retryConnectionVisible =
             false
 
         openSettingsWhenAccessibilityReady =
@@ -728,6 +884,9 @@ class DirectAccessSetupFragment : Fragment() {
             false
 
         manualFallbackVisible =
+            false
+
+        retryConnectionVisible =
             false
 
         openSettingsWhenAccessibilityReady =
@@ -775,6 +934,9 @@ class DirectAccessSetupFragment : Fragment() {
     ) {
         manualFallbackVisible =
             true
+
+        retryConnectionVisible =
+            false
 
         openSettingsWhenAccessibilityReady =
             false
