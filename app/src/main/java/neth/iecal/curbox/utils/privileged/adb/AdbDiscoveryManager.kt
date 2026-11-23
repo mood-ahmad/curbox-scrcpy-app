@@ -4,7 +4,10 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import java.net.InetAddress
+import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -12,13 +15,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Discovery (DNS-SD / mDNS) APIs.
  *
  * CurBox deliberately keeps discovery separate from pairing and connection.
- * This class only converts an advertised ADB service into a host and port.
+ *
+ * Discovery remains active while candidate services are resolved. A failed
+ * resolution therefore does not terminate the whole Direct Access attempt.
+ * CurBox continues trying other advertised services until it obtains a valid
+ * endpoint or the bounded discovery operation times out.
  */
 class AdbDiscoveryManager(
     context: Context
 ) {
 
     companion object {
+
         const val SERVICE_TYPE_TLS_PAIRING =
             "_adb-tls-pairing._tcp."
 
@@ -27,6 +35,15 @@ class AdbDiscoveryManager(
 
         private const val MULTICAST_LOCK_TAG =
             "CurBoxAdbDiscovery"
+
+        /**
+         * CurBox bounds each mDNS discovery attempt rather than waiting
+         * indefinitely when no usable endpoint can be resolved.
+         *
+         * This is a CurBox design timeout, not an Android NSD constant.
+         */
+        private const val DISCOVERY_TIMEOUT_MS =
+            15_000L
     }
 
     private val appContext =
@@ -42,6 +59,11 @@ class AdbDiscoveryManager(
             Context.WIFI_SERVICE
         ) as? WifiManager
 
+    private val mainHandler =
+        Handler(
+            Looper.getMainLooper()
+        )
+
     private val lock =
         Any()
 
@@ -51,8 +73,9 @@ class AdbDiscoveryManager(
     /**
      * Fully resolved ADB endpoint.
      *
-     * Ports advertised by Wireless Debugging are treated as temporary.
-     * CurBox should rediscover them rather than considering them permanent.
+     * Ports advertised by Wireless Debugging are temporary. CurBox therefore
+     * rediscovers them when pairing or reconnecting instead of persisting the
+     * advertised port as a permanent endpoint.
      */
     data class Endpoint(
         val serviceName: String,
@@ -63,24 +86,15 @@ class AdbDiscoveryManager(
 
     interface Listener {
 
-        /**
-         * Called once when a valid endpoint has been resolved.
-         */
         fun onEndpointFound(
             endpoint: Endpoint
         )
 
-        /**
-         * Called when discovery or resolution fails.
-         */
         fun onError(
             error: Throwable
         )
     }
 
-    /**
-     * Starts discovery for the Wireless ADB pairing service.
-     */
     fun discoverPairing(
         listener: Listener
     ) {
@@ -92,9 +106,6 @@ class AdbDiscoveryManager(
         )
     }
 
-    /**
-     * Starts discovery for the normal Wireless ADB TLS connection service.
-     */
     fun discoverConnection(
         listener: Listener
     ) {
@@ -106,11 +117,6 @@ class AdbDiscoveryManager(
         )
     }
 
-    /**
-     * Stops the active discovery attempt, if any.
-     *
-     * Calling this repeatedly is safe.
-     */
     fun stop() {
         val session =
             synchronized(lock) {
@@ -127,9 +133,7 @@ class AdbDiscoveryManager(
     }
 
     /**
-     * Only one discovery operation is kept active at a time.
-     *
-     * Starting another operation stops the previous one first.
+     * Only one CurBox discovery operation is active at a time.
      */
     private fun startDiscovery(
         serviceType: String,
@@ -159,23 +163,57 @@ class AdbDiscoveryManager(
     ) {
 
         private val finished =
-            AtomicBoolean(false)
+            AtomicBoolean(
+                false
+            )
 
-        private val resolving =
-            AtomicBoolean(false)
+        /**
+         * Legacy resolveService should be driven sequentially.
+         *
+         * Services discovered while another resolution is running are queued
+         * and tried afterwards.
+         */
+        private val candidateLock =
+            Any()
 
+        private val pendingCandidates =
+            ArrayDeque<NsdServiceInfo>()
+
+        private val seenCandidates =
+            mutableSetOf<String>()
+
+        private var resolving =
+            false
+
+        @Volatile
         private var discoveryStarted =
             false
 
         private var multicastLock:
             WifiManager.MulticastLock? = null
 
+        private var discoveryTimeout:
+            Runnable? = null
+
+        /**
+         * Kept for diagnostics if every candidate seen during the bounded
+         * discovery window fails resolution.
+         */
+        @Volatile
+        private var lastResolutionError:
+            Throwable? = null
+
         private val discoveryListener =
-            object : NsdManager.DiscoveryListener {
+            object :
+                NsdManager.DiscoveryListener {
 
                 override fun onDiscoveryStarted(
                     regType: String
                 ) {
+                    if (finished.get()) {
+                        return
+                    }
+
                     discoveryStarted =
                         true
                 }
@@ -187,23 +225,7 @@ class AdbDiscoveryManager(
                         return
                     }
 
-                    /*
-                     * Android may report several services. The first service
-                     * successfully claimed here is resolved; a later retry can
-                     * rediscover if resolution fails.
-                     */
-                    if (
-                        !resolving.compareAndSet(
-                            false,
-                            true
-                        )
-                    ) {
-                        return
-                    }
-
-                    stopDiscoveryOnly()
-
-                    resolve(
+                    enqueueCandidate(
                         serviceInfo
                     )
                 }
@@ -211,8 +233,11 @@ class AdbDiscoveryManager(
                 override fun onServiceLost(
                     serviceInfo: NsdServiceInfo
                 ) {
-                    // No action is required here. CurBox validates the
-                    // connection itself and can rediscover when necessary.
+                    /*
+                     * Do not fail the entire operation because one advertised
+                     * candidate disappeared. Other services may still provide
+                     * a usable endpoint.
+                     */
                 }
 
                 override fun onDiscoveryStopped(
@@ -248,13 +273,17 @@ class AdbDiscoveryManager(
             try {
                 acquireMulticastLock()
 
+                scheduleDiscoveryTimeout()
+
                 nsdManager.discoverServices(
                     serviceType,
                     NsdManager.PROTOCOL_DNS_SD,
                     discoveryListener
                 )
             } catch (t: Throwable) {
-                finishWithError(t)
+                finishWithError(
+                    t
+                )
             }
         }
 
@@ -268,9 +297,100 @@ class AdbDiscoveryManager(
                 return
             }
 
+            cancelDiscoveryTimeout()
+
+            synchronized(candidateLock) {
+                pendingCandidates.clear()
+
+                resolving =
+                    false
+            }
+
             stopDiscoveryOnly()
             releaseMulticastLock()
             detach()
+        }
+
+        /**
+         * Adds a newly advertised service to the sequential resolution queue.
+         *
+         * Discovery deliberately remains active here.
+         */
+        private fun enqueueCandidate(
+            serviceInfo: NsdServiceInfo
+        ) {
+            val shouldResolve =
+                synchronized(candidateLock) {
+                    if (finished.get()) {
+                        return
+                    }
+
+                    val key =
+                        candidateKey(
+                            serviceInfo
+                        )
+
+                    if (
+                        !seenCandidates.add(
+                            key
+                        )
+                    ) {
+                        return
+                    }
+
+                    pendingCandidates.addLast(
+                        serviceInfo
+                    )
+
+                    !resolving
+                }
+
+            if (shouldResolve) {
+                resolveNextCandidate()
+            }
+        }
+
+        /**
+         * Resolves candidates one at a time.
+         *
+         * A candidate failure releases the resolver slot and immediately tries
+         * the next service already queued by ongoing discovery.
+         */
+        private fun resolveNextCandidate() {
+            if (finished.get()) {
+                return
+            }
+
+            val nextCandidate =
+                synchronized(candidateLock) {
+                    if (
+                        finished.get() ||
+                        resolving
+                    ) {
+                        return
+                    }
+
+                    val next =
+                        if (
+                            pendingCandidates.isEmpty()
+                        ) {
+                            null
+                        } else {
+                            pendingCandidates.removeFirst()
+                        }
+
+                    if (next != null) {
+                        resolving =
+                            true
+                    }
+
+                    next
+                }
+                    ?: return
+
+            resolve(
+                nextCandidate
+            )
         }
 
         @Suppress("DEPRECATION")
@@ -286,6 +406,11 @@ class AdbDiscoveryManager(
                         override fun onServiceResolved(
                             resolvedInfo: NsdServiceInfo
                         ) {
+                            if (finished.get()) {
+                                releaseResolverAndContinue()
+                                return
+                            }
+
                             val host =
                                 resolvedInfo.host
 
@@ -296,13 +421,34 @@ class AdbDiscoveryManager(
                                 host == null ||
                                 port !in 1..65535
                             ) {
-                                finishWithError(
+                                lastResolutionError =
                                     IllegalStateException(
                                         "Resolved ADB mDNS service " +
-                                            "does not contain a valid " +
-                                            "host and port."
+                                            "does not contain a valid host " +
+                                            "and port. serviceName=" +
+                                            resolvedInfo.serviceName
                                     )
-                                )
+
+                                releaseResolverAndContinue()
+
+                                return
+                            }
+
+                            val hostAddress =
+                                host.hostAddress
+
+                            if (
+                                hostAddress.isNullOrBlank()
+                            ) {
+                                lastResolutionError =
+                                    IllegalStateException(
+                                        "Resolved ADB mDNS service has no " +
+                                            "usable host address. " +
+                                            "serviceName=" +
+                                            resolvedInfo.serviceName
+                                    )
+
+                                releaseResolverAndContinue()
 
                                 return
                             }
@@ -321,19 +467,50 @@ class AdbDiscoveryManager(
                             serviceInfo: NsdServiceInfo,
                             errorCode: Int
                         ) {
-                            finishWithError(
+                            if (finished.get()) {
+                                releaseResolverAndContinue()
+                                return
+                            }
+
+                            lastResolutionError =
                                 IllegalStateException(
-                                    "ADB mDNS service resolution " +
-                                        "failed. errorCode=$errorCode, " +
+                                    "ADB mDNS service resolution failed. " +
+                                        "errorCode=$errorCode, " +
                                         "serviceName=" +
                                         serviceInfo.serviceName
                                 )
-                            )
+
+                            releaseResolverAndContinue()
                         }
                     }
                 )
             } catch (t: Throwable) {
-                finishWithError(t)
+                if (finished.get()) {
+                    return
+                }
+
+                lastResolutionError =
+                    t
+
+                releaseResolverAndContinue()
+            }
+        }
+
+        /**
+         * Marks the current resolution complete and tries another service that
+         * may have arrived while resolution was running.
+         *
+         * If the queue is empty, discovery simply remains active until Android
+         * announces another candidate or CurBox's discovery timeout expires.
+         */
+        private fun releaseResolverAndContinue() {
+            synchronized(candidateLock) {
+                resolving =
+                    false
+            }
+
+            if (!finished.get()) {
+                resolveNextCandidate()
             }
         }
 
@@ -349,6 +526,15 @@ class AdbDiscoveryManager(
                 )
             ) {
                 return
+            }
+
+            cancelDiscoveryTimeout()
+
+            synchronized(candidateLock) {
+                pendingCandidates.clear()
+
+                resolving =
+                    false
             }
 
             stopDiscoveryOnly()
@@ -382,6 +568,76 @@ class AdbDiscoveryManager(
             )
         }
 
+        private fun scheduleDiscoveryTimeout() {
+            cancelDiscoveryTimeout()
+
+            val timeout =
+                Runnable {
+                    if (finished.get()) {
+                        return@Runnable
+                    }
+
+                    val lastError =
+                        lastResolutionError
+
+                    finishWithError(
+                        IllegalStateException(
+                            buildString {
+                                append(
+                                    "ADB mDNS discovery timed out before a usable endpoint was resolved."
+                                )
+
+                                append(
+                                    " serviceType="
+                                )
+
+                                append(
+                                    serviceType
+                                )
+
+                                lastError
+                                    ?.message
+                                    ?.takeIf {
+                                        it.isNotBlank()
+                                    }
+                                    ?.let {
+                                        append(
+                                            " Last resolution error: "
+                                        )
+
+                                        append(
+                                            it
+                                        )
+                                    }
+                            },
+                            lastError
+                        )
+                    )
+                }
+
+            discoveryTimeout =
+                timeout
+
+            mainHandler.postDelayed(
+                timeout,
+                DISCOVERY_TIMEOUT_MS
+            )
+        }
+
+        private fun cancelDiscoveryTimeout() {
+            val timeout =
+                discoveryTimeout
+
+            discoveryTimeout =
+                null
+
+            if (timeout != null) {
+                mainHandler.removeCallbacks(
+                    timeout
+                )
+            }
+        }
+
         private fun finishWithError(
             error: Throwable
         ) {
@@ -392,6 +648,15 @@ class AdbDiscoveryManager(
                 )
             ) {
                 return
+            }
+
+            cancelDiscoveryTimeout()
+
+            synchronized(candidateLock) {
+                pendingCandidates.clear()
+
+                resolving =
+                    false
             }
 
             stopDiscoveryOnly()
@@ -406,7 +671,9 @@ class AdbDiscoveryManager(
         /**
          * Stops only Android's discovery registration.
          *
-         * Resolution can continue after discovery itself has stopped.
+         * Unlike the old implementation, this is not called merely because a
+         * service was found. CurBox keeps discovery alive while candidate
+         * resolution is in progress.
          */
         private fun stopDiscoveryOnly() {
             if (!discoveryStarted) {
@@ -418,21 +685,15 @@ class AdbDiscoveryManager(
                     discoveryListener
                 )
             } catch (_: IllegalArgumentException) {
-                // Android may report that discovery has already stopped.
+                // Android may report that discovery already stopped.
             } catch (_: Exception) {
-                // Cleanup must not replace the original result/error.
+                // Cleanup must not replace the original result or error.
             } finally {
                 discoveryStarted =
                     false
             }
         }
 
-        /**
-         * Hold multicast reception for the short discovery operation.
-         *
-         * This keeps the legacy path usable on Android versions where NSD did
-         * not yet manage foreground multicast reception automatically.
-         */
         @Suppress("DEPRECATION")
         private fun acquireMulticastLock() {
             val manager =
@@ -469,8 +730,30 @@ class AdbDiscoveryManager(
                         current.release()
                     }
                 } catch (_: Exception) {
-                    // Cleanup failure does not change discovery result.
+                    // Cleanup failure does not change the discovery result.
                 }
+            }
+        }
+
+        /**
+         * Prevent the same service announcement from repeatedly filling the
+         * queue during one bounded discovery attempt.
+         */
+        private fun candidateKey(
+            serviceInfo: NsdServiceInfo
+        ): String {
+            return buildString {
+                append(
+                    serviceInfo.serviceName
+                )
+
+                append(
+                    '|'
+                )
+
+                append(
+                    serviceInfo.serviceType
+                )
             }
         }
 
