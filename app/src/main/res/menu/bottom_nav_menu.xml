@@ -1,20 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
+
     <item
         android:id="@+id/nav_usage"
         android:icon="@drawable/ic_usage"
         android:title="@string/usage" />
+
     <item
         android:id="@+id/nav_focus"
         android:icon="@drawable/ic_focus"
         android:title="@string/focus" />
+
     <item
         android:id="@+id/nav_reducers"
         android:icon="@drawable/ic_reducers"
         android:title="@string/reducers" />
+
     <item
         android:id="@+id/nav_info"
         android:icon="@drawable/ic_info"
-        android:title="@string/info"
-        android:visible="false" />
+        android:title="@string/info" />
+
 </menu>
