@@ -37,6 +37,15 @@ class DirectAccessOrchestrator(
         WAITING_FOR_PAIRING_DIALOG,
         DISCOVERING_PAIRING,
         PAIRING,
+
+        /**
+         * Android has accepted CurBox as a paired Wireless ADB client.
+         *
+         * Direct ADB still needs to discover and establish the normal TLS
+         * connection before the feature can be considered fully connected.
+         */
+        PAIRED,
+
         DISCOVERING_CONNECTION,
         CONNECTING,
         CONNECTED,
@@ -112,20 +121,21 @@ class DirectAccessOrchestrator(
         )
 
         ensureWirelessDebugging(
-            operationId = operationId,
-            listener = listener,
+            operationId =
+                operationId,
+            listener =
+                listener,
             onReady = {
                 startReconnect(
-                    operationId = operationId,
-                    listener = listener
+                    operationId =
+                        operationId,
+                    listener =
+                        listener
                 )
             }
         )
     }
 
-    /**
-     * Preferred automatic first-time setup / repair path.
-     */
     fun startAutoPairing(
         listener: Listener
     ) {
@@ -139,20 +149,21 @@ class DirectAccessOrchestrator(
         )
 
         ensureWirelessDebugging(
-            operationId = operationId,
-            listener = listener,
+            operationId =
+                operationId,
+            listener =
+                listener,
             onReady = {
                 startAutomaticPairing(
-                    operationId = operationId,
-                    listener = listener
+                    operationId =
+                        operationId,
+                    listener =
+                        listener
                 )
             }
         )
     }
 
-    /**
-     * Manual pairing remains available as the compatibility fallback.
-     */
     fun pairAndConnect(
         pairingCode: String,
         listener: Listener
@@ -167,13 +178,18 @@ class DirectAccessOrchestrator(
         )
 
         ensureWirelessDebugging(
-            operationId = operationId,
-            listener = listener,
+            operationId =
+                operationId,
+            listener =
+                listener,
             onReady = {
                 startManualPairing(
-                    operationId = operationId,
-                    pairingCode = pairingCode,
-                    listener = listener
+                    operationId =
+                        operationId,
+                    pairingCode =
+                        pairingCode,
+                    listener =
+                        listener
                 )
             }
         )
@@ -408,6 +424,9 @@ class DirectAccessOrchestrator(
 
                                 AdbAutoPairingCoordinator.Stage.PAIRING ->
                                     State.PAIRING
+
+                                AdbAutoPairingCoordinator.Stage.PAIRED ->
+                                    State.PAIRED
 
                                 AdbAutoPairingCoordinator.Stage.DISCOVERING_CONNECTION ->
                                     State.DISCOVERING_CONNECTION
