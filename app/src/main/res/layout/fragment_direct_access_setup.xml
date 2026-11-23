@@ -29,8 +29,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="Pair CurBox with Android Wireless Debugging once so privileged features can reconnect without requiring Shizuku every time."
+            android:text="Choose how CurBox should access the privileged Android features it needs."
             android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+        <!-- Direct ADB -->
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -48,16 +50,23 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Wireless Debugging"
+                    android:text="Direct ADB"
                     android:textAppearance="?attr/textAppearanceTitleMedium"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Pair CurBox with Android Wireless Debugging once. CurBox can then reconnect using its stored ADB identity."
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                 <TextView
                     android:id="@+id/wirelessDebuggingStatus"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="Checking status…"
+                    android:layout_marginTop="12dp"
+                    android:text="Checking Wireless Debugging status…"
                     android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                 <com.google.android.material.button.MaterialButton
@@ -72,13 +81,16 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Manual Direct ADB fallback -->
+
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/pairingCodeLayout"
             style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:hint="Pairing code">
+            android:layout_marginTop="20dp"
+            android:hint="Pairing code"
+            android:visibility="gone">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/pairingCodeInput"
@@ -91,19 +103,57 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="In Android Wireless Debugging, choose “Pair device with pairing code”, then enter the code shown there."
-            android:textAppearance="?attr/textAppearanceBodySmall" />
-
         <com.google.android.material.button.MaterialButton
             android:id="@+id/pairButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Pair and connect" />
+            android:layout_marginTop="16dp"
+            android:text="Start automatic pairing" />
+
+        <!-- Shizuku fallback -->
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/shizukuCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            app:cardCornerRadius="16dp"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Shizuku"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/shizukuStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Checking Shizuku availability…"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/shizukuButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Use Shizuku" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Shared operation status -->
 
         <com.google.android.material.progressindicator.LinearProgressIndicator
             android:id="@+id/progressIndicator"
@@ -118,7 +168,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="Direct Access is not connected yet."
+            android:text="Choose Direct ADB or Shizuku to prepare Direct Access."
             android:textAppearance="?attr/textAppearanceBodyMedium" />
 
         <com.google.android.material.button.MaterialButton
