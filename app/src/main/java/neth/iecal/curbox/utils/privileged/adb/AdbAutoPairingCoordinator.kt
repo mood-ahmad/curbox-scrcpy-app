@@ -22,7 +22,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 6. Fail cleanly if Accessibility does not acknowledge in time.
  * 7. Only after ACK, start mDNS pairing discovery.
  * 8. Combine the captured pairing code with the mDNS endpoint.
- * 9. Pair and establish a verified Direct ADB connection.
+ * 9. Pair CurBox with Android Wireless Debugging.
+ * 10. Publish PAIRED once Android has accepted the pairing.
+ * 11. Discover the TLS connection endpoint.
+ * 12. Establish and verify the Direct ADB connection.
  *
  * Captures and acknowledgements belonging to older sessions are ignored.
  */
@@ -32,14 +35,6 @@ class AdbAutoPairingCoordinator(
 
     companion object {
 
-        /**
-         * The Accessibility process normally acknowledges immediately after
-         * receiving ARM_CAPTURE.
-         *
-         * This timeout prevents Direct Access from remaining indefinitely in
-         * WAITING_FOR_ACCESSIBILITY when the Accessibility process or receiver
-         * is unavailable.
-         */
         private const val ACCESSIBILITY_ACK_TIMEOUT_MS =
             5_000L
     }
@@ -103,6 +98,15 @@ class AdbAutoPairingCoordinator(
         WAITING_FOR_PAIRING_DIALOG,
         WAITING_FOR_DISCOVERY,
         PAIRING,
+
+        /**
+         * Android has accepted CurBox as a paired Wireless ADB client.
+         *
+         * Failure after this point must be treated as a connection/recovery
+         * failure rather than as a pairing failure.
+         */
+        PAIRED,
+
         DISCOVERING_CONNECTION,
         CONNECTING,
         CONNECTED
@@ -127,14 +131,6 @@ class AdbAutoPairingCoordinator(
     ) {
         stop()
 
-        /*
-         * Fail immediately when CurBox's Accessibility service is not enabled.
-         *
-         * There is no reason to create a session, register bridge receivers,
-         * generate/load the Direct ADB transport, or wait for the ACK timeout
-         * when Android is already reporting that AppBlockerService is not an
-         * enabled Accessibility service.
-         */
         if (
             !AccessibilityServiceStatus
                 .isAppBlockerServiceEnabled(
@@ -281,10 +277,6 @@ class AdbAutoPairingCoordinator(
         )
 
         try {
-            /*
-             * Mark capture as requested before broadcasting ARM. This ensures
-             * that even an immediate ACK cannot race with local state.
-             */
             synchronized(lock) {
                 if (
                     !running ||
@@ -327,10 +319,6 @@ class AdbAutoPairingCoordinator(
         }
     }
 
-    /**
-     * Stops the active session while preserving CurBox's persistent ADB
-     * identity.
-     */
     fun stop() {
         cancelAccessibilityAckTimeout()
 
@@ -419,10 +407,6 @@ class AdbAutoPairingCoordinator(
         }
     }
 
-    /**
-     * Accessibility confirmed that the extractor and Settings navigator are
-     * armed for this exact session.
-     */
     private fun handleCaptureAcknowledged(
         sessionId: String
     ) {
@@ -458,9 +442,6 @@ class AdbAutoPairingCoordinator(
         )
     }
 
-    /**
-     * Starts a bounded wait for the Accessibility process to acknowledge ARM.
-     */
     private fun scheduleAccessibilityAckTimeout(
         sessionId: String
     ) {
@@ -768,6 +749,17 @@ class AdbAutoPairingCoordinator(
 
             return
         }
+
+        /*
+         * Pairing itself has succeeded.
+         *
+         * Everything after this state belongs to connection establishment,
+         * not pairing. UI/orchestration can therefore avoid requesting another
+         * pairing code if discovery or connection fails from this point on.
+         */
+        publishStage(
+            Stage.PAIRED
+        )
 
         discoverConnectionEndpoint(
             sessionId
