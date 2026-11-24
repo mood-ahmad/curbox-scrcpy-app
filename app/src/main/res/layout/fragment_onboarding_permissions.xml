@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -26,6 +27,7 @@
             android:singleLine="false"
             android:text="@string/ascii_key"
             android:textSize="11sp" />
+
     </HorizontalScrollView>
 
     <ScrollView
@@ -62,57 +64,15 @@
                 android:gravity="center"
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/restricted_settings_warning"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:visibility="gone"
-                app:cardBackgroundColor="?attr/colorErrorContainer"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="0dp">
+            <!--
+                Permission review.
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
+                Direct Access on the previous onboarding screen has already
+                prepared the persistent privileged state.
 
-                    <TextView
-                        style="@style/TextAppearance.Material3.TitleMedium"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/onboarding_non_session_title"
-                        android:textColor="?attr/colorOnErrorContainer"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        style="@style/TextAppearance.Material3.BodyMedium"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/onboarding_restricted_settings_desc"
-                        android:textColor="?attr/colorOnErrorContainer" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_show_restricted_tutorial"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_gravity="end"
-                        android:layout_marginTop="8dp"
-                        android:text="@string/onboarding_show_tutorial"
-                        android:textColor="?attr/colorOnErrorContainer" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btn_shizuku_grant_all"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/onboarding_shizuku_grant" />
+                These rows are intentionally informational rather than
+                interactive setup controls.
+            -->
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
@@ -127,10 +87,9 @@
                 <LinearLayout
                     android:id="@+id/overlay_perm_root"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:focusable="true"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
                     android:padding="20dp">
 
                     <TextView
@@ -146,9 +105,12 @@
                         android:id="@+id/overlay_perm_icon"
                         android:layout_width="24dp"
                         android:layout_height="24dp"
+                        android:contentDescription="@null"
                         android:src="@drawable/baseline_close_24"
                         app:tint="?attr/colorError" />
+
                 </LinearLayout>
+
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
@@ -164,10 +126,9 @@
                 <LinearLayout
                     android:id="@+id/notif_perm_root"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:focusable="true"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
                     android:padding="20dp">
 
                     <TextView
@@ -183,9 +144,12 @@
                         android:id="@+id/notif_perm_icon"
                         android:layout_width="24dp"
                         android:layout_height="24dp"
+                        android:contentDescription="@null"
                         android:src="@drawable/baseline_close_24"
                         app:tint="?attr/colorError" />
+
                 </LinearLayout>
+
             </com.google.android.material.card.MaterialCardView>
 
             <com.google.android.material.card.MaterialCardView
@@ -201,10 +165,9 @@
                 <LinearLayout
                     android:id="@+id/blocker_acc_perm_root"
                     android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:background="?attr/selectableItemBackground"
-                    android:clickable="true"
-                    android:focusable="true"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
                     android:padding="20dp">
 
                     <TextView
@@ -220,10 +183,22 @@
                         android:id="@+id/blocker_acc_perm_icon"
                         android:layout_width="24dp"
                         android:layout_height="24dp"
+                        android:contentDescription="@null"
                         android:src="@drawable/baseline_close_24"
                         app:tint="?attr/colorError" />
+
                 </LinearLayout>
+
             </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                style="@style/TextAppearance.Material3.BodySmall"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:gravity="center"
+                android:text="The permissions above are reviewed here. If notification permission is still required, Android will ask for it when you continue."
+                android:textColor="?attr/colorOnSurfaceVariant" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_action"
@@ -234,7 +209,9 @@
                 android:layout_marginBottom="100dp"
                 android:enabled="false"
                 android:text="@string/enable_permissions" />
+
         </LinearLayout>
+
     </ScrollView>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
