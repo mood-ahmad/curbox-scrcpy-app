@@ -45,7 +45,7 @@ import java.util.UUID
  * and PersistentPrivilegesManager has already attempted to configure the
  * persistent privileges CurBox can grant through that backend.
  *
- * This screen therefore:
+ * This screen:
  *
  * - displays the current Overlay permission state;
  * - displays the current Accessibility state;
@@ -54,7 +54,7 @@ import java.util.UUID
  *   flow when required;
  * - completes onboarding after the required state is ready.
  *
- * It deliberately does not:
+ * It does not:
  *
  * - configure Shizuku;
  * - request Shizuku permission;
@@ -76,20 +76,13 @@ class OnboardingPermissionsFragment : Fragment() {
     private val appBlockerViewModel:
         AppBlockerSettingViewModel by activityViewModels()
 
-    /**
-     * True when the final Continue action had to pause while Android requested
-     * POST_NOTIFICATIONS.
-     *
-     * If the permission is granted, onboarding can continue immediately.
-     */
     private var completeAfterNotificationPermission =
         false
 
     private val notificationPermissionLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
-        ) {
-            granted ->
+        ) { granted ->
 
             if (_binding == null) {
                 completeAfterNotificationPermission =
@@ -138,25 +131,19 @@ class OnboardingPermissionsFragment : Fragment() {
         )
 
         /*
-         * Shizuku has moved to DirectAccessSetupFragment.
+         * These rows are review/status rows.
          *
-         * Keep the existing layout view hidden for now so this Kotlin change
-         * does not depend on modifying the permissions XML in the same step.
-         * The obsolete layout element can be removed cleanly afterwards.
-         */
-        binding
-            .btnShizukuGrantAll
-            .visibility =
-            View.GONE
-
-        /*
-         * The permission rows are status/review rows now.
-         *
-         * Overlay and Accessibility have already been handled by the
-         * privileged setup performed on the previous screen.
+         * Their actual persistent setup has already happened through the
+         * selected privileged backend on the Direct Access screen.
          */
         binding
             .overlayPermRoot
+            .setOnClickListener(
+                null
+            )
+
+        binding
+            .notifPermRoot
             .setOnClickListener(
                 null
             )
@@ -166,37 +153,6 @@ class OnboardingPermissionsFragment : Fragment() {
             .setOnClickListener(
                 null
             )
-
-        /*
-         * Notification permission is intentionally not granted through a
-         * privileged backend. Android's runtime-permission dialog remains the
-         * authoritative flow.
-         *
-         * The row itself is informational. The final action performs the
-         * runtime request when needed.
-         */
-        binding
-            .notifPermRoot
-            .setOnClickListener(
-                null
-            )
-
-        /*
-         * Restricted-setting setup belonged to the old manual Accessibility
-         * setup path.
-         *
-         * Automatic Direct Access prepares Accessibility before reaching this
-         * screen, so the old tutorial is no longer part of this flow.
-         */
-        binding
-            .restrictedSettingsWarning
-            .visibility =
-            View.GONE
-
-        binding
-            .btnShowRestrictedTutorial
-            .visibility =
-            View.GONE
 
         binding
             .btnAction
@@ -226,15 +182,6 @@ class OnboardingPermissionsFragment : Fragment() {
         super.onDestroyView()
     }
 
-    /**
-     * Final onboarding action.
-     *
-     * Overlay and Accessibility should already be ready from the privileged
-     * setup screen.
-     *
-     * POST_NOTIFICATIONS remains a normal Android runtime permission, so ask
-     * Android for it here if this OS version requires it.
-     */
     private fun handleContinue() {
         if (
             !arePersistentRequirementsReady()
@@ -264,10 +211,6 @@ class OnboardingPermissionsFragment : Fragment() {
         finishOnboarding()
     }
 
-    /**
-     * These permissions are expected to have been prepared before this screen
-     * through DirectAccessSetupFragment and PersistentPrivilegesManager.
-     */
     private fun arePersistentRequirementsReady(): Boolean {
         val currentContext =
             context
@@ -289,12 +232,6 @@ class OnboardingPermissionsFragment : Fragment() {
             hasAccessibility
     }
 
-    /**
-     * Performs the existing final onboarding work.
-     *
-     * This preserves the target-app configuration and first-launch-complete
-     * behaviour from the old permissions screen.
-     */
     private fun finishOnboarding() {
         if (_binding == null) {
             return
@@ -495,10 +432,6 @@ class OnboardingPermissionsFragment : Fragment() {
             LinkMovementMethod.getInstance()
     }
 
-    /**
-     * Refreshes the review screen without initiating any permission/setup
-     * operation.
-     */
     private fun updatePermissionsState() {
         val currentContext =
             context
@@ -537,9 +470,6 @@ class OnboardingPermissionsFragment : Fragment() {
             binding.blockerAccPermIcon
         )
 
-        /*
-         * These rows are intentionally informational now.
-         */
         binding
             .overlayPermRoot
             .isEnabled =
@@ -582,13 +512,6 @@ class OnboardingPermissionsFragment : Fragment() {
                 1.0f
             }
 
-        /*
-         * The user may continue when the privileges that should have been
-         * prepared by the previous Direct Access screen are actually present.
-         *
-         * Notification does not disable the button because pressing Continue
-         * is what triggers Android's runtime permission flow when needed.
-         */
         val persistentRequirementsReady =
             hasOverlay &&
                 hasAccessibility
