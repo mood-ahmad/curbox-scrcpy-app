@@ -2,12 +2,9 @@ package neth.iecal.curbox.services
 
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
-import android.content.Intent
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
-import android.widget.Toast
-import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +14,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import neth.iecal.curbox.BuildConfig
 import neth.iecal.curbox.CrashLogger
-import neth.iecal.curbox.R
 import neth.iecal.curbox.anti_stimulants.AutoDnd
 import neth.iecal.curbox.anti_stimulants.GrayScaleFilter
 import neth.iecal.curbox.anti_stimulants.MindfulMessage
@@ -696,34 +692,16 @@ class AppBlockerService : BaseBlockingService() {
         reelsCountTracker
             .setupReceivers()
 
-        if (
-            !Settings.canDrawOverlays(
-                this
-            )
-        ) {
-            Toast.makeText(
-                this,
-                getString(
-                    R.string
-                        .please_provide_draw_over_other_apps
-                ),
-                Toast.LENGTH_LONG
-            ).show()
-
-            val intent =
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    "package:$packageName"
-                        .toUri()
-                ).apply {
-                    flags =
-                        Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-
-            startActivity(
-                intent
-            )
-        }
+        /*
+         * Do not open Overlay Settings here.
+         *
+         * DirectAccessSetupFragment prepares a privileged backend first and
+         * PersistentPrivilegesManager then configures SYSTEM_ALERT_WINDOW.
+         *
+         * Launching Overlay Settings from the Accessibility-service lifecycle
+         * interrupts the automatic Direct Access setup flow immediately after
+         * the user enables Accessibility.
+         */
 
         startBackgroundWorker()
     }
