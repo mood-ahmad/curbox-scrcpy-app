@@ -2,6 +2,7 @@ package neth.iecal.curbox.ui.fragments.installation.onboarding.screens
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
 import android.view.LayoutInflater
@@ -9,12 +10,22 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import neth.iecal.curbox.databinding.FragmentDirectAccessSetupBinding
+import neth.iecal.curbox.services.AppBlockerService
 import neth.iecal.curbox.ui.fragments.installation.onboarding.OnboardingFragment
+import neth.iecal.curbox.utils.PermissionUtils
 import neth.iecal.curbox.utils.privileged.PersistentPrivilegesManager
 import neth.iecal.curbox.utils.privileged.adb.DirectAccessLifecycleManager
 import neth.iecal.curbox.utils.privileged.adb.DirectAccessOrchestrator
 
 class DirectAccessSetupFragment : Fragment() {
+
+    companion object {
+        private const val PAIRING_CODE_LENGTH =
+            6
+
+        private const val SHIZUKU_PERMISSION_REQUEST_CODE =
+            1001
+    }
 
     private var _binding:
         FragmentDirectAccessSetupBinding? = null
@@ -28,27 +39,90 @@ class DirectAccessSetupFragment : Fragment() {
     private var operationInProgress =
         false
 
-    private var directAccessConnected =
+    /**
+     * True after either Direct ADB or Shizuku has successfully applied the
+     * persistent privileges required by CurBox.
+     */
+    private var privilegedAccessReady =
         false
 
     private var manualFallbackVisible =
         false
 
     /**
-     * True after Android has accepted CurBox's ADB identity but the normal
-     * Direct ADB connection could not be established.
-     *
-     * In this state the primary button retries connection only. It must not
-     * start another pairing operation.
+     * Android accepted CurBox's persistent ADB identity, but the normal
+     * connection after pairing did not complete.
      */
     private var retryConnectionVisible =
         false
 
+    /**
+     * Developer Options is opened only after the Accessibility process
+     * acknowledges that capture and navigation are armed.
+     */
     private var openSettingsWhenAccessibilityReady =
         false
 
     private var settingsOpenedForCurrentAttempt =
         false
+
+    /**
+     * Set when CurBox sends the user to Accessibility Settings.
+     *
+     * When the user returns and AppBlockerService is enabled, automatic
+     * pairing resumes without requiring another button press.
+     */
+    private var waitingForAccessibilityEnable =
+        false
+
+    private val shizukuPermissionListener =
+        rikka.shizuku.Shizuku.OnRequestPermissionResultListener {
+                requestCode,
+                grantResult ->
+
+            if (
+                requestCode !=
+                SHIZUKU_PERMISSION_REQUEST_CODE
+            ) {
+                return@OnRequestPermissionResultListener
+            }
+
+            postToUi {
+                if (
+                    grantResult ==
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    applyPersistentPrivilegesUsingShizuku()
+                } else {
+                    setOperationInProgress(
+                        false
+                    )
+
+                    updateShizukuState()
+
+                    binding
+                        .statusText
+                        .text =
+                        "Shizuku permission was not granted. You can retry Shizuku or use Direct ADB."
+                }
+            }
+        }
+
+    override fun onCreate(
+        savedInstanceState: Bundle?
+    ) {
+        super.onCreate(
+            savedInstanceState
+        )
+
+        try {
+            rikka.shizuku.Shizuku
+                .addRequestPermissionResultListener(
+                    shizukuPermissionListener
+                )
+        } catch (_: Throwable) {
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -86,6 +160,9 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .openWirelessDebuggingButton
             .setOnClickListener {
+                waitingForAccessibilityEnable =
+                    false
+
                 startAutomaticPairing(
                     openSettingsAfterReady =
                         true
@@ -95,6 +172,8 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .pairButton
             .setOnClickListener {
+                waitingForAccessibilityEnable =
+                    false
 
                 when {
                     retryConnectionVisible -> {
@@ -115,9 +194,18 @@ class DirectAccessSetupFragment : Fragment() {
             }
 
         binding
+            .shizukuButton
+            .setOnClickListener {
+                waitingForAccessibilityEnable =
+                    false
+
+                startShizukuSetup()
+            }
+
+        binding
             .continueButton
             .setOnClickListener {
-                if (!directAccessConnected) {
+                if (!privilegedAccessReady) {
                     return@setOnClickListener
                 }
 
@@ -129,11 +217,12 @@ class DirectAccessSetupFragment : Fragment() {
             }
 
         updateWirelessDebuggingStatus()
+        updateShizukuState()
 
         when {
             orchestrator
                 ?.isConnected() == true -> {
-                showConnectedState()
+                applyPersistentPrivilegesAfterDirectAdb()
             }
 
             DirectAccessLifecycleManager
@@ -152,12 +241,20 @@ class DirectAccessSetupFragment : Fragment() {
     override fun onResume() {
         super.onResume()
 
-        if (_binding != null) {
-            updateWirelessDebuggingStatus()
+        if (_binding == null) {
+            return
         }
+
+        updateWirelessDebuggingStatus()
+        updateShizukuState()
+
+        resumeAfterAccessibilityEnable()
     }
 
     override fun onDestroyView() {
+        waitingForAccessibilityEnable =
+            false
+
         openSettingsWhenAccessibilityReady =
             false
 
@@ -175,6 +272,74 @@ class DirectAccessSetupFragment : Fragment() {
         super.onDestroyView()
     }
 
+    override fun onDestroy() {
+        try {
+            rikka.shizuku.Shizuku
+                .removeRequestPermissionResultListener(
+                    shizukuPermissionListener
+                )
+        } catch (_: Throwable) {
+        }
+
+        super.onDestroy()
+    }
+
+    /**
+     * Resumes Direct ADB setup after the user returns from Accessibility
+     * Settings.
+     */
+    private fun resumeAfterAccessibilityEnable() {
+        if (
+            !waitingForAccessibilityEnable ||
+            operationInProgress ||
+            privilegedAccessReady
+        ) {
+            return
+        }
+
+        val currentContext =
+            context
+                ?: return
+
+        val enabled =
+            PermissionUtils
+                .isAccessibilityServiceEnabled(
+                    currentContext,
+                    AppBlockerService::class.java
+                )
+
+        if (!enabled) {
+            binding
+                .statusText
+                .text =
+                "Enable CurBox in Accessibility settings, then return here."
+
+            return
+        }
+
+        waitingForAccessibilityEnable =
+            false
+
+        /*
+         * Post the restart until the resumed view has finished its current
+         * lifecycle callback.
+         */
+        binding.root.post {
+            if (
+                _binding == null ||
+                operationInProgress ||
+                privilegedAccessReady
+            ) {
+                return@post
+            }
+
+            startAutomaticPairing(
+                openSettingsAfterReady =
+                    true
+            )
+        }
+    }
+
     private fun startExistingConnectionRecovery() {
         if (operationInProgress) {
             return
@@ -183,6 +348,9 @@ class DirectAccessSetupFragment : Fragment() {
         val currentOrchestrator =
             orchestrator
                 ?: return
+
+        waitingForAccessibilityEnable =
+            false
 
         manualFallbackVisible =
             false
@@ -210,14 +378,15 @@ class DirectAccessSetupFragment : Fragment() {
         currentOrchestrator.ensureConnected(
             createListener(
                 onConnected =
-                    ::applyPersistentPrivilegesAndFinish,
+                    ::applyPersistentPrivilegesAfterDirectAdb,
+
                 onPairingRequired = {
                     showAutomaticPairingState()
 
                     binding
                         .statusText
                         .text =
-                        "The stored Direct Access identity could not be restored. Automatic pairing is required to repair it."
+                        "The stored Direct ADB identity could not be restored. Start automatic pairing to repair it."
                 }
             )
         )
@@ -265,7 +434,7 @@ class DirectAccessSetupFragment : Fragment() {
         currentOrchestrator.startAutoPairing(
             createListener(
                 onConnected =
-                    ::applyPersistentPrivilegesAndFinish,
+                    ::applyPersistentPrivilegesAfterDirectAdb,
 
                 onFailure = { error ->
                     handleAutomaticPairingFailure(
@@ -311,10 +480,8 @@ class DirectAccessSetupFragment : Fragment() {
     }
 
     /**
-     * Retries only the normal Direct ADB connection.
-     *
-     * Android has already accepted CurBox's persistent identity at this point,
-     * so no pairing dialog or pairing code is requested again.
+     * Retries the normal ADB connection without requesting another pairing
+     * code.
      */
     private fun retryPairedConnection() {
         if (operationInProgress) {
@@ -324,6 +491,9 @@ class DirectAccessSetupFragment : Fragment() {
         val currentOrchestrator =
             orchestrator
                 ?: return
+
+        waitingForAccessibilityEnable =
+            false
 
         retryConnectionVisible =
             false
@@ -356,13 +526,9 @@ class DirectAccessSetupFragment : Fragment() {
         currentOrchestrator.ensureConnected(
             createListener(
                 onConnected =
-                    ::applyPersistentPrivilegesAndFinish,
+                    ::applyPersistentPrivilegesAfterDirectAdb,
 
                 onPairingRequired = {
-                    /*
-                     * A normal reconnect could not authenticate/restore the
-                     * stored relationship. Only now return to pairing setup.
-                     */
                     showAutomaticPairingState()
 
                     binding
@@ -382,6 +548,9 @@ class DirectAccessSetupFragment : Fragment() {
         val currentOrchestrator =
             orchestrator
                 ?: return
+
+        waitingForAccessibilityEnable =
+            false
 
         retryConnectionVisible =
             false
@@ -435,7 +604,7 @@ class DirectAccessSetupFragment : Fragment() {
             listener =
                 createListener(
                     onConnected =
-                        ::applyPersistentPrivilegesAndFinish,
+                        ::applyPersistentPrivilegesAfterDirectAdb,
 
                     onFailure = { error ->
                         showManualFallback(
@@ -446,17 +615,166 @@ class DirectAccessSetupFragment : Fragment() {
         )
     }
 
-    private fun applyPersistentPrivilegesAndFinish() {
+    private fun startShizukuSetup() {
+        if (operationInProgress) {
+            return
+        }
+
+        waitingForAccessibilityEnable =
+            false
+
+        if (
+            !PermissionUtils
+                .isShizukuAvailable()
+        ) {
+            updateShizukuState()
+
+            binding
+                .statusText
+                .text =
+                "Shizuku is not available. Start Shizuku first or use Direct ADB."
+
+            return
+        }
+
+        manualFallbackVisible =
+            false
+
+        retryConnectionVisible =
+            false
+
+        openSettingsWhenAccessibilityReady =
+            false
+
+        settingsOpenedForCurrentAttempt =
+            false
+
+        setOperationInProgress(
+            true
+        )
+
+        binding
+            .statusText
+            .text =
+            "Preparing Shizuku access…"
+
+        if (
+            PermissionUtils
+                .hasShizukuPermission()
+        ) {
+            applyPersistentPrivilegesUsingShizuku()
+            return
+        }
+
+        try {
+            rikka.shizuku.Shizuku
+                .requestPermission(
+                    SHIZUKU_PERMISSION_REQUEST_CODE
+                )
+        } catch (error: Throwable) {
+            setOperationInProgress(
+                false
+            )
+
+            updateShizukuState()
+
+            binding
+                .statusText
+                .text =
+                buildErrorMessage(
+                    prefix =
+                        "CurBox could not request Shizuku permission.",
+                    cause =
+                        error.message
+                )
+        }
+    }
+
+    private fun applyPersistentPrivilegesUsingShizuku() {
+        val appContext =
+            context
+                ?.applicationContext
+
+        if (appContext == null) {
+            setOperationInProgress(
+                false
+            )
+
+            return
+        }
+
+        binding
+            .statusText
+            .text =
+            "Shizuku connected. Applying CurBox privileges…"
+
+        PersistentPrivilegesManager.apply(
+            context =
+                appContext,
+            listener =
+                object :
+                    PersistentPrivilegesManager.Listener {
+
+                    override fun onComplete(
+                        result:
+                            PersistentPrivilegesManager.Result
+                    ) {
+                        postToUi {
+                            setOperationInProgress(
+                                false
+                            )
+
+                            updateShizukuState()
+
+                            if (result.success) {
+                                showPrivilegedAccessReady(
+                                    message =
+                                        "Shizuku access is ready."
+                                )
+                            } else {
+                                privilegedAccessReady =
+                                    false
+
+                                binding
+                                    .continueButton
+                                    .isEnabled =
+                                    false
+
+                                binding
+                                    .statusText
+                                    .text =
+                                    buildErrorMessage(
+                                        prefix =
+                                            "Shizuku is available, but CurBox could not apply persistent privileges.",
+                                        cause =
+                                            result.error
+                                    )
+                            }
+                        }
+                    }
+                }
+        )
+    }
+
+    private fun applyPersistentPrivilegesAfterDirectAdb() {
         val appContext =
             context
                 ?.applicationContext
                 ?: return
+
+        waitingForAccessibilityEnable =
+            false
 
         openSettingsWhenAccessibilityReady =
             false
 
         retryConnectionVisible =
             false
+
+        binding
+            .statusText
+            .text =
+            "Direct ADB connected. Applying CurBox privileges…"
 
         PersistentPrivilegesManager.apply(
             context =
@@ -477,7 +795,7 @@ class DirectAccessSetupFragment : Fragment() {
                             if (result.success) {
                                 showConnectedState()
                             } else {
-                                directAccessConnected =
+                                privilegedAccessReady =
                                     false
 
                                 binding
@@ -488,25 +806,12 @@ class DirectAccessSetupFragment : Fragment() {
                                 binding
                                     .statusText
                                     .text =
-                                    buildString {
-                                        append(
-                                            "Direct ADB connected, but CurBox could not apply persistent privileges."
-                                        )
-
-                                        result.error
-                                            ?.takeIf {
-                                                it.isNotBlank()
-                                            }
-                                            ?.let {
-                                                append(
-                                                    "\n"
-                                                )
-
-                                                append(
-                                                    it
-                                                )
-                                            }
-                                    }
+                                    buildErrorMessage(
+                                        prefix =
+                                            "Direct ADB connected, but CurBox could not apply persistent privileges.",
+                                        cause =
+                                            result.error
+                                    )
                             }
                         }
                     }
@@ -557,7 +862,7 @@ class DirectAccessSetupFragment : Fragment() {
                         false
                     )
 
-                    directAccessConnected =
+                    privilegedAccessReady =
                         false
 
                     binding
@@ -586,7 +891,7 @@ class DirectAccessSetupFragment : Fragment() {
                         false
                     )
 
-                    directAccessConnected =
+                    privilegedAccessReady =
                         false
 
                     binding
@@ -615,9 +920,11 @@ class DirectAccessSetupFragment : Fragment() {
                     openSettingsWhenAccessibilityReady =
                         false
 
-                    setOperation )
+                    setOperationInProgress(
+                        false
+                    )
 
-                    directAccessConnected =
+                    privilegedAccessReady =
                         false
 
                     binding
@@ -646,7 +953,7 @@ class DirectAccessSetupFragment : Fragment() {
                         false
                     )
 
-                    directAccessConnected =
+                    privilegedAccessReady =
                         false
 
                     binding
@@ -669,6 +976,9 @@ class DirectAccessSetupFragment : Fragment() {
     private fun showPairedConnectionFailure(
         cause: Throwable?
     ) {
+        waitingForAccessibilityEnable =
+            false
+
         manualFallbackVisible =
             false
 
@@ -710,26 +1020,12 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            buildString {
-                append(
-                    "CurBox paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again."
-                )
-
-                cause
-                    ?.message
-                    ?.takeIf {
-                        it.isNotBlank()
-                    }
-                    ?.let {
-                        append(
-                            "\n"
-                        )
-
-                        append(
-                            it
-                        )
-                    }
-            }
+            buildErrorMessage(
+                prefix =
+                    "CurBox paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again.",
+                cause =
+                    cause?.message
+            )
     }
 
     private fun handleAutomaticPairingFailure(
@@ -748,20 +1044,90 @@ class DirectAccessSetupFragment : Fragment() {
             false
         )
 
+        val message =
+            error
+                ?.message
+                ?.lowercase()
+                .orEmpty()
+
         if (
-            isAccessibilityUnavailableError(
-                error
+            message.contains(
+                "accessibility service must be enabled"
             )
         ) {
+            manualFallbackVisible =
+                false
+
+            waitingForAccessibilityEnable =
+                true
+
+            hidePairingCodeInput()
+
+            binding
+                .pairButton
+                .visibility =
+                View.VISIBLE
+
+            binding
+                .pairButton
                 .text =
-                "CurBox Accessibility service must be enabled before automatic pairing. Enable CurBox in Accessibility settings, then return and start automatic pairing again."
+                "Start automatic pairing"
+
+            binding
+                .openWirelessDebuggingButton
+                .visibility =
+                View.VISIBLE
+
+            binding
+                .continueButton
+                .isEnabled =
+                false
+
+            binding
+                .statusText
+                .text =
+                "Enable CurBox in Accessibility settings. Automatic pairing will continue when you return."
 
             openAccessibilitySettings()
 
             return
         }
 
-        showManualAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG
+        if (
+            message.contains(
+                "accessibility service did not become ready"
+            )
+        ) {
+            manualFallbackVisible =
+                false
+
+            waitingForAccessibilityEnable =
+                false
+
+            showAutomaticPairingState()
+
+            binding
+                .statusText
+                .text =
+                "CurBox Accessibility is enabled, but the service did not become ready. Tap Start automatic pairing to retry."
+
+            return
+        }
+
+        waitingForAccessibilityEnable =
+            false
+
+        showManualFallback(
+            error
+        )
+    }
+
+    private fun maybeOpenSettingsAfterAccessibilityReady(
+        state: DirectAccessOrchestrator.State
+    ) {
+        if (
+            state !=
+            DirectAccessOrchestrator.State.WAITING_FOR_PAIRING_DIALOG
         ) {
             return
         }
@@ -834,7 +1200,31 @@ class DirectAccessSetupFragment : Fragment() {
     }
 
     private fun showConnectedState() {
-        directAccessConnected =
+        showPrivilegedAccessReady(
+            message =
+                "Direct Access is ready."
+        )
+
+        binding
+            .openWirelessDebuggingButton
+            .visibility =
+            View.GONE
+
+        binding
+            .pairButton
+            .visibility =
+            View.GONE
+
+        updateWirelessDebuggingStatus()
+    }
+
+    private fun showPrivilegedAccessReady(
+        message: String
+    ) {
+        waitingForAccessibilityEnable =
+            false
+
+        privilegedAccessReady =
             true
 
         manualFallbackVisible =
@@ -849,38 +1239,27 @@ class DirectAccessSetupFragment : Fragment() {
         settingsOpenedForCurrentAttempt =
             false
 
-        binding
-            .pairingCodeLayout
-            .error =
-            null
+        setOperationInProgress(
+            false
+        )
 
         hidePairingCodeInput()
 
         binding
-            .openWirelessDebuggingButton
-            .visibility =
-            View.GONE
-
-        binding
-            .pairButton
-            .visibility =
-            View.GONE
-
-        binding
             .statusText
             .text =
-            "Direct Access is ready."
+            message
 
         binding
             .continueButton
             .isEnabled =
             true
 
-        updateWirelessDebuggingStatus()
+        updateShizukuState()
     }
 
     private fun showAutomaticPairingState() {
-        directAccessConnected =
+        privilegedAccessReady =
             false
 
         manualFallbackVisible =
@@ -924,14 +1303,18 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "Start automatic pairing. CurBox will prepare Accessibility first, then open Android Settings and capture the pairing code automatically."
+            "Choose Direct ADB or Shizuku to prepare privileged access."
 
         updateWirelessDebuggingStatus()
+        updateShizukuState()
     }
 
     private fun showManualFallback(
         cause: Throwable?
     ) {
+        waitingForAccessibilityEnable =
+            false
+
         manualFallbackVisible =
             true
 
@@ -973,26 +1356,37 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            buildString {
-                append(
-                    "Automatic pairing could not complete. Manual pairing is available as a fallback."
-                )
+            buildErrorMessage(
+                prefix =
+                    "Automatic pairing could not complete. Manual pairing is available as a fallback.",
+                cause =
+                    cause?.message
+            )
+    }
 
-                cause
-                    ?.message
-                    ?.takeIf {
-                        it.isNotBlank()
-                    }
-                    ?.let {
-                        append(
-                            "\n"
-                        )
+    private fun buildErrorMessage(
+        prefix: String,
+        cause: String?
+    ): String {
+        return buildString {
+            append(
+                prefix
+            )
 
-                        append(
-                            it
-                        )
-                    }
-            }
+            cause
+                ?.takeIf {
+                    it.isNotBlank()
+                }
+                ?.let {
+                    append(
+                        "\n"
+                    )
+
+                    append(
+                        it
+                    )
+                }
+        }
     }
 
     private fun hidePairingCodeInput() {
@@ -1036,6 +1430,13 @@ class DirectAccessSetupFragment : Fragment() {
             .openWirelessDebuggingButton
             .isEnabled =
             !inProgress
+
+        binding
+            .shizukuButton
+            .isEnabled =
+            !inProgress &&
+                PermissionUtils
+                    .isShizukuAvailable()
     }
 
     private fun updateWirelessDebuggingStatus() {
@@ -1054,15 +1455,73 @@ class DirectAccessSetupFragment : Fragment() {
             }
     }
 
+    private fun updateShizukuState() {
+        val currentBinding =
+            _binding
+                ?: return
+
+        val available =
+            PermissionUtils
+                .isShizukuAvailable()
+
+        currentBinding
+            .shizukuCard
+            .visibility =
+            if (available) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+
+        if (!available) {
+            return
+        }
+
+        val permissionGranted =
+            PermissionUtils
+                .hasShizukuPermission()
+
+        currentBinding
+            .shizukuStatus
+            .text =
+            if (permissionGranted) {
+                "Shizuku is available and CurBox has permission."
+            } else {
+                "Shizuku is available. CurBox permission is required."
+            }
+
+        currentBinding
+            .shizukuButton
+            .text =
+            if (permissionGranted) {
+                "Use Shizuku"
+            } else {
+                "Allow Shizuku access"
+            }
+
+        currentBinding
+            .shizukuButton
+            .isEnabled =
+            !operationInProgress
+    }
+
     private fun openAccessibilitySettings() {
         try {
+            PermissionUtils
+                .openAccessibilityServiceScreen(
+                    requireContext(),
+                    AppBlockerService::class.java
+                )
+        } catch (
+            _: ActivityNotFoundException
+        ) {
             startActivity(
                 Intent(
                     Settings.ACTION_ACCESSIBILITY_SETTINGS
                 )
             )
         } catch (
-            _: ActivityNotFoundException
+            _: Throwable
         ) {
             startActivity(
                 Intent(
@@ -1104,10 +1563,5 @@ class DirectAccessSetupFragment : Fragment() {
 
             action()
         }
-    }
-
-    companion object {
-        private const val PAIRING_CODE_LENGTH =
-            6
     }
 }
