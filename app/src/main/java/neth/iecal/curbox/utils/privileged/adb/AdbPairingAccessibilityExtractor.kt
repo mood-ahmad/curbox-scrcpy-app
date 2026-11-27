@@ -317,7 +317,16 @@ object AdbPairingAccessibilityExtractor {
             info =
                 info
         )
+
+        try {
+            onCodeDelivered?.invoke()
+        } catch (_: Throwable) {
+        }
     }
+
+    /** Called after a pairing code has been forwarded to the main process. */
+    @Volatile
+    var onCodeDelivered: (() -> Unit)? = null
 
     /**
      * Clears duplicate tracking without changing capture state.

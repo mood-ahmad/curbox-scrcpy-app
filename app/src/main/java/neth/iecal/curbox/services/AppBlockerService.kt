@@ -481,6 +481,10 @@ class AppBlockerService : BaseBlockingService() {
         AdbWirelessDebuggingAccessibilityNavigator.host =
             navigatorHost
 
+        AdbPairingAccessibilityExtractor.onCodeDelivered = {
+            navigatorHost.log("pairing code delivered")
+        }
+
         AdbWirelessDebuggingAccessibilityNavigator
             .arm()
 
@@ -542,6 +546,89 @@ class AppBlockerService : BaseBlockingService() {
 
         AdbWirelessDebuggingAccessibilityNavigator
             .disarm()
+
+        scheduleReturnToCurbox()
+    }
+
+    /**
+     * After the pairing code has been read (or the attempt ended) the user is
+     * still inside Settings. Give pairing a few seconds, then bring CurBox
+     * back from the Accessibility service, which may start activities from the
+     * background. Falls back to Back presses while Settings is on screen.
+     */
+    private fun scheduleReturnToCurbox() {
+        var tries = 0
+
+        val returnTask =
+            object : Runnable {
+                override fun run() {
+                    try {
+                        val activePackage =
+                            rootInActiveWindow
+                                ?.packageName
+                                ?.toString()
+
+                        if (activePackage == packageName) {
+                            navigatorHost.log(
+                                "returned to CurBox after $tries tries"
+                            )
+                            return
+                        }
+
+                        val launch =
+                            packageManager
+                                .getLaunchIntentForPackage(
+                                    packageName
+                                )
+
+                        if (launch != null) {
+                            launch.addFlags(
+                                android.content.Intent
+                                    .FLAG_ACTIVITY_NEW_TASK or
+                                    android.content.Intent
+                                        .FLAG_ACTIVITY_REORDER_TO_FRONT
+                            )
+
+                            startActivity(
+                                launch
+                            )
+                        }
+
+                        if (
+                            tries % 2 == 1 &&
+                            activePackage == "com.android.settings"
+                        ) {
+                            performGlobalAction(
+                                GLOBAL_ACTION_BACK
+                            )
+                        }
+
+                        navigatorHost.log(
+                            "return attempt ${tries + 1} active=$activePackage"
+                        )
+                    } catch (t: Throwable) {
+                        Log.e(
+                            "DirectADB",
+                            "Return to CurBox failed",
+                            t
+                        )
+                    }
+
+                    tries += 1
+
+                    if (tries < 10) {
+                        navigatorHandler.postDelayed(
+                            this,
+                            1500L
+                        )
+                    }
+                }
+            }
+
+        navigatorHandler.postDelayed(
+            returnTask,
+            3500L
+        )
     }
 
     override fun onAccessibilityEvent(

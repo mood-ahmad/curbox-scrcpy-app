@@ -32,6 +32,8 @@ private class FakeNode(
     }
     override fun scrollForward(): Boolean = true
     override fun scrollDown(): Boolean = true
+    override fun forceClick(): Boolean = true
+    override fun showOnScreen(): Boolean = true
 
     fun add(vararg nodes: FakeNode): FakeNode {
         nodes.forEach {

@@ -25,6 +25,12 @@ interface UiNode {
     fun click(): Boolean
     fun scrollForward(): Boolean
     fun scrollDown(): Boolean
+
+    /** ACTION_CLICK even when the node does not report itself clickable. */
+    fun forceClick(): Boolean
+
+    /** ACTION_SHOW_ON_SCREEN: scroll the node fully into view. */
+    fun showOnScreen(): Boolean
 }
 
 /**
@@ -37,6 +43,10 @@ object WirelessDebuggingNodeMatcher {
     val wirelessDebuggingLabels = listOf(
         "wireless debugging",
         "wireless adb debugging",
+        "wireless debug",
+        "wi-fi debugging",
+        "wifi debugging",
+        "تصحيح أخطاء لاسلكي",
         "تصحيح الأخطاء لاسلكيًا",
         "تصحيح الأخطاء لاسلكيا",
         "تصحيح الأخطاء اللاسلكي",

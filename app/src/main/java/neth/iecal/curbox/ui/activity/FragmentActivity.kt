@@ -169,7 +169,7 @@ class FragmentActivity : AppCompatActivity() {
                     ?.let { lp ->
                         lp.bottomMargin =
                             if (bottomNav.isVisible) {
-                                (96 * density).toInt() +
+                                (88 * density).toInt() +
                                     systemBars.bottom
                             } else {
                                 0
@@ -311,7 +311,7 @@ class FragmentActivity : AppCompatActivity() {
                                 )
 
                             setIcon(
-                                R.drawable.baseline_settings_24
+                                R.drawable.ic_nav_settings
                             )
                         }
                 }
@@ -348,6 +348,26 @@ class FragmentActivity : AppCompatActivity() {
                     switchTab(
                         item.itemId
                     )
+
+                    // Small pop on the selected tab, like a tap response.
+                    bottomNav
+                        .findViewById<android.view.View>(
+                            item.itemId
+                        )
+                        ?.let { tab ->
+                            tab.animate()
+                                .scaleX(1.15f)
+                                .scaleY(1.15f)
+                                .setDuration(110L)
+                                .withEndAction {
+                                    tab.animate()
+                                        .scaleX(1f)
+                                        .scaleY(1f)
+                                        .setDuration(160L)
+                                        .start()
+                                }
+                                .start()
+                        }
 
                     true
                 }

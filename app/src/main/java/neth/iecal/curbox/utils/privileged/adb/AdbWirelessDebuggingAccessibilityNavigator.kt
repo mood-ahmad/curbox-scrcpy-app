@@ -54,6 +54,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         stallCount = 0
         lastSignature = 0
         switchClicks = 0
+        rowAttempts = 0
         hintCount = 0
         lastHintAt = 0L
         lastLoggedState = ""
@@ -141,31 +142,112 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             return true
         }
 
-        // 3. The Wireless debugging row (Developer options).
+        // 3. The Wireless debugging row (Developer options). Once it is
+        // visible, never scroll again: keep trying to open it.
         val wdNode = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
         if (wdNode != null) {
-            if (matcher.clickableAncestor(wdNode) != null) {
-                if (activate(wdNode, "wireless-debugging row")) return true
-            }
+            return openWirelessDebugging(root, wdNode)
+        }
 
-            // 4. On the Wireless debugging page with the switch off: turn it
-            // on. Only when exactly one switch is off, so Developer options
-            // switches are never touched.
+        // 4. Not visible yet: scroll the list.
+        return scrollStep(root, now)
+    }
+
+    @Volatile private var rowAttempts = 0
+
+    private fun describe(node: UiNode): String {
+        val b = node.bounds()
+        return "text=${node.text} desc=${node.contentDescription} id=${node.viewId} " +
+            "class=${node.className} clickable=${node.isClickable} " +
+            "enabled=${node.isEnabled} bounds=${b.joinToString(",")}"
+    }
+
+    private fun openWirelessDebugging(root: UiNode, wdNode: UiNode): Boolean {
+        val matcher = WirelessDebuggingNodeMatcher
+        val attempt = rowAttempts++
+
+        if (attempt == 0) {
+            val chain = StringBuilder()
+            var current: UiNode? = wdNode
+            var depth = 0
+            while (current != null && depth < 8) {
+                chain.append("[").append(describe(current)).append("] ")
+                current = current.parent
+                depth++
+            }
+            note("Wireless debugging row found; chain: $chain")
+            note("all texts: " + matcher.allTexts(root).take(60))
+        }
+
+        if (attempt >= 12) {
+            logOnce("row attempts exhausted")
+            val b = (matcher.clickableAncestor(wdNode) ?: wdNode).bounds()
+            host?.highlight(b[0], b[1], b[2], b[3])
+            return false
+        }
+
+        // On the Wireless debugging page with the switch off: turn it on.
+        // Only when exactly one switch is off and the row itself is not
+        // clickable, so Developer options switches are never touched.
+        val clickable = matcher.clickableAncestor(wdNode)
+        if (clickable == null) {
             val off = matcher.uncheckedSwitches(root)
             if (off.size == 1 && switchClicks < 2) {
                 switchClicks++
-                val ok =
-                    matcher.clickableAncestor(off[0])?.click() == true ||
-                        off[0].click()
+                val ok = off[0].forceClick() ||
+                    matcher.clickableAncestor(off[0])?.click() == true
                 note("tried to switch Wireless debugging on ok=$ok")
                 if (ok) return true
             }
-
-            if (activate(wdNode, "wireless-debugging label")) return true
         }
 
-        // 5. Not visible yet: scroll the list.
-        return scrollStep(root, now)
+        wdNode.showOnScreen()
+
+        val ok = when (attempt % 3) {
+            0 -> {
+                // Every clickable ancestor, nearest first.
+                var current: UiNode? = wdNode
+                var clicked = false
+                var depth = 0
+                while (current != null && depth <= WirelessDebuggingNodeMatcher.MAX_DEPTH) {
+                    if (current.click()) {
+                        clicked = true
+                        break
+                    }
+                    current = current.parent
+                    depth++
+                }
+                note("row attempt $attempt ancestor-click ok=$clicked")
+                clicked
+            }
+            1 -> {
+                val b = (clickable ?: wdNode).bounds()
+                val tapped =
+                    b[2] > b[0] && b[3] > b[1] &&
+                        host?.tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2) == true
+                note("row attempt $attempt gesture-tap ok=$tapped bounds=${b.joinToString(",")}")
+                tapped
+            }
+            else -> {
+                var current: UiNode? = wdNode
+                var forced = false
+                var depth = 0
+                while (current != null && depth <= 6 && !forced) {
+                    forced = current.forceClick()
+                    current = current.parent
+                    depth++
+                }
+                note("row attempt $attempt force-click ok=$forced")
+                forced
+            }
+        }
+
+        if (attempt == 5 || attempt == 11) {
+            host?.toast("Tap \"Wireless debugging\"")
+            val b = (clickable ?: wdNode).bounds()
+            host?.highlight(b[0], b[1], b[2], b[3])
+        }
+        return ok
     }
 
     /** Click strategies: node click, ancestor click, then a gesture tap. */
@@ -257,6 +339,14 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
         override fun scrollForward(): Boolean =
             node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+
+        override fun forceClick(): Boolean =
+            node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+
+        override fun showOnScreen(): Boolean =
+            node.performAction(
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id
+            )
 
         override fun scrollDown(): Boolean =
             node.performAction(
