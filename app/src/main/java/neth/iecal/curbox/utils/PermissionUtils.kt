@@ -90,4 +90,31 @@ object PermissionUtils {
             false
         }
     }
+
+    /**
+     * True when any privileged backend (Shizuku or Direct ADB) can run commands.
+     */
+    fun hasPrivilegedAccess(): Boolean {
+        return try {
+            neth.iecal.curbox.utils.privileged.PrivilegedRunner.isAvailable()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Opens the Direct Access screen so the user can pair Direct ADB.
+     */
+    fun openDirectAccess(context: Context) {
+        val intent = android.content.Intent(
+            context,
+            neth.iecal.curbox.ui.activity.FragmentActivity::class.java
+        ).apply {
+            putExtra(
+                "fragment",
+                neth.iecal.curbox.ui.fragments.main.DirectAccessFragment.FRAGMENT_ID
+            )
+        }
+        context.startActivity(intent)
+    }
 }

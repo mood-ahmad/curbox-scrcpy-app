@@ -157,7 +157,7 @@ class GrayscaleFragment : Fragment() {
         val hasAccess = if (BuildConfig.SUPPORTS_WRITE_SECURE_SETTINGS) {
             PermissionUtils.hasWriteSecureSettings(requireContext())
         } else {
-            PermissionUtils.hasShizukuPermission()
+            PermissionUtils.hasPrivilegedAccess()
         }
         if (hasAccess) {
             binding.cardShizukuWarning.visibility = View.GONE
@@ -170,9 +170,10 @@ class GrayscaleFragment : Fragment() {
         }
         binding.btnActionShizuku.setOnClickListener {
             when {
+                PermissionUtils.hasPrivilegedAccess() -> grantSecureSettings()
                 !PermissionUtils.isShizukuAvailable() -> {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/"))
-                    startActivity(intent)
+                    // No Shizuku needed: pair Direct ADB inside CurBox.
+                    PermissionUtils.openDirectAccess(requireContext())
                 }
                 !PermissionUtils.hasShizukuPermission() -> {
                     try {

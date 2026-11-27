@@ -117,18 +117,92 @@ object DirectAdbBackend : PrivilegedBackend {
              * The sentinel tells CurBox when this command has finished while
              * keeping the interactive shell stream bounded by timeoutMs.
              */
+            val token =
+                System.nanoTime()
+
             val marker =
                 "__CURBOX_ADB_DONE_" +
-                    System.nanoTime() +
+                    token +
                     "__"
+
+            val startMarker =
+                "__CURBOX_ADB_START_" +
+                    token +
+                    "__"
+
+            /*
+             * The interactive "shell:" service normally runs on a pty that
+             * echoes typed input. Turn echo off first, and print the markers
+             * from split printf arguments so the echoed command text can never
+             * be mistaken for the real marker output. Everything up to the
+             * start marker (the echo of this one line) is discarded.
+             */
+            stream.write(
+                (
+                    "stty -echo -onlcr 2>/dev/null; " +
+                        "printf '%s%s\\n' '" +
+                        startMarker.substring(0, 12) +
+                        "' '" +
+                        startMarker.substring(12) +
+                        "'\n"
+                    ).toByteArray(
+                    StandardCharsets.UTF_8
+                )
+            )
+
+            val startDeadlineNanos =
+                System.nanoTime() +
+                    safeTimeout *
+                    1_000_000L
+
+            val startBuffer =
+                StringBuilder()
+
+            while (true) {
+                if (
+                    System.nanoTime() >=
+                    startDeadlineNanos
+                ) {
+                    throw IllegalStateException(
+                        "Direct ADB shell did not become ready."
+                    )
+                }
+
+                val startBytes =
+                    stream.read()
+
+                if (startBytes.isEmpty()) {
+                    Thread.sleep(
+                        IDLE_POLL_MS
+                    )
+                    continue
+                }
+
+                startBuffer.append(
+                    String(
+                        startBytes,
+                        StandardCharsets.UTF_8
+                    )
+                )
+
+                if (
+                    startBuffer.indexOf(
+                        startMarker
+                    ) >= 0
+                ) {
+                    break
+                }
+            }
 
             val payload =
                 buildString {
                     append(command)
                     append('\n')
-                    append("printf '\\n")
-                    append(marker)
-                    append("\\n'\n")
+                    append("printf '%s%s\\n' '")
+                    append(marker.substring(0, 12))
+                    append("' '")
+                    append(marker.substring(12))
+                    append("'\n")
                 }
 
             stream.write(

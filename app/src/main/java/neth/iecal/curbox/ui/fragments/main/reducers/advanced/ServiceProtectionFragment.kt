@@ -217,24 +217,17 @@ class ServiceProtectionFragment : Fragment() {
     }
 
     private fun setupShizuku() {
-        if (PermissionUtils.isShizukuAvailable()) {
+        if (PermissionUtils.hasPrivilegedAccess()) {
+            Toast.makeText(requireContext(), R.string.service_protection_shizuku_ok_privileged, Toast.LENGTH_SHORT).show()
+        } else if (PermissionUtils.isShizukuAvailable()) {
             try {
                 rikka.shizuku.Shizuku.requestPermission(1001)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         } else {
-            Toast.makeText(requireContext(), R.string.service_protection_shizuku_not_installed, Toast.LENGTH_LONG).show()
-            try {
-                startActivity(
-                    android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse("https://shizuku.rikka.app/")
-                    )
-                )
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            // No Shizuku needed: pair Direct ADB inside CurBox.
+            PermissionUtils.openDirectAccess(requireContext())
         }
     }
 
