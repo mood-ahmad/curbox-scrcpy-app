@@ -48,6 +48,10 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     @Volatile private var hintCount = 0
     @Volatile private var lastHintAt = 0L
     @Volatile private var lastLoggedState = ""
+    @Volatile private var passCount = 0
+    @Volatile private var reversed = false
+    @Volatile private var subPageClicks = 0
+    @Volatile private var lastSubClickAt = 0L
 
     fun arm() {
         scrollCount = 0
@@ -58,6 +62,10 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         hintCount = 0
         lastHintAt = 0L
         lastLoggedState = ""
+        passCount = 0
+        reversed = false
+        subPageClicks = 0
+        lastSubClickAt = 0L
         lastStepAt = 0L
         armedAt = System.currentTimeMillis()
         armed.set(true)
@@ -122,6 +130,14 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
     private fun step(root: UiNode, now: Long): Boolean {
         val matcher = WirelessDebuggingNodeMatcher
+        passCount++
+        if (passCount <= 3 || passCount % 8 == 0) {
+            note(
+                "pass #$passCount list=${matcher.isDeveloperList(root)} " +
+                    "switches=${matcher.countCheckable(root)} texts=" +
+                    matcher.allTexts(root).take(25)
+            )
+        }
 
         // 1. Pair with pairing code: the goal of navigation.
         val pairNode = matcher.findByLabels(
@@ -146,7 +162,12 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         // visible, never scroll again: keep trying to open it.
         val wdNode = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
         if (wdNode != null) {
-            return openWirelessDebugging(root, wdNode)
+            if (matcher.isDeveloperList(root)) {
+                return openWirelessDebugging(root, wdNode)
+            }
+            // Sub page with Wireless debugging off: switch it on, then wait
+            // for the pairing row (or the Allow prompt) to appear.
+            if (enableOnSubPage(root, now)) return true
         }
 
         // 4. Not visible yet: scroll the list.
@@ -154,6 +175,27 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     }
 
     @Volatile private var rowAttempts = 0
+
+    private fun enableOnSubPage(root: UiNode, now: Long): Boolean {
+        val off = WirelessDebuggingNodeMatcher.uncheckedSwitches(root)
+        if (off.isEmpty()) {
+            logOnce("sub page: switch already on, waiting for pairing row")
+            return false
+        }
+        if (subPageClicks >= 4 || now - lastSubClickAt < 2500L) return false
+        subPageClicks++
+        lastSubClickAt = now
+        val target = off[0]
+        val ok = target.forceClick() ||
+            WirelessDebuggingNodeMatcher.clickableAncestor(target)?.click() == true ||
+            run {
+                val b = target.bounds()
+                b[2] > b[0] && b[3] > b[1] &&
+                    host?.tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2) == true
+            }
+        note("sub page: switch was off, turning on attempt=$subPageClicks ok=$ok")
+        return ok
+    }
 
     private fun describe(node: UiNode): String {
         val b = node.bounds()
@@ -186,20 +228,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             return false
         }
 
-        // On the Wireless debugging page with the switch off: turn it on.
-        // Only when exactly one switch is off and the row itself is not
-        // clickable, so Developer options switches are never touched.
         val clickable = matcher.clickableAncestor(wdNode)
-        if (clickable == null) {
-            val off = matcher.uncheckedSwitches(root)
-            if (off.size == 1 && switchClicks < 2) {
-                switchClicks++
-                val ok = off[0].forceClick() ||
-                    matcher.clickableAncestor(off[0])?.click() == true
-                note("tried to switch Wireless debugging on ok=$ok")
-                if (ok) return true
-            }
-        }
 
         wdNode.showOnScreen()
 
@@ -284,6 +313,17 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             host?.toast("Scroll down and tap \"Wireless debugging\"")
         }
 
+        if (stallCount >= 3 && !reversed) {
+            reversed = true
+            stallCount = 0
+            scrollCount = 0
+            note("end of list reached without the row, scrolling back up")
+        }
+        if (stallCount >= 3 && reversed) {
+            logOnce("list exhausted in both directions without the row")
+            return false
+        }
+
         if (scrollCount >= MAX_SCROLLS) {
             logOnce("scroll limit reached")
             return false
@@ -293,7 +333,9 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         val scrollable = WirelessDebuggingNodeMatcher.bestScrollable(root)
         val strategy = if (scrollable == null) 2 else stallCount % 3
 
-        val ok = when (strategy) {
+        val ok = if (reversed) {
+            scrollable?.scrollBackward() == true
+        } else when (strategy) {
             0 -> scrollable?.scrollForward() == true
             1 -> scrollable?.scrollDown() == true
             else -> host?.swipeUp() == true
@@ -347,6 +389,9 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             node.performAction(
                 AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id
             )
+
+        override fun scrollBackward(): Boolean =
+            node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
 
         override fun scrollDown(): Boolean =
             node.performAction(

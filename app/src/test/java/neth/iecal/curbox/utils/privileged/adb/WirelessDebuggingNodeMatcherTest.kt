@@ -32,6 +32,7 @@ private class FakeNode(
     }
     override fun scrollForward(): Boolean = true
     override fun scrollDown(): Boolean = true
+    override fun scrollBackward(): Boolean = true
     override fun forceClick(): Boolean = true
     override fun showOnScreen(): Boolean = true
 
@@ -155,5 +156,23 @@ class WirelessDebuggingNodeMatcherTest {
         assertTrue(WirelessDebuggingNodeMatcher.signature(a) != WirelessDebuggingNodeMatcher.signature(b))
         assertEquals(WirelessDebuggingNodeMatcher.signature(a), WirelessDebuggingNodeMatcher.signature(a))
         assertNotNull(WirelessDebuggingNodeMatcher.allTexts(a))
+    }
+
+    @Test
+    fun developerListIsDetectedByNeighbourRow() {
+        val root = FakeNode().add(
+            FakeNode(text = "USB debugging"),
+            FakeNode(text = "Wireless debugging")
+        )
+        assertTrue(WirelessDebuggingNodeMatcher.isDeveloperList(root))
+    }
+
+    @Test
+    fun wirelessDebuggingSubPageIsNotTheList() {
+        val root = FakeNode().add(
+            FakeNode(text = "Wireless debugging"),
+            FakeNode(className = "android.widget.Switch", isCheckable = true)
+        )
+        assertTrue(!WirelessDebuggingNodeMatcher.isDeveloperList(root))
     }
 }

@@ -905,8 +905,12 @@ class AppBlockerService : BaseBlockingService() {
 
         if (
             neth.iecal.curbox.utils.privileged.adb
-                .AccessibilityReturnRequest.consume()
+                .AccessibilityReturnRequest.consume(this)
         ) {
+            try {
+                neth.iecal.curbox.remotecontrol.EventLogger.init(this)
+            } catch (_: Throwable) {
+            }
             navigatorHost.log(
                 "accessibility enabled for pairing, returning to CurBox"
             )

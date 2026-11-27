@@ -6,21 +6,27 @@ import org.junit.Test
 
 class AccessibilityReturnRequestTest {
     @Test
-    fun consumeWithoutRequestIsFalse() {
-        AccessibilityReturnRequest.consume(1_000L)
-        assertFalse(AccessibilityReturnRequest.consume(2_000L))
+    fun recentRequestIsFresh() {
+        assertTrue(AccessibilityReturnRequest.isFresh(10_000L, 12_000L))
     }
 
     @Test
-    fun recentRequestIsConsumedOnce() {
-        AccessibilityReturnRequest.request(10_000L)
-        assertTrue(AccessibilityReturnRequest.consume(12_000L))
-        assertFalse(AccessibilityReturnRequest.consume(12_500L))
+    fun missingRequestIsNotFresh() {
+        assertFalse(AccessibilityReturnRequest.isFresh(0L, 12_000L))
     }
 
     @Test
-    fun staleRequestIsIgnored() {
-        AccessibilityReturnRequest.request(10_000L)
-        assertFalse(AccessibilityReturnRequest.consume(10_000L + 11 * 60 * 1000L))
+    fun staleRequestIsNotFresh() {
+        assertFalse(
+            AccessibilityReturnRequest.isFresh(
+                10_000L,
+                10_000L + AccessibilityReturnRequest.MAX_AGE_MS + 1
+            )
+        )
+    }
+
+    @Test
+    fun futureRequestIsNotFresh() {
+        assertFalse(AccessibilityReturnRequest.isFresh(20_000L, 10_000L))
     }
 }

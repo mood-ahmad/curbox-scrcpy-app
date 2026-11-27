@@ -25,6 +25,7 @@ interface UiNode {
     fun click(): Boolean
     fun scrollForward(): Boolean
     fun scrollDown(): Boolean
+    fun scrollBackward(): Boolean
 
     /** ACTION_CLICK even when the node does not report itself clickable. */
     fun forceClick(): Boolean
@@ -227,6 +228,42 @@ object WirelessDebuggingNodeMatcher {
     }
 
     fun signature(root: UiNode?): Int = allTexts(root).hashCode()
+
+    private val developerListMarkers = listOf(
+        "usb debugging",
+        "stay awake",
+        "bluetooth hci snoop",
+        "oem unlocking",
+        "تصحيح أخطاء usb",
+        "تصحيح أخطاء الـusb",
+        "تصحيح usb",
+        "débogage usb",
+        "depuración usb",
+        "usb-debugging"
+    )
+
+    fun countCheckable(root: UiNode?): Int {
+        var n = 0
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH) return
+            if (node.isCheckable) n++
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return n
+    }
+
+    /**
+     * True on the Developer options list (many switches or a well-known
+     * neighbour row), false on the Wireless debugging sub page that only has
+     * its own switch and pairing rows.
+     */
+    fun isDeveloperList(root: UiNode?): Boolean {
+        if (root == null) return false
+        val texts = allTexts(root).map { normalize(it) }
+        if (texts.any { t -> developerListMarkers.any { t == normalize(it) } }) return true
+        return countCheckable(root) >= 3
+    }
 
     /** True when the label sits on a node that is exactly an allow button. */
     fun findAllowButton(root: UiNode?): UiNode? {
