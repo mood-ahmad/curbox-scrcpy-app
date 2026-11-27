@@ -28,7 +28,7 @@
         app:itemIconSize="24dp"
         app:itemPaddingTop="10dp"
         app:itemPaddingBottom="10dp"
-        app:paddingBottomSystemWindowsInsets="false"
+        app:paddingBottomSystemWindowInsets="false"
         app:labelVisibilityMode="labeled"
         app:menu="@menu/bottom_nav_menu" />
 
