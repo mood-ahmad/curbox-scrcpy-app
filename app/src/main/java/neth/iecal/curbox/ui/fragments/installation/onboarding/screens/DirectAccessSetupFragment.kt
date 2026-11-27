@@ -1506,6 +1506,7 @@ class DirectAccessSetupFragment : Fragment() {
     }
 
     private fun openAccessibilitySettings() {
+        neth.iecal.curbox.utils.privileged.adb.AccessibilityReturnRequest.request()
         try {
             PermissionUtils
                 .openAccessibilityServiceScreen(

@@ -556,7 +556,7 @@ class AppBlockerService : BaseBlockingService() {
      * back from the Accessibility service, which may start activities from the
      * background. Falls back to Back presses while Settings is on screen.
      */
-    private fun scheduleReturnToCurbox() {
+    private fun scheduleReturnToCurbox(initialDelayMs: Long = 3500L) {
         var tries = 0
 
         val returnTask =
@@ -627,7 +627,7 @@ class AppBlockerService : BaseBlockingService() {
 
         navigatorHandler.postDelayed(
             returnTask,
-            3500L
+            initialDelayMs
         )
     }
 
@@ -902,6 +902,16 @@ class AppBlockerService : BaseBlockingService() {
     )
     override fun onServiceConnected() {
         super.onServiceConnected()
+
+        if (
+            neth.iecal.curbox.utils.privileged.adb
+                .AccessibilityReturnRequest.consume()
+        ) {
+            navigatorHost.log(
+                "accessibility enabled for pairing, returning to CurBox"
+            )
+            scheduleReturnToCurbox(500L)
+        }
 
         appBlocker
             .setupAppBlocker(
