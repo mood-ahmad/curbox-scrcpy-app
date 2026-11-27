@@ -26,6 +26,19 @@ class Curbox : Application() {
         false
 
     override fun onCreate() {
+        // Decode the creator photo off the main thread so it is cached before
+        // the Info screen is opened.
+        Thread {
+            try {
+                androidx.core.content.res.ResourcesCompat.getDrawable(
+                    resources,
+                    R.drawable.creator_photo,
+                    null
+                )
+            } catch (_: Throwable) {
+            }
+        }.start()
+
         DynamicColors.applyToActivitiesIfAvailable(
             this
         )
