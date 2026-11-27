@@ -2230,9 +2230,11 @@ object RemoteControlManager {
         networkType: String
     ) {
         when (reason) {
-            StartReason.AUTO_START -> {
+            StartReason.AUTO_START,
+            StartReason.USER_START,
+            StartReason.FEATURE_ENABLED -> {
                 /*
-                 * AUTO_START must prove that both access paths were created
+                 * AUTO_START, USER_START and FEATURE_ENABLED must prove that both access paths were created
                  * before announcing readiness. The Ready email itself is sent
                  * by EmailSender and intentionally contains no access URLs.
                  */
@@ -2240,6 +2242,13 @@ object RemoteControlManager {
                     EventLogger.log(
                         "EMAIL",
                         "Ready email skipped: startup did not produce both links"
+                    )
+                    EventLogger.logEmail(
+                        event = "READY_SKIPPED",
+                        details =
+                            "reason=${reason.label}; " +
+                            "localAvailable=${localUrl != null}; " +
+                            "publicAvailable=${publicUrl != null}"
                     )
                     return
                 }
@@ -2277,12 +2286,14 @@ object RemoteControlManager {
                 )
             }
 
-            StartReason.USER_START,
-            StartReason.FEATURE_ENABLED,
             StartReason.GUARDIAN_REPAIR -> {
                 EventLogger.log(
                     "EMAIL",
                     "Automatic links email skipped: reason=${reason.label}"
+                )
+                EventLogger.logEmail(
+                    event = "AUTO_EMAIL_SKIPPED",
+                    details = "reason=${reason.label}"
                 )
             }
         }

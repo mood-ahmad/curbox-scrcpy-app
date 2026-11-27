@@ -4514,8 +4514,9 @@ class RemoteControlServiceBridge(
                 "AGENT_LAUNCH_PID=${'$'}AGENT_LAUNCH_PID" \
                 >> launch.log
 
-            ps -o PID,PPID,PGID,SID,NAME -p "${'$'}AGENT_PID" \
-                >> launch.log 2>&1 || true
+            { ps -o PID,PPID,PGID,SID,COMM -p "${'$'}AGENT_PID" 2>/dev/null \
+                || ps -p "${'$'}AGENT_PID" 2>/dev/null \
+                || true; } >> launch.log
 
             # --------------------------------------------------
             # Record Agent PGID / SID atomically.
