@@ -12,13 +12,14 @@ import androidx.fragment.app.Fragment
 import neth.iecal.curbox.R
 import neth.iecal.curbox.databinding.FragmentEngineDiagnosticsBinding
 import neth.iecal.curbox.remotecontrol.EventLogger
-import neth.iecal.curbox.utils.ShizukuRunner
+import neth.iecal.curbox.utils.privileged.PrivilegedBackend
+import neth.iecal.curbox.utils.privileged.PrivilegedRunner
 import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Diagnostics for the CurBox remote-control engine.
  *
- * Shell-based diagnostics run through Shizuku.
+ * Shell-based diagnostics run through privileged access (Shizuku or Direct ADB).
  *
  * App-side general lifecycle events and email diagnostics are read
  * directly from EventLogger.
@@ -734,10 +735,10 @@ class EngineDiagnosticsFragment : Fragment() {
             runGeneration
         )
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             command,
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,

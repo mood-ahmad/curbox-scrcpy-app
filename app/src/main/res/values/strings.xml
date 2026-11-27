@@ -304,6 +304,8 @@
     <string name="usage">Usage</string>
     <string name="focus">Focus</string>
     <string name="reducers">Reducers</string>
+    <string name="service_protection_shizuku_ok_privileged">Privileged access is already active.</string>
+    <string name="direct_access_tab">Direct Access</string>
     <string name="info">Info</string>
     <string name="settings">Settings</string>
     <string name="log_in">Log in</string>

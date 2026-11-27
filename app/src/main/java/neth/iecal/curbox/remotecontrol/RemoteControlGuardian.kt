@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import neth.iecal.curbox.utils.privileged.PrivilegedRunner
 import rikka.shizuku.Shizuku
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -313,7 +314,9 @@ object RemoteControlGuardian {
     private fun checkShizukuReadiness(): ShizukuReadiness {
         val result: ShizukuReadiness =
             try {
-                if (!Shizuku.pingBinder()) {
+                if (PrivilegedRunner.isAvailable()) {
+                    ShizukuReadiness.READY
+                } else if (!Shizuku.pingBinder()) {
                     ShizukuReadiness.BINDER_UNAVAILABLE
                 } else {
                     val permission =

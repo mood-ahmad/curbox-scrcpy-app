@@ -57,7 +57,27 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             "الإقران باستخدام رمز الإقران"
         )
 
+    private const val MAX_AUTO_SCROLLS =
+        25
+
+    private const val SCROLL_INTERVAL_MS =
+        450L
+
+    @Volatile
+    private var scrollCount =
+        0
+
+    @Volatile
+    private var lastScrollAt =
+        0L
+
     fun arm() {
+        scrollCount =
+            0
+
+        lastScrollAt =
+            0L
+
         armed.set(
             true
         )
@@ -142,11 +162,88 @@ object AdbWirelessDebuggingAccessibilityNavigator {
                 resourceIdHint =
                     null
             )
-                ?: return false
+                ?: return scrollTowardWirelessDebugging(
+                    currentRoot
+                )
 
         return performClick(
             wirelessDebuggingNode
         )
+    }
+
+    /**
+     * The Wireless debugging row is usually below the first screen of
+     * Developer options. Scroll the list forward, a bounded number of times,
+     * until the row becomes visible. Each scroll triggers a new Accessibility
+     * event that runs another navigation pass.
+     */
+    private fun scrollTowardWirelessDebugging(
+        root: AccessibilityNodeInfo
+    ): Boolean {
+        val now =
+            System.currentTimeMillis()
+
+        if (
+            scrollCount >= MAX_AUTO_SCROLLS ||
+            now - lastScrollAt < SCROLL_INTERVAL_MS
+        ) {
+            return false
+        }
+
+        val scrollable =
+            findScrollable(
+                root,
+                0
+            )
+                ?: return false
+
+        lastScrollAt =
+            now
+
+        scrollCount +=
+            1
+
+        return scrollable.performAction(
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        )
+    }
+
+    private fun findScrollable(
+        node: AccessibilityNodeInfo?,
+        depth: Int
+    ): AccessibilityNodeInfo? {
+        if (
+            node == null ||
+            depth > MAX_TREE_DEPTH
+        ) {
+            return null
+        }
+
+        if (
+            node.isScrollable &&
+            node.isEnabled
+        ) {
+            return node
+        }
+
+        for (
+            index in
+            0 until node.childCount
+        ) {
+            val result =
+                findScrollable(
+                    node.getChild(
+                        index
+                    ),
+                    depth + 1
+                )
+
+            if (result != null) {
+                return result
+            }
+        }
+
+        return null
     }
 
     private fun findNode(

@@ -500,6 +500,8 @@ class FragmentActivity : AppCompatActivity() {
                 "tab_usage",
             R.id.nav_focus to
                 "tab_focus",
+            R.id.nav_direct_access to
+                "tab_direct_access",
             R.id.nav_reducers to
                 "tab_reducers",
             R.id.nav_info to
@@ -515,6 +517,9 @@ class FragmentActivity : AppCompatActivity() {
 
             R.id.nav_focus ->
                 FocusFragment()
+
+            R.id.nav_direct_access ->
+                DirectAccessFragment()
 
             R.id.nav_reducers ->
                 ReducersFragment()

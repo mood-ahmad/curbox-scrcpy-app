@@ -3,7 +3,8 @@ package neth.iecal.curbox.remotecontrol
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import neth.iecal.curbox.utils.ShizukuRunner
+import neth.iecal.curbox.utils.privileged.PrivilegedBackend
+import neth.iecal.curbox.utils.privileged.PrivilegedRunner
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -373,10 +374,10 @@ class RemoteControlServiceBridge(
             }
         }
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             command,
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
@@ -573,10 +574,10 @@ class RemoteControlServiceBridge(
             }
         }
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             command,
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
@@ -670,10 +671,10 @@ class RemoteControlServiceBridge(
             }
         }
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             command,
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
@@ -867,12 +868,12 @@ class RemoteControlServiceBridge(
                 return@writeCloudflareRepairGeneration
             }
 
-            ShizukuRunner.executeCommand(
+            PrivilegedRunner.executeCommand(
                 buildCloudflareRepairScript(
                     repairGeneration
                 ),
                 object :
-                    ShizukuRunner.CommandResultListener {
+                    PrivilegedBackend.CommandResultListener {
 
                     override fun onCommandResult(
                         output: String,
@@ -1494,10 +1495,10 @@ class RemoteControlServiceBridge(
             }
         }
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             buildCopyScript(),
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
@@ -2952,10 +2953,10 @@ class RemoteControlServiceBridge(
             echo CLEANUP_OK
         """.trimIndent()
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             script,
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
@@ -3301,13 +3302,13 @@ class RemoteControlServiceBridge(
             }
         }
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             buildLaunchScript(
                 networkMode = networkMode,
                 operationId = operationId
             ),
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
@@ -3563,10 +3564,10 @@ class RemoteControlServiceBridge(
             }
         }
 
-        ShizukuRunner.executeCommand(
+        PrivilegedRunner.executeCommand(
             command,
             object :
-                ShizukuRunner.CommandResultListener {
+                PrivilegedBackend.CommandResultListener {
 
                 override fun onCommandResult(
                     output: String,
