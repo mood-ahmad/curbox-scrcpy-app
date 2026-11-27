@@ -902,7 +902,7 @@ jobs:
           echo ""
           echo "PASS: libadb-android 3.1.1 API inspection completed"
 
-      - name: Run Fdroid Debug unit tests
+      - name: Run Full Debug unit tests (sync tests need the full flavor)
         shell: bash
         env:
           CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
@@ -915,7 +915,7 @@ jobs:
           set -euo pipefail
 
           ./gradlew \
-            testFdroidDebugUnitTest \
+            testFullDebugUnitTest \
             --stacktrace
 
       - name: Upload unit test reports
