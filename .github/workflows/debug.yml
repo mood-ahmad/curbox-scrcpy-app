@@ -84,6 +84,8 @@ jobs:
           PROTECTION="app/src/main/java/neth/iecal/curbox/utils/ServiceProtectionManager.kt"
           BLOCKER="app/src/main/java/neth/iecal/curbox/blockers/AppBlocker.kt"
           ONBOARDING="app/src/main/java/neth/iecal/curbox/ui/fragments/installation/onboarding/screens/OnboardingPermissionsFragment.kt"
+          BRIDGE="app/src/main/java/neth/iecal/curbox/remotecontrol/RemoteControlServiceBridge.kt"
+          ENGINE_DIAG="app/src/main/java/neth/iecal/curbox/ui/fragments/main/scrcpy/EngineDiagnosticsFragment.kt"
 
           # OnboardingPermissionsFragment no longer runs privileged commands
           # (DirectAccessSetupFragment does), so it is only checked for
@@ -92,7 +94,9 @@ jobs:
             "$MONO" \
             "$SUSPEND" \
             "$PROTECTION" \
-            "$BLOCKER"
+            "$BLOCKER" \
+            "$BRIDGE" \
+            "$ENGINE_DIAG"
           do
             test -s "$file"
 
@@ -109,7 +113,9 @@ jobs:
             "$SUSPEND" \
             "$PROTECTION" \
             "$BLOCKER" \
-            "$ONBOARDING"
+            "$ONBOARDING" \
+            "$BRIDGE" \
+            "$ENGINE_DIAG"
           then
             echo "FAIL: direct ShizukuRunner command execution remains in a migrated file"
             exit 1

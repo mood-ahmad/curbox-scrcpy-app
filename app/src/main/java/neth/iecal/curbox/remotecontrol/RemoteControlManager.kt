@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import neth.iecal.curbox.utils.privileged.PrivilegedRunner
 import rikka.shizuku.Shizuku
 import java.io.File
 import java.io.FileOutputStream
@@ -353,7 +354,7 @@ object RemoteControlManager {
                         finishStartWithError(
                             generation = startGeneration,
                             message =
-                                "Shizuku service is unavailable"
+                                "No privileged access is available (Shizuku not running and Direct ADB not connected)"
                         )
 
                         return@launch
@@ -363,7 +364,7 @@ object RemoteControlManager {
                         finishStartWithError(
                             generation = startGeneration,
                             message =
-                                "Shizuku permission is not granted"
+                                "Shizuku permission is not granted and Direct ADB is not connected"
                         )
 
                         return@launch
@@ -1638,6 +1639,16 @@ object RemoteControlManager {
 
     private fun checkShizukuReadiness():
         ShizukuReadiness {
+        // Any ready privileged backend (Shizuku or Direct ADB) is enough.
+        val anyBackendReady =
+            try {
+                PrivilegedRunner.isAvailable()
+            } catch (_: Throwable) {
+                false
+            }
+        if (anyBackendReady) {
+            return ShizukuReadiness.READY
+        }
         val binderReady =
             try {
                 Shizuku.pingBinder()
