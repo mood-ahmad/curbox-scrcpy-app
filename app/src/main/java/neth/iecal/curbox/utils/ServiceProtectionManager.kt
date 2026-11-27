@@ -190,6 +190,24 @@ object ServiceProtectionManager {
      * Keeps CurBox out of doze and allows its background execution through
      * the currently available privileged backend.
      */
+    /**
+     * MIUI keeps "Autostart" as app-op 10008, which the shell may grant.
+     * Other makers have no shell-grantable autostart switch, so this is empty
+     * there and the OEM screen stays the manual fallback.
+     */
+    private fun miuiAutostartCommand(pkg: String): String {
+        val maker = android.os.Build.MANUFACTURER.lowercase()
+        return if (
+            maker.contains("xiaomi") ||
+            maker.contains("redmi") ||
+            maker.contains("poco")
+        ) {
+            "; appops set $pkg 10008 allow"
+        } else {
+            ""
+        }
+    }
+
     fun reinforceBackgroundExecution(
         context: Context
     ) {
@@ -204,7 +222,8 @@ object ServiceProtectionManager {
             command =
                 "dumpsys deviceidle whitelist +$pkg; " +
                     "cmd appops set $pkg RUN_ANY_IN_BACKGROUND allow; " +
-                    "cmd appops set $pkg RUN_IN_BACKGROUND allow",
+                    "cmd appops set $pkg RUN_IN_BACKGROUND allow" +
+                    miuiAutostartCommand(pkg),
             successMessage =
                 "Reinforced background execution using privileged backend"
         )
