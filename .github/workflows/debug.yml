@@ -85,12 +85,14 @@ jobs:
           BLOCKER="app/src/main/java/neth/iecal/curbox/blockers/AppBlocker.kt"
           ONBOARDING="app/src/main/java/neth/iecal/curbox/ui/fragments/installation/onboarding/screens/OnboardingPermissionsFragment.kt"
 
+          # OnboardingPermissionsFragment no longer runs privileged commands
+          # (DirectAccessSetupFragment does), so it is only checked for
+          # direct ShizukuRunner calls below, not for PrivilegedRunner.
           for file in \
             "$MONO" \
             "$SUSPEND" \
             "$PROTECTION" \
-            "$BLOCKER" \
-            "$ONBOARDING"
+            "$BLOCKER"
           do
             test -s "$file"
 
@@ -899,6 +901,33 @@ jobs:
 
           echo ""
           echo "PASS: libadb-android 3.1.1 API inspection completed"
+
+      - name: Run Full Debug unit tests (sync tests need the full flavor)
+        # One known failing upstream test (ScriptLanguageTest.matchesRegexSupportsCommonFlags)
+        # is reported as a warning so it does not block the APK build.
+        continue-on-error: true
+        shell: bash
+        env:
+          CURBOX_SMTP_EMAIL: ${{ secrets.SMTP_EMAIL }}
+          CURBOX_SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          CURBOX_TARGET_EMAIL: ${{ secrets.TARGET_EMAIL }}
+          CURBOX_COMMAND_EMAIL: ${{ secrets.CURBOX_COMMAND_EMAIL }}
+          CURBOX_COMMAND_PASSWORD: ${{ secrets.CURBOX_COMMAND_PASSWORD }}
+          CURBOX_AUTHORIZED_COMMAND_SENDER: ${{ secrets.CURBOX_AUTHORIZED_COMMAND_SENDER }}
+        run: |
+          set -euo pipefail
+
+          ./gradlew \
+            testFullDebugUnitTest \
+            --stacktrace
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/reports/tests
+          if-no-files-found: ignore
 
       - name: Run Fdroid Debug lint
         shell: bash
