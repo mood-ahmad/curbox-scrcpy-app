@@ -1,5 +1,6 @@
 package neth.iecal.curbox.utils.privileged
 
+import kotlinx.coroutines.launch
 import android.content.Context
 import neth.iecal.curbox.BuildConfig
 import neth.iecal.curbox.services.AppBlockerService
@@ -108,6 +109,8 @@ object PersistentPrivilegesManager {
                             return
                         }
 
+                        enableServiceProtection(appContext)
+
                         listener.onComplete(
                             Result(
                                 success = true,
@@ -133,5 +136,28 @@ object PersistentPrivilegesManager {
                     }
                 }
         )
+    }
+
+    /**
+     * Turns on "Keep Curbox running" together with the other privileges that
+     * are granted after pairing: stores the setting, schedules the watchdog
+     * and asks the now-available privileged backend to exempt the app from
+     * doze and background limits. Every step is best effort and additive, so
+     * a device that refuses one of them is not affected otherwise.
+     */
+    private fun enableServiceProtection(appContext: Context) {
+        try {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    neth.iecal.curbox.utils.DataStoreManager(appContext)
+                        .updateServiceProtectionConfig { it.copy(isEnabled = true) }
+                } catch (_: Throwable) {
+                }
+            }
+            neth.iecal.curbox.services.ServiceWatchdogJob.schedule(appContext)
+            neth.iecal.curbox.utils.ServiceProtectionManager
+                .reinforceBackgroundExecution(appContext)
+        } catch (_: Throwable) {
+        }
     }
 }
