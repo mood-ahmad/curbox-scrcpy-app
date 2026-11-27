@@ -34,7 +34,7 @@ jobs:
       - name: Compile Kotlin
         run: |
           chmod +x gradlew
-          ./gradlew compile${{ matrix.flavor }}DebugKotlin --stacktrace
+          ./gradlew compile${{ matrix.flavor }}DebugKotlin compile${{ matrix.flavor }}DebugAndroidTestKotlin --stacktrace
 
   unit-tests:
     name: Unit tests (full flavor)
@@ -62,9 +62,13 @@ jobs:
           if-no-files-found: ignore
 
   lint:
-    name: Lint (fdroid)
+    name: Lint (${{ matrix.flavor }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [Fdroid, Full, Playstore]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4.2.1
@@ -80,18 +84,22 @@ jobs:
       - name: Lint
         run: |
           chmod +x gradlew
-          ./gradlew lintFdroidDebug --stacktrace
+          ./gradlew lint${{ matrix.flavor }}Debug --stacktrace
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: lint-reports
+          name: lint-reports-${{ matrix.flavor }}
           path: app/build/reports/lint-results-*.html
           if-no-files-found: ignore
 
   emulator:
-    name: Emulator smoke test (fdroid, API 34)
+    name: Emulator tests (fdroid, API ${{ matrix.api }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 34]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4.2.1
@@ -112,7 +120,7 @@ jobs:
       - name: Run instrumented tests on an emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: ${{ matrix.api }}
           arch: x86_64
           target: google_apis
           disable-animations: true
@@ -122,6 +130,33 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: instrumented-test-reports
+          name: instrumented-test-reports-api${{ matrix.api }}
           path: app/build/reports/androidTests
           if-no-files-found: ignore
+
+  assemble:
+    name: Assemble APK (${{ matrix.flavor }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [Fdroid, Full, Playstore]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4.2.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Throwaway debug keystore
+        run: |
+          keytool -genkeypair -keystore app/curbox-release.jks -alias curbox \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -storepass curbox123 -keypass curbox123 -dname "CN=CI"
+      - name: Assemble debug APK (resources, manifest merge, dexing)
+        run: |
+          chmod +x gradlew
+          ./gradlew assemble${{ matrix.flavor }}Debug --stacktrace
+      - name: Report APK size
+        run: ls -l app/build/outputs/apk/*/debug/*.apk | awk '{print $5, $9}'
