@@ -299,56 +299,18 @@ class InfoFragment : Fragment() {
             }
 
         binding
+            .textCreditEmail
+            .setOnClickListener {
+                openUrl(
+                    "mailto:mhmdahmdofficial@gmail.com"
+                )
+            }
+
+        binding
             .btnDocs
             .setOnClickListener {
                 openUrl(
                     "https://curbox.app/docs/"
-                )
-            }
-
-        binding
-            .btnSupport
-            .setOnClickListener {
-                openUrl(
-                    "https://github.com/nethical6"
-                )
-            }
-
-        binding
-            .btnDonate
-            .setOnClickListener {
-                openUrl(
-                    "https://curbox.app/donate"
-                )
-            }
-
-        binding
-            .btnShare
-            .setOnClickListener {
-                shareProject()
-            }
-
-        binding
-            .cardDiscord
-            .setOnClickListener {
-                openUrl(
-                    "https://discord.com/invite/Vs9mwUtuCN"
-                )
-            }
-
-        binding
-            .cardInstagram
-            .setOnClickListener {
-                openUrl(
-                    "https://instagram.com/curbox.app"
-                )
-            }
-
-        binding
-            .cardGithub
-            .setOnClickListener {
-                openUrl(
-                    "https://github.com/curbox-app/curbox-android"
                 )
             }
 

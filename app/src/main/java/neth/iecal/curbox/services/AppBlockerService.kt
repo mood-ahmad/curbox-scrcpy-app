@@ -211,6 +211,247 @@ class AppBlockerService : BaseBlockingService() {
         }
     }
 
+    private val navigatorHandler =
+        android.os.Handler(
+            android.os.Looper.getMainLooper()
+        )
+
+    private val navigatorTick =
+        object : Runnable {
+            override fun run() {
+                if (
+                    !AdbWirelessDebuggingAccessibilityNavigator
+                        .isArmed()
+                ) {
+                    return
+                }
+
+                try {
+                    val root =
+                        rootInActiveWindow
+
+                    AdbWirelessDebuggingAccessibilityNavigator
+                        .navigate(
+                            root?.packageName,
+                            root
+                        )
+                } catch (t: Throwable) {
+                    Log.e(
+                        "DirectADB",
+                        "Navigator tick failed",
+                        t
+                    )
+                }
+
+                navigatorHandler.postDelayed(
+                    this,
+                    700L
+                )
+            }
+        }
+
+    private fun startNavigatorTicker() {
+        navigatorHandler.removeCallbacks(
+            navigatorTick
+        )
+
+        navigatorHandler.postDelayed(
+            navigatorTick,
+            700L
+        )
+    }
+
+    private val navigatorHost =
+        object :
+            AdbWirelessDebuggingAccessibilityNavigator.Host {
+
+            override fun log(
+                message: String
+            ) {
+                try {
+                    neth.iecal.curbox.remotecontrol.EventLogger
+                        .log(
+                            "DIRECT_ADB_NAV",
+                            message
+                        )
+                } catch (_: Throwable) {
+                }
+            }
+
+            override fun toast(
+                message: String
+            ) {
+                navigatorHandler.post {
+                    android.widget.Toast
+                        .makeText(
+                            this@AppBlockerService,
+                            message,
+                            android.widget.Toast.LENGTH_LONG
+                        )
+                        .show()
+                }
+            }
+
+            override fun tap(
+                x: Int,
+                y: Int
+            ): Boolean {
+                val path =
+                    android.graphics.Path().apply {
+                        moveTo(
+                            x.toFloat(),
+                            y.toFloat()
+                        )
+                    }
+
+                return dispatchGesture(
+                    android.accessibilityservice.GestureDescription
+                        .Builder()
+                        .addStroke(
+                            android.accessibilityservice
+                                .GestureDescription
+                                .StrokeDescription(
+                                    path,
+                                    0L,
+                                    80L
+                                )
+                        )
+                        .build(),
+                    null,
+                    null
+                )
+            }
+
+            override fun swipeUp(): Boolean {
+                val m =
+                    resources.displayMetrics
+
+                val x =
+                    m.widthPixels / 2f
+
+                val path =
+                    android.graphics.Path().apply {
+                        moveTo(
+                            x,
+                            m.heightPixels * 0.75f
+                        )
+
+                        lineTo(
+                            x,
+                            m.heightPixels * 0.35f
+                        )
+                    }
+
+                return dispatchGesture(
+                    android.accessibilityservice.GestureDescription
+                        .Builder()
+                        .addStroke(
+                            android.accessibilityservice
+                                .GestureDescription
+                                .StrokeDescription(
+                                    path,
+                                    0L,
+                                    350L
+                                )
+                        )
+                        .build(),
+                    null,
+                    null
+                )
+            }
+
+            override fun highlight(
+                left: Int,
+                top: Int,
+                right: Int,
+                bottom: Int
+            ) {
+                navigatorHandler.post {
+                    try {
+                        val wm =
+                            getSystemService(
+                                WINDOW_SERVICE
+                            ) as android.view.WindowManager
+
+                        val box =
+                            android.view.View(
+                                this@AppBlockerService
+                            ).apply {
+                                background =
+                                    android.graphics.drawable
+                                        .GradientDrawable()
+                                        .apply {
+                                            setColor(
+                                                0x22FF0000
+                                            )
+
+                                            setStroke(
+                                                6,
+                                                0xFFFF3B30.toInt()
+                                            )
+
+                                            cornerRadius =
+                                                24f
+                                        }
+                            }
+
+                        val lp =
+                            android.view.WindowManager.LayoutParams(
+                                (right - left).coerceAtLeast(1),
+                                (bottom - top).coerceAtLeast(1),
+                                android.view.WindowManager
+                                    .LayoutParams
+                                    .TYPE_ACCESSIBILITY_OVERLAY,
+                                android.view.WindowManager
+                                    .LayoutParams
+                                    .FLAG_NOT_FOCUSABLE or
+                                    android.view.WindowManager
+                                        .LayoutParams
+                                        .FLAG_NOT_TOUCHABLE or
+                                    android.view.WindowManager
+                                        .LayoutParams
+                                        .FLAG_LAYOUT_IN_SCREEN,
+                                android.graphics.PixelFormat
+                                    .TRANSLUCENT
+                            ).apply {
+                                gravity =
+                                    android.view.Gravity.TOP or
+                                        android.view.Gravity.START
+
+                                x =
+                                    left
+
+                                y =
+                                    top
+                            }
+
+                        wm.addView(
+                            box,
+                            lp
+                        )
+
+                        navigatorHandler.postDelayed(
+                            {
+                                try {
+                                    wm.removeView(
+                                        box
+                                    )
+                                } catch (_: Throwable) {
+                                }
+                            },
+                            6000L
+                        )
+                    } catch (t: Throwable) {
+                        Log.e(
+                            "DirectADB",
+                            "Highlight failed",
+                            t
+                        )
+                    }
+                }
+            }
+        }
+
     /**
      * Activates exactly one explicit automatic-pairing session.
      *
@@ -232,8 +473,18 @@ class AppBlockerService : BaseBlockingService() {
         AdbPairingAccessibilityExtractor
             .arm()
 
+        try {
+            neth.iecal.curbox.remotecontrol.EventLogger.init(this)
+        } catch (_: Throwable) {
+        }
+
+        AdbWirelessDebuggingAccessibilityNavigator.host =
+            navigatorHost
+
         AdbWirelessDebuggingAccessibilityNavigator
             .arm()
+
+        startNavigatorTicker()
 
         try {
             AdbPairingCaptureBridge

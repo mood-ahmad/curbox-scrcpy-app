@@ -1088,6 +1088,10 @@ class DirectAccessFragment : Fragment() {
                     appContext
                 )
 
+        // Re-pairing is only needed while not connected.
+        binding.autoSetupCard.visibility =
+            if (connected) android.view.View.GONE else android.view.View.VISIBLE
+
         binding
             .directAccessStatus
             .text =

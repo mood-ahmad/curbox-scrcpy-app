@@ -139,7 +139,7 @@ object DirectAdbBackend : PrivilegedBackend {
              */
             stream.write(
                 (
-                    "stty -echo -onlcr 2>/dev/null; " +
+                    "stty -echo -onlcr 2>/dev/null; set +m 2>/dev/null; " +
                         "printf '%s%s\\n' '" +
                         startMarker.substring(0, 12) +
                         "' '" +

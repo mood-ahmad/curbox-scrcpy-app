@@ -36,10 +36,6 @@ class Curbox : Application() {
 
         super.onCreate()
 
-        registerActivityLifecycleCallbacks(
-            WatermarkCallbacks()
-        )
-
         /*
          * Remote control and Direct Access lifecycle recovery must run only
          * inside the main application process.

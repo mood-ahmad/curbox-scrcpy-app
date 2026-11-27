@@ -1,5 +1,7 @@
 package neth.iecal.curbox.utils.privileged.adb
 
+import android.graphics.Rect
+import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -7,379 +9,258 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Navigates Android Settings toward the Wireless Debugging pairing dialog
  * during an explicit CurBox Direct Access setup session.
  *
- * The navigator is process-local to CurBox's Accessibility service.
- *
  * Navigation is disabled by default, restricted to Android Settings, and
  * enabled only during an explicitly armed Direct Access pairing session.
+ *
+ * Passes are driven both by Accessibility events and by a timer owned by the
+ * service, because a static Settings page may not emit another event.
  */
 object AdbWirelessDebuggingAccessibilityNavigator {
 
-    private const val MAX_TREE_DEPTH =
-        18
+    private const val TAG = "DirectADB-Nav"
 
-    private val armed =
-        AtomicBoolean(false)
+    private const val MIN_STEP_INTERVAL_MS = 450L
+    private const val MAX_SCROLLS = 40
+    private const val HINT_AFTER_MS = 12_000L
 
-    private val allowedSettingsPackages =
-        setOf(
-            "com.android.settings"
-        )
+    private val armed = AtomicBoolean(false)
 
-    /**
-     * AOSP preference key used by WirelessDebuggingFragment for the
-     * "Pair device with pairing code" preference.
-     *
-     * This is treated only as an additional signal. Accessibility does not
-     * guarantee that a Preference key becomes the node's view resource ID.
-     */
-    private const val AOSP_PAIR_BY_CODE_KEY =
-        "adb_pair_method_code_pref"
+    private val allowedSettingsPackages = setOf("com.android.settings")
 
-    /*
-     * Text matching remains the compatibility fallback because Settings
-     * implementations and Accessibility trees differ between Android builds.
-     *
-     * Include the common English and Arabic labels used for the two actions.
-     */
-    private val wirelessDebuggingLabels =
-        listOf(
-            "wireless debugging",
-            "تصحيح الأخطاء لاسلكيًا",
-            "تصحيح الأخطاء اللاسلكي",
-            "التصحيح اللاسلكي"
-        )
-
-    private val pairByCodeLabels =
-        listOf(
-            "pair device with pairing code",
-            "إقران الجهاز باستخدام رمز الإقران",
-            "إقران جهاز باستخدام رمز الإقران",
-            "الإقران باستخدام رمز الإقران"
-        )
-
-    private const val MAX_AUTO_SCROLLS =
-        25
-
-    private const val SCROLL_INTERVAL_MS =
-        450L
+    /** Gestures, toasts, highlight and logging supplied by the service. */
+    interface Host {
+        fun tap(x: Int, y: Int): Boolean
+        fun swipeUp(): Boolean
+        fun toast(message: String)
+        fun highlight(left: Int, top: Int, right: Int, bottom: Int)
+        fun log(message: String)
+    }
 
     @Volatile
-    private var scrollCount =
-        0
+    var host: Host? = null
 
-    @Volatile
-    private var lastScrollAt =
-        0L
+    @Volatile private var armedAt = 0L
+    @Volatile private var lastStepAt = 0L
+    @Volatile private var scrollCount = 0
+    @Volatile private var stallCount = 0
+    @Volatile private var lastSignature = 0
+    @Volatile private var switchClicks = 0
+    @Volatile private var hintCount = 0
+    @Volatile private var lastHintAt = 0L
+    @Volatile private var lastLoggedState = ""
 
     fun arm() {
-        scrollCount =
-            0
-
-        lastScrollAt =
-            0L
-
-        armed.set(
-            true
-        )
+        scrollCount = 0
+        stallCount = 0
+        lastSignature = 0
+        switchClicks = 0
+        hintCount = 0
+        lastHintAt = 0L
+        lastLoggedState = ""
+        lastStepAt = 0L
+        armedAt = System.currentTimeMillis()
+        armed.set(true)
+        note("armed")
     }
 
     fun disarm() {
-        armed.set(
-            false
-        )
+        if (armed.getAndSet(false)) {
+            note("disarmed")
+        }
     }
 
-    fun isArmed(): Boolean {
-        return armed.get()
+    fun isArmed(): Boolean = armed.get()
+
+    private fun note(message: String) {
+        Log.i(TAG, message)
+        try {
+            host?.log(message)
+        } catch (_: Throwable) {
+        }
     }
 
     /**
-     * Attempts one bounded navigation pass.
-     *
-     * Pair-by-code is preferred over the Wireless Debugging entry because the
-     * user may already be inside Wireless Debugging when an event arrives.
+     * One bounded navigation pass. Returns true when an action was performed.
      */
     fun navigate(
         packageName: CharSequence?,
         root: AccessibilityNodeInfo?
     ): Boolean {
-        if (!armed.get()) {
+        if (!armed.get()) return false
+
+        val currentPackage = packageName?.toString() ?: return false
+
+        if (currentPackage !in allowedSettingsPackages) {
+            logOnce("ignored package=$currentPackage")
             return false
         }
 
-        val currentPackage =
-            packageName
-                ?.toString()
-                ?: return false
-
-        if (
-            currentPackage !in
-            allowedSettingsPackages
-        ) {
+        val currentRoot = root ?: run {
+            logOnce("no root window")
             return false
         }
 
-        val currentRoot =
-            root
-                ?: return false
+        val now = System.currentTimeMillis()
+        if (now - lastStepAt < MIN_STEP_INTERVAL_MS) return false
+        lastStepAt = now
 
-        val pairByCodeNode =
-            findNode(
-                node =
-                    currentRoot,
-                depth =
-                    0,
-                labels =
-                    pairByCodeLabels,
-                resourceIdHint =
-                    AOSP_PAIR_BY_CODE_KEY
-            )
+        return try {
+            step(AccessibilityUiNode(currentRoot), now)
+        } catch (t: Throwable) {
+            note("step failed: ${t.javaClass.simpleName} ${t.message}")
+            false
+        }
+    }
 
-        if (
-            pairByCodeNode != null &&
-            performClick(
-                pairByCodeNode
-            )
-        ) {
-            /*
-             * The pairing dialog is now expected to appear. Navigation has
-             * finished; AdbPairingAccessibilityExtractor remains armed and
-             * owns capture of the temporary code.
-             */
+    private fun logOnce(state: String) {
+        if (state != lastLoggedState) {
+            lastLoggedState = state
+            note(state)
+        }
+    }
+
+    private fun step(root: UiNode, now: Long): Boolean {
+        val matcher = WirelessDebuggingNodeMatcher
+
+        // 1. Pair with pairing code: the goal of navigation.
+        val pairNode = matcher.findByLabels(
+            root,
+            matcher.pairByCodeLabels,
+            matcher.PAIR_BY_CODE_KEY
+        )
+        if (pairNode != null && activate(pairNode, "pair-by-code")) {
+            // The extractor owns the code capture from here.
             disarm()
-
             return true
         }
 
-        val wirelessDebuggingNode =
-            findNode(
-                node =
-                    currentRoot,
-                depth =
-                    0,
-                labels =
-                    wirelessDebuggingLabels,
-                resourceIdHint =
-                    null
-            )
-                ?: return scrollTowardWirelessDebugging(
-                    currentRoot
-                )
-
-        return performClick(
-            wirelessDebuggingNode
-        )
-    }
-
-    /**
-     * The Wireless debugging row is usually below the first screen of
-     * Developer options. Scroll the list forward, a bounded number of times,
-     * until the row becomes visible. Each scroll triggers a new Accessibility
-     * event that runs another navigation pass.
-     */
-    private fun scrollTowardWirelessDebugging(
-        root: AccessibilityNodeInfo
-    ): Boolean {
-        val now =
-            System.currentTimeMillis()
-
-        if (
-            scrollCount >= MAX_AUTO_SCROLLS ||
-            now - lastScrollAt < SCROLL_INTERVAL_MS
-        ) {
-            return false
+        // 2. "Allow wireless debugging on this network?" prompt.
+        val allow = matcher.findAllowButton(root)
+        if (allow != null && allow.click()) {
+            note("clicked Allow button")
+            return true
         }
 
-        val scrollable =
-            findScrollable(
-                root,
-                0
-            )
-                ?: return false
-
-        lastScrollAt =
-            now
-
-        scrollCount +=
-            1
-
-        return scrollable.performAction(
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-        )
-    }
-
-    private fun findScrollable(
-        node: AccessibilityNodeInfo?,
-        depth: Int
-    ): AccessibilityNodeInfo? {
-        if (
-            node == null ||
-            depth > MAX_TREE_DEPTH
-        ) {
-            return null
-        }
-
-        if (
-            node.isScrollable &&
-            node.isEnabled
-        ) {
-            return node
-        }
-
-        for (
-            index in
-            0 until node.childCount
-        ) {
-            val result =
-                findScrollable(
-                    node.getChild(
-                        index
-                    ),
-                    depth + 1
-                )
-
-            if (result != null) {
-                return result
-            }
-        }
-
-        return null
-    }
-
-    private fun findNode(
-        node: AccessibilityNodeInfo?,
-        depth: Int,
-        labels: List<String>,
-        resourceIdHint: String?
-    ): AccessibilityNodeInfo? {
-        if (
-            node == null ||
-            depth > MAX_TREE_DEPTH ||
-            !armed.get()
-        ) {
-            return null
-        }
-
-        val resourceId =
-            node.viewIdResourceName
-                ?.trim()
-
-        if (
-            !resourceIdHint.isNullOrBlank() &&
-            resourceId
-                ?.contains(
-                    resourceIdHint,
-                    ignoreCase = true
-                ) == true
-        ) {
-            return node
-        }
-
-        val text =
-            node.text
-                ?.toString()
-                ?.trim()
-
-        val contentDescription =
-            node.contentDescription
-                ?.toString()
-                ?.trim()
-
-        if (
-            matchesAny(
-                text =
-                    text,
-                labels =
-                    labels
-            ) ||
-            matchesAny(
-                text =
-                    contentDescription,
-                labels =
-                    labels
-            )
-        ) {
-            return node
-        }
-
-        for (
-            index in
-            0 until node.childCount
-        ) {
-            val result =
-                findNode(
-                    node =
-                        node.getChild(
-                            index
-                        ),
-                    depth =
-                        depth + 1,
-                    labels =
-                        labels,
-                    resourceIdHint =
-                        resourceIdHint
-                )
-
-            if (result != null) {
-                return result
-            }
-        }
-
-        return null
-    }
-
-    private fun matchesAny(
-        text: String?,
-        labels: List<String>
-    ): Boolean {
-        if (text.isNullOrBlank()) {
-            return false
-        }
-
-        return labels.any { label ->
-            text.contains(
-                other =
-                    label,
-                ignoreCase =
-                    true
-            )
-        }
-    }
-
-    /**
-     * Preference rows frequently expose ACTION_CLICK on an ancestor container
-     * rather than on the TextView containing the label.
-     */
-    private fun performClick(
-        startingNode: AccessibilityNodeInfo
-    ): Boolean {
-        var current:
-            AccessibilityNodeInfo? =
-            startingNode
-
-        var depth =
-            0
-
-        while (
-            current != null &&
-            depth <= MAX_TREE_DEPTH
-        ) {
-            if (
-                current.isClickable &&
-                current.isEnabled
-            ) {
-                return current.performAction(
-                    AccessibilityNodeInfo.ACTION_CLICK
-                )
+        // 3. The Wireless debugging row (Developer options).
+        val wdNode = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
+        if (wdNode != null) {
+            if (matcher.clickableAncestor(wdNode) != null) {
+                if (activate(wdNode, "wireless-debugging row")) return true
             }
 
-            current =
-                current.parent
+            // 4. On the Wireless debugging page with the switch off: turn it
+            // on. Only when exactly one switch is off, so Developer options
+            // switches are never touched.
+            val off = matcher.uncheckedSwitches(root)
+            if (off.size == 1 && switchClicks < 2) {
+                switchClicks++
+                val ok =
+                    matcher.clickableAncestor(off[0])?.click() == true ||
+                        off[0].click()
+                note("tried to switch Wireless debugging on ok=$ok")
+                if (ok) return true
+            }
 
-            depth +=
-                1
+            if (activate(wdNode, "wireless-debugging label")) return true
         }
 
+        // 5. Not visible yet: scroll the list.
+        return scrollStep(root, now)
+    }
+
+    /** Click strategies: node click, ancestor click, then a gesture tap. */
+    private fun activate(node: UiNode, what: String): Boolean {
+        if (node.click()) {
+            note("clicked $what (node)")
+            return true
+        }
+
+        val ancestor = WirelessDebuggingNodeMatcher.clickableAncestor(node)
+        if (ancestor != null && ancestor.click()) {
+            note("clicked $what (ancestor)")
+            return true
+        }
+
+        val b = (ancestor ?: node).bounds()
+        if (b[2] > b[0] && b[3] > b[1]) {
+            val tapped = host?.tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2) == true
+            note("tapped $what by gesture ok=$tapped bounds=${b.joinToString(",")}")
+            if (tapped) return true
+            host?.highlight(b[0], b[1], b[2], b[3])
+        }
         return false
+    }
+
+    private fun scrollStep(root: UiNode, now: Long): Boolean {
+        val signature = WirelessDebuggingNodeMatcher.signature(root)
+        stallCount = if (signature == lastSignature && scrollCount > 0) stallCount + 1 else 0
+        lastSignature = signature
+
+        if (now - armedAt > HINT_AFTER_MS && now - lastHintAt > HINT_AFTER_MS && hintCount < 3) {
+            hintCount++
+            lastHintAt = now
+            host?.toast("Scroll down and tap \"Wireless debugging\"")
+        }
+
+        if (scrollCount >= MAX_SCROLLS) {
+            logOnce("scroll limit reached")
+            return false
+        }
+
+        scrollCount++
+        val scrollable = WirelessDebuggingNodeMatcher.bestScrollable(root)
+        val strategy = if (scrollable == null) 2 else stallCount % 3
+
+        val ok = when (strategy) {
+            0 -> scrollable?.scrollForward() == true
+            1 -> scrollable?.scrollDown() == true
+            else -> host?.swipeUp() == true
+        }
+
+        note(
+            "scroll #$scrollCount strategy=$strategy stall=$stallCount ok=$ok " +
+                "scrollable=${scrollable?.className} texts=" +
+                WirelessDebuggingNodeMatcher.allTexts(root).take(12)
+        )
+        return ok
+    }
+
+    /** Adapter from AccessibilityNodeInfo to the JVM-testable UiNode. */
+    private class AccessibilityUiNode(
+        private val node: AccessibilityNodeInfo
+    ) : UiNode {
+        override val text: String? get() = node.text?.toString()
+        override val contentDescription: String? get() = node.contentDescription?.toString()
+        override val viewId: String? get() = node.viewIdResourceName
+        override val className: String? get() = node.className?.toString()
+        override val isClickable: Boolean get() = node.isClickable
+        override val isEnabled: Boolean get() = node.isEnabled
+        override val isScrollable: Boolean get() = node.isScrollable
+        override val isCheckable: Boolean get() = node.isCheckable
+        override val isChecked: Boolean get() = node.isChecked
+        override val childCount: Int get() = node.childCount
+        override val parent: UiNode?
+            get() = node.parent?.let { AccessibilityUiNode(it) }
+
+        override fun child(index: Int): UiNode? =
+            node.getChild(index)?.let { AccessibilityUiNode(it) }
+
+        override fun bounds(): IntArray {
+            val r = Rect()
+            node.getBoundsInScreen(r)
+            return intArrayOf(r.left, r.top, r.right, r.bottom)
+        }
+
+        override fun click(): Boolean =
+            node.isClickable && node.isEnabled &&
+                node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+
+        override fun scrollForward(): Boolean =
+            node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+
+        override fun scrollDown(): Boolean =
+            node.performAction(
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id
+            )
     }
 }

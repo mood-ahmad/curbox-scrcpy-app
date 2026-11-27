@@ -149,6 +149,35 @@ class FragmentActivity : AppCompatActivity() {
                 bottomPadding
             )
 
+            // Floating bottom bar: lift it above the system bar and keep
+            // page content clear of it.
+            val density =
+                resources.displayMetrics.density
+
+            (bottomNav.layoutParams as? android.view.ViewGroup.MarginLayoutParams)
+                ?.let { lp ->
+                    lp.bottomMargin =
+                        (12 * density).toInt() +
+                        systemBars.bottom
+                    bottomNav.layoutParams = lp
+                }
+
+            findViewById<android.view.View>(
+                R.id.fragment_holder
+            )?.let { holder ->
+                (holder.layoutParams as? android.view.ViewGroup.MarginLayoutParams)
+                    ?.let { lp ->
+                        lp.bottomMargin =
+                            if (bottomNav.isVisible) {
+                                (96 * density).toInt() +
+                                    systemBars.bottom
+                            } else {
+                                0
+                            }
+                        holder.layoutParams = lp
+                    }
+            }
+
             insets
         }
 

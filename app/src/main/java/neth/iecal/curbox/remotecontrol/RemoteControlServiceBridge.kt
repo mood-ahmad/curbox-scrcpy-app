@@ -4259,6 +4259,32 @@ class RemoteControlServiceBridge(
                     2>/dev/null
             }
 
+            kill_stray_agents() {
+                for KS_DIR in /proc/[0-9]*; do
+                    KS_PID="${'$'}{KS_DIR#/proc/}"
+
+                    [ "${'$'}KS_PID" != "${'$'}${'$'}" ] || continue
+
+                    KS_EXE=${'$'}(
+                        readlink "${'$'}KS_DIR/exe" \
+                            2>/dev/null || true
+                    )
+
+                    KS_EXE=${'$'}(
+                        normalise_exe "${'$'}KS_EXE"
+                    )
+
+                    if [ "${'$'}KS_EXE" = "$target/cloudphone-agent" ]; then
+                        echo \
+                            "STRAY_AGENT_KILLED pid=${'$'}KS_PID" \
+                            >> launch.log
+
+                        kill -9 "${'$'}KS_PID" \
+                            2>/dev/null || true
+                    fi
+                done
+            }
+
             abort_startup() {
                 REASON="${'$'}1"
 
@@ -4267,6 +4293,10 @@ class RemoteControlServiceBridge(
                     >> launch.log
 
                 stop_started_processes
+
+                # An agent whose pid was never recorded would otherwise
+                # survive and keep retrying against a dead signaling server.
+                kill_stray_agents
 
                 rm -f cloudflared.pid
                 rm -f agent.pid
@@ -4283,6 +4313,16 @@ class RemoteControlServiceBridge(
             : > launch.log
             : > signaling.log
             : > agent.log
+
+            # Job control changes how setsid and $! behave in an
+            # interactive shell (Direct ADB). Run like a plain script.
+            set +m 2>/dev/null || true
+
+            echo \
+                "LAUNCH_DIAG uid=${'$'}(id -u 2>/dev/null) shell_pid=${'$'}${'$'} monitor=${'$'}(set -o 2>/dev/null | grep -i monitor | tr -s ' ' | tr '\n' ' ')" \
+                >> launch.log
+
+            kill_stray_agents
 
             rm -f signaling.pid
             rm -f agent.pid
@@ -4425,13 +4465,43 @@ class RemoteControlServiceBridge(
             echo "AGENT_STARTING=1" \
                 >> launch.log
 
-            setsid nohup env \
-                GODEBUG=asyncpreemptoff=1 \
-                ./cloudphone-agent \
-                -expires-at "" \
+            rm -f agent.pid.self
+
+            # The wrapper records its own pid, then execs the agent, so the
+            # recorded pid is the agent whether or not setsid forks.
+            setsid nohup sh -c \
+                'echo ${'$'}${'$'} > agent.pid.self; exec env GODEBUG=asyncpreemptoff=1 ./cloudphone-agent -expires-at ""' \
                 >> agent.log 2>&1 &
 
-            AGENT_PID=${'$'}!
+            AGENT_LAUNCH_PID=${'$'}!
+            AGENT_PID=""
+
+            for i in ${'$'}(seq 1 40); do
+                if [ -s agent.pid.self ]; then
+                    AGENT_PID=${'$'}(
+                        cat agent.pid.self \
+                            2>/dev/null || true
+                    )
+                    break
+                fi
+
+                sleep 0.1
+            done
+
+            if ! valid_numeric_id "${'$'}AGENT_PID"; then
+                AGENT_PID="${'$'}AGENT_LAUNCH_PID"
+            fi
+
+            # Wait for the wrapper to finish exec so the exe check is stable.
+            for i in ${'$'}(seq 1 30); do
+                if pid_matches_executable \
+                    "${'$'}AGENT_PID" \
+                    "$target/cloudphone-agent"; then
+                    break
+                fi
+
+                sleep 0.1
+            done
 
             echo "${'$'}AGENT_PID" \
                 > agent.pid
@@ -4439,6 +4509,13 @@ class RemoteControlServiceBridge(
             echo \
                 "AGENT_PID=${'$'}AGENT_PID" \
                 >> launch.log
+
+            echo \
+                "AGENT_LAUNCH_PID=${'$'}AGENT_LAUNCH_PID" \
+                >> launch.log
+
+            ps -o PID,PPID,PGID,SID,NAME -p "${'$'}AGENT_PID" \
+                >> launch.log 2>&1 || true
 
             # --------------------------------------------------
             # Record Agent PGID / SID atomically.
@@ -4526,6 +4603,18 @@ class RemoteControlServiceBridge(
 
                     echo "AGENT_EXITED=1" \
                         >> launch.log
+
+                    echo "--- agent exit diagnostics ---" \
+                        >> launch.log
+
+                    ps -A 2>&1 | grep -i cloudphone \
+                        >> launch.log 2>&1 || true
+
+                    echo "agent exe=${'$'}(readlink /proc/${'$'}AGENT_PID/exe 2>&1)" \
+                        >> launch.log
+
+                    head -n 20 agent.log \
+                        >> launch.log 2>&1 || true
 
                     break
                 fi

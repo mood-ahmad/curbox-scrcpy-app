@@ -1,0 +1,242 @@
+package neth.iecal.curbox.utils.privileged.adb
+
+/**
+ * Minimal view of an accessibility node, so the matching logic can run in
+ * plain JVM tests without Android classes.
+ */
+interface UiNode {
+    val text: String?
+    val contentDescription: String?
+    val viewId: String?
+    val className: String?
+    val isClickable: Boolean
+    val isEnabled: Boolean
+    val isScrollable: Boolean
+    val isCheckable: Boolean
+    val isChecked: Boolean
+    val childCount: Int
+    val parent: UiNode?
+
+    fun child(index: Int): UiNode?
+
+    /** left, top, right, bottom in screen pixels. */
+    fun bounds(): IntArray
+
+    fun click(): Boolean
+    fun scrollForward(): Boolean
+    fun scrollDown(): Boolean
+}
+
+/**
+ * Pure matching helpers used by the Wireless Debugging navigator.
+ */
+object WirelessDebuggingNodeMatcher {
+
+    const val MAX_DEPTH = 24
+
+    val wirelessDebuggingLabels = listOf(
+        "wireless debugging",
+        "wireless adb debugging",
+        "تصحيح الأخطاء لاسلكيًا",
+        "تصحيح الأخطاء لاسلكيا",
+        "تصحيح الأخطاء اللاسلكي",
+        "التصحيح اللاسلكي",
+        "débogage sans fil",
+        "depuración inalámbrica",
+        "drahtloses debugging",
+        "wlan-debugging",
+        "depuração sem fio",
+        "беспроводная отладка",
+        "kablosuz hata ayıklama"
+    )
+
+    val pairByCodeLabels = listOf(
+        "pair device with pairing code",
+        "pair with pairing code",
+        "إقران الجهاز باستخدام رمز الإقران",
+        "إقران جهاز باستخدام رمز الإقران",
+        "الإقران باستخدام رمز الإقران",
+        "associer l'appareil avec un code",
+        "vincular dispositivo con código",
+        "gerät mit kopplungscode koppeln"
+    )
+
+    val allowLabels = listOf(
+        "allow",
+        "سماح",
+        "السماح",
+        "autoriser",
+        "permitir",
+        "zulassen"
+    )
+
+    /** AOSP preference key for "Pair device with pairing code". */
+    const val PAIR_BY_CODE_KEY = "adb_pair_method_code_pref"
+
+    fun normalize(value: String?): String {
+        if (value == null) return ""
+        return value
+            .replace('\u00A0', ' ')
+            .replace("\u200E", "")
+            .replace("\u200F", "")
+            .replace("\u202A", "")
+            .replace("\u202B", "")
+            .replace("\u202C", "")
+            .trim()
+            .lowercase()
+            .replace(Regex("\\s+"), " ")
+    }
+
+    private fun labelsOf(node: UiNode): List<String> =
+        listOf(
+            normalize(node.text),
+            normalize(node.contentDescription)
+        ).filter { it.isNotEmpty() }
+
+    /**
+     * Finds a node by label. An exact label match wins over a node that only
+     * contains the label, so a summary sentence never beats the row title.
+     */
+    fun findByLabels(
+        root: UiNode?,
+        labels: List<String>,
+        resourceIdHint: String? = null
+    ): UiNode? {
+        if (root == null) return null
+        val normalizedLabels = labels.map { normalize(it) }
+
+        var contains: UiNode? = null
+        var exact: UiNode? = null
+
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH || exact != null) return
+
+            if (
+                !resourceIdHint.isNullOrBlank() &&
+                node.viewId?.contains(resourceIdHint, ignoreCase = true) == true
+            ) {
+                exact = node
+                return
+            }
+
+            for (value in labelsOf(node)) {
+                if (normalizedLabels.any { it == value }) {
+                    exact = node
+                    return
+                }
+                if (
+                    contains == null &&
+                    value.length <= 120 &&
+                    normalizedLabels.any { value.contains(it) }
+                ) {
+                    contains = node
+                }
+            }
+
+            for (i in 0 until node.childCount) {
+                visit(node.child(i), depth + 1)
+            }
+        }
+
+        visit(root, 0)
+        return exact ?: contains
+    }
+
+    /** First enabled clickable node on the path from [node] to the root. */
+    fun clickableAncestor(node: UiNode?): UiNode? {
+        var current = node
+        var depth = 0
+        while (current != null && depth <= MAX_DEPTH) {
+            if (current.isClickable && current.isEnabled) return current
+            current = current.parent
+            depth++
+        }
+        return null
+    }
+
+    /**
+     * Picks the list to scroll: the largest enabled scrollable node, with list
+     * classes preferred over other scrollables of similar size.
+     */
+    fun bestScrollable(root: UiNode?): UiNode? {
+        if (root == null) return null
+        var best: UiNode? = null
+        var bestScore = -1L
+
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH) return
+            if (node.isScrollable && node.isEnabled) {
+                val b = node.bounds()
+                val area =
+                    maxOf(0L, (b[2] - b[0]).toLong()) *
+                        maxOf(0L, (b[3] - b[1]).toLong())
+                val cls = node.className.orEmpty()
+                val listBonus =
+                    if (
+                        cls.contains("RecyclerView") ||
+                        cls.contains("ListView") ||
+                        cls.contains("ScrollView")
+                    ) 1L else 0L
+                val score = area * 2 + listBonus
+                if (score > bestScore) {
+                    bestScore = score
+                    best = node
+                }
+            }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+
+        visit(root, 0)
+        return best
+    }
+
+    /** Enabled switches that are currently off. */
+    fun uncheckedSwitches(root: UiNode?): List<UiNode> {
+        val result = mutableListOf<UiNode>()
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH) return
+            if (node.isCheckable && node.isEnabled && !node.isChecked) {
+                result.add(node)
+            }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return result
+    }
+
+    /** Every visible text, used for diagnostics and change detection. */
+    fun allTexts(root: UiNode?): List<String> {
+        val result = mutableListOf<String>()
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH) return
+            node.text?.trim()?.takeIf { it.isNotEmpty() }?.let { result.add(it) }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return result
+    }
+
+    fun signature(root: UiNode?): Int = allTexts(root).hashCode()
+
+    /** True when the label sits on a node that is exactly an allow button. */
+    fun findAllowButton(root: UiNode?): UiNode? {
+        if (root == null) return null
+        var found: UiNode? = null
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH || found != null) return
+            val cls = node.className.orEmpty()
+            val value = normalize(node.text)
+            if (
+                cls.contains("Button") &&
+                node.isEnabled &&
+                allowLabels.any { normalize(it) == value }
+            ) {
+                found = node
+                return
+            }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return found
+    }
+}
