@@ -218,8 +218,8 @@ class ScriptLanguageTest {
 
     @Test fun matchesRegexSupportsCommonFlags() {
         val src = """
-            log(matchesRegex("First\\nSECOND", "^second$", "imu"))
-            log(matchesRegex("a\\nb", "a.b", "su"))
+            log(matchesRegex("First\nSECOND", "^second$", "imu"))
+            log(matchesRegex("a\nb", "a.b", "su"))
         """.trimIndent()
         assertEquals("true\ntrue\n", run(src).log.toString())
     }
