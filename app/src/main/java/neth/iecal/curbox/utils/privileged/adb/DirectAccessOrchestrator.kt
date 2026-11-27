@@ -470,6 +470,8 @@ class DirectAccessOrchestrator(
 
                         enableRecoveryAfterPairing()
 
+                        bringCurboxToFront()
+
                         publishState(
                             operationId,
                             listener,
@@ -607,6 +609,34 @@ class DirectAccessOrchestrator(
                     }
                 }
         )
+    }
+
+    /**
+     * After automatic pairing finishes the user is still inside Android
+     * Settings. Bring CurBox back so onboarding can continue.
+     */
+    private fun bringCurboxToFront() {
+        try {
+            val launch =
+                appContext
+                    .packageManager
+                    .getLaunchIntentForPackage(
+                        appContext.packageName
+                    )
+                    ?: return
+
+            launch.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
+
+            appContext.startActivity(
+                launch
+            )
+        } catch (_: Throwable) {
+            // Best effort: background activity starts can be restricted.
+        }
     }
 
     private fun enableRecoveryAfterPairing() {

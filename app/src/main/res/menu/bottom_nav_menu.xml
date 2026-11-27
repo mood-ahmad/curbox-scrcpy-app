@@ -12,6 +12,11 @@
         android:title="@string/focus" />
 
     <item
+        android:id="@+id/nav_direct_access"
+        android:icon="@drawable/ic_direct_access"
+        android:title="@string/direct_access_tab" />
+
+    <item
         android:id="@+id/nav_reducers"
         android:icon="@drawable/ic_reducers"
         android:title="@string/reducers" />

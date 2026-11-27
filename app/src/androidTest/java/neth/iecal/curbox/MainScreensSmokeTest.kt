@@ -48,7 +48,7 @@ class MainScreensSmokeTest {
         setPrefs(firstLaunchComplete = true)
         launch().use { scenario ->
             onView(withId(R.id.bottom_nav)).check(matches(isDisplayed()))
-            for (tab in listOf(R.id.nav_focus, R.id.nav_reducers, R.id.nav_info, R.id.nav_usage)) {
+            for (tab in listOf(R.id.nav_focus, R.id.nav_direct_access, R.id.nav_reducers, R.id.nav_info, R.id.nav_usage)) {
                 onView(withId(tab)).perform(click())
                 InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                 assertEquals(Lifecycle.State.RESUMED, scenario.state)
