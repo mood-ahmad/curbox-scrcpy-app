@@ -57,7 +57,7 @@
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    app:cardBackgroundColor="?attr/colorTertiaryContainer"
+                    app:cardBackgroundColor="?attr/colorSecondaryContainer"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
@@ -116,12 +116,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    app:cardBackgroundColor="?attr/colorTertiaryContainer"
+                    app:cardBackgroundColor="?attr/colorSecondaryContainer"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
@@ -180,12 +180,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    app:cardBackgroundColor="?attr/colorTertiaryContainer"
+                    app:cardBackgroundColor="?attr/colorSecondaryContainer"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
@@ -254,7 +254,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -311,7 +311,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -375,7 +375,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -439,7 +439,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -513,7 +513,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -571,12 +571,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
                     android:layout_height="48dp"
-                    app:cardBackgroundColor="?attr/colorTertiaryContainer"
+                    app:cardBackgroundColor="?attr/colorSecondaryContainer"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
@@ -670,7 +670,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -733,7 +733,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -796,7 +796,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"
@@ -859,7 +859,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="20dp">
+                android:padding="16dp">
 
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="48dp"

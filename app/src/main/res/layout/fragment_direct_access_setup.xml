@@ -42,7 +42,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="28dp"
             style="?attr/materialCardViewOutlinedStyle"
-            app:cardCornerRadius="24dp"
+            app:cardCornerRadius="28dp"
             app:strokeColor="?attr/colorOutlineVariant">
  
             <LinearLayout
@@ -133,7 +133,7 @@
             android:layout_marginTop="20dp"
             android:visibility="gone"
             style="?attr/materialCardViewOutlinedStyle"
-            app:cardCornerRadius="24dp"
+            app:cardCornerRadius="28dp"
             app:strokeColor="?attr/colorOutlineVariant">
  
             <LinearLayout

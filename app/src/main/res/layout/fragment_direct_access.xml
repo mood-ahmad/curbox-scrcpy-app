@@ -33,7 +33,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            app:cardCornerRadius="24dp"
+            app:cardCornerRadius="28dp"
             app:strokeColor="?attr/colorOutlineVariant"
             style="?attr/materialCardViewOutlinedStyle">
 
@@ -85,7 +85,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            app:cardCornerRadius="24dp"
+            app:cardCornerRadius="28dp"
             app:strokeColor="?attr/colorOutlineVariant"
             style="?attr/materialCardViewOutlinedStyle">
 

@@ -132,7 +132,7 @@
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/block_app_card"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"

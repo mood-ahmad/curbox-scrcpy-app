@@ -35,7 +35,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         app:cardBackgroundColor="?attr/colorPrimaryContainer"
-        app:cardCornerRadius="12dp"
+        app:cardCornerRadius="28dp"
         app:cardElevation="0dp"
         app:strokeWidth="0dp"
         android:visibility="gone">

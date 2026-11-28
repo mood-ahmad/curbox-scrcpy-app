@@ -18,7 +18,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <com.google.android.material.card.MaterialCardView
+    <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
         android:id="@+id/card_shizuku_warning"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
