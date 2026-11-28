@@ -24,7 +24,9 @@ object AdbPairingAccessibilityExtractor {
 
     private val allowedSettingsPackages =
         setOf(
-            "com.android.settings"
+            "com.android.settings",
+            "com.samsung.android.settings",
+            "com.google.android.settings"
         )
 
     /**

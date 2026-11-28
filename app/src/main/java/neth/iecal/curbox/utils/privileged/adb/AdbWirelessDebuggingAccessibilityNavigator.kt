@@ -35,7 +35,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
     private val armed = AtomicBoolean(false)
 
-    private val allowedSettingsPackages = setOf("com.android.settings")
+    private val allowedSettingsPackages = setOf("com.android.settings", "com.samsung.android.settings", "com.google.android.settings")
 
     /** Gestures, toasts, highlight and logging supplied by the service. */
     interface Host {
