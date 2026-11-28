@@ -358,7 +358,8 @@ class AppBlockerService : BaseBlockingService() {
         )
     }
 
-    private val navigatorHost =
+    private val navigatorHost:
+        AdbWirelessDebuggingAccessibilityNavigator.Host =
         object :
             AdbWirelessDebuggingAccessibilityNavigator.Host {
 
