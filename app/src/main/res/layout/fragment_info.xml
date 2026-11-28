@@ -348,6 +348,12 @@
 
     </androidx.core.widget.NestedScrollView>
 
+    <View
+        android:id="@+id/credit_backdrop"
+        android:layout_width="match_parent"
+        android:layout_height="192dp"
+        android:background="?attr/colorSurface" />
+
                 <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_credit"
             style="?attr/materialCardViewOutlinedStyle"

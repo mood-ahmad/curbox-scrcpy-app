@@ -598,7 +598,7 @@ class AdbAutoPairingCoordinator(
                 info.code
 
             accessibilityPort =
-                info.port
+                info.port ?: accessibilityPort
         }
 
         tryStartPairing(

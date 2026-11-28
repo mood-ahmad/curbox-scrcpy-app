@@ -131,6 +131,11 @@ class InfoFragment : Fragment() {
                 val lp = card.layoutParams
                 lp.height = cardPx
                 card.layoutParams = lp
+                // Opaque strip behind the bar so scrolled content never shows
+                // above or around it.
+                val bl = binding.creditBackdrop.layoutParams
+                bl.height = cardPx + (16f * density).toInt()
+                binding.creditBackdrop.layoutParams = bl
             }
             if (photoPx != lastPhoto) {
                 lastPhoto = photoPx

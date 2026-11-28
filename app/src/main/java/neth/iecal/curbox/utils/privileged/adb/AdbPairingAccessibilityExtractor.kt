@@ -124,6 +124,33 @@ object AdbPairingAccessibilityExtractor {
                 ?.toString()
                 ?: return
 
+        // Notification path: the system posts the pairing code as a
+        // notification (from the system or Settings package). The code is
+        // read from the notification text; the port comes from discovery.
+        if (
+            event.eventType ==
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED &&
+            (packageName in allowedSettingsPackages || packageName == "android")
+        ) {
+            val joined =
+                event.text.joinToString(" ") { it?.toString().orEmpty() }
+            val normalized = WirelessDebuggingNodeMatcher.normalizeDigits(joined)
+            val m = Regex("(?<!\\d)(\\d{3})\\s?(\\d{3})(?!\\d)").find(normalized)
+            if (m != null) {
+                deliver(
+                    context = context.applicationContext,
+                    sessionId = sessionId,
+                    info =
+                        PairingInfo(
+                            code = m.groupValues[1] + m.groupValues[2],
+                            port = null,
+                            rawAddress = null
+                        )
+                )
+            }
+            return
+        }
+
         if (
             packageName !in
             allowedSettingsPackages
