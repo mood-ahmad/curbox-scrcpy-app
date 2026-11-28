@@ -376,7 +376,7 @@ class InfoFragment : Fragment() {
             .btnDocs
             .setOnClickListener {
                 openUrl(
-                    "https://curbox.app/docs/"
+                    "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                 )
             }
 

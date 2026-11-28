@@ -353,11 +353,11 @@ class AllAppsUsageFragment : Fragment() {
             binding.welcomeState.visibility = View.VISIBLE
             binding.welcomeAscii.text = getString(R.string.ascii_hello)
             binding.btnReadDocs.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://curbox.app/docs")))
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mood-ahmad/curbox-scrcpy-app#readme")))
             }
 
             binding.btnStarRepo.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/nethical6/curbox")))
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mood-ahmad/curbox-scrcpy-app")))
             }
 
             binding.btnJoinDiscord.setOnClickListener {

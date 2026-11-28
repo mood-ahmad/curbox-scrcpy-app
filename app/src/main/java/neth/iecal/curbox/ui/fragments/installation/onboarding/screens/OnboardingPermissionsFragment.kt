@@ -374,7 +374,7 @@ class OnboardingPermissionsFragment : Fragment() {
                         Intent(
                             Intent.ACTION_VIEW,
                             android.net.Uri.parse(
-                                "https://curbox.app/docs"
+                                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                             )
                         )
 
