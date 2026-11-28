@@ -389,7 +389,7 @@ class AppBlockerService : BaseBlockingService() {
                     neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest.markEnabled(
                         this@AppBlockerService
                     )
-                    navigatorHost.log("wirelessEnabled(): enable-only finished, returning to Horus")
+                    log("wirelessEnabled(): enable-only finished, returning to Horus")
                     AdbWirelessDebuggingAccessibilityNavigator.disarm()
                     scheduleReturnToCurbox(700L, force = true)
                 } catch (_: Throwable) {
