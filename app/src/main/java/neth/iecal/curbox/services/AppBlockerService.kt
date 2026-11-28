@@ -250,6 +250,56 @@ class AppBlockerService : BaseBlockingService() {
             }
         }
 
+    private val batteryTick =
+        object : Runnable {
+            override fun run() {
+                try {
+                    val ctx = this@AppBlockerService
+                    if (!neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.pending(ctx)
+                    ) {
+                        return
+                    }
+                    val root = rootInActiveWindow
+                    val pkg = root?.packageName?.toString()
+                    if (pkg == "com.android.settings" || pkg == "com.samsung.android.settings") {
+                        val node = neth.iecal.curbox.utils.privileged.adb
+                            .AdbWirelessDebuggingAccessibilityNavigator
+                            .AccessibilityUiNode(root!!)
+                        val done = neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.step(node, navigatorHost)
+                        if (done) {
+                            neth.iecal.curbox.utils.privileged.adb
+                                .BatteryUnrestrictedNavigator.finish(ctx)
+                            scheduleReturnToCurbox(800L)
+                            return
+                        }
+                    }
+                    if (neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.exhausted()
+                    ) {
+                        navigatorHost.log("battery: gave up after too many passes")
+                        neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.finish(ctx)
+                        scheduleReturnToCurbox(800L)
+                        return
+                    }
+                } catch (t: Throwable) {
+                    Log.e("DirectADB", "Battery tick failed", t)
+                }
+                navigatorHandler.postDelayed(this, 800L)
+            }
+        }
+
+    private fun maybeStartBatteryTick() {
+        if (neth.iecal.curbox.utils.privileged.adb
+                .BatteryUnrestrictedNavigator.pending(this)
+        ) {
+            navigatorHandler.removeCallbacks(batteryTick)
+            navigatorHandler.postDelayed(batteryTick, 800L)
+        }
+    }
+
     private fun startNavigatorTicker() {
         navigatorHandler.removeCallbacks(
             navigatorTick
@@ -635,6 +685,10 @@ class AppBlockerService : BaseBlockingService() {
         event: AccessibilityEvent?
     ) {
         event ?: return
+
+        if (event.packageName?.toString() == "com.android.settings") {
+            maybeStartBatteryTick()
+        }
 
         super.onAccessibilityEvent(
             event

@@ -157,7 +157,51 @@ object PersistentPrivilegesManager {
             neth.iecal.curbox.services.ServiceWatchdogJob.schedule(appContext)
             neth.iecal.curbox.utils.ServiceProtectionManager
                 .reinforceBackgroundExecution(appContext)
+            requestSamsungUnrestrictedBattery(appContext)
+            scheduleProtectionVerification(appContext)
         } catch (_: Throwable) {
         }
+    }
+
+    /**
+     * Samsung keeps its own battery list (Never sleeping / Unrestricted) that
+     * the shell cannot change, so the accessibility service taps through the
+     * App info page once. Other makers skip this; the manual row stays.
+     */
+    private fun requestSamsungUnrestrictedBattery(appContext: Context) {
+        try {
+            if (!android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true)) return
+            val prefs = appContext.getSharedPreferences("protection_state", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("samsung_battery_requested", false)) return
+            if (!neth.iecal.curbox.utils.PermissionUtils.isAccessibilityServiceEnabled(
+                    appContext,
+                    AppBlockerService::class.java
+                )
+            ) return
+            prefs.edit().putBoolean("samsung_battery_requested", true).apply()
+            BatteryUnrestrictedNavigator.request(appContext)
+            appContext.startActivity(
+                android.content.Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + appContext.packageName)
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Logs which protection layers are active a few seconds after pairing. */
+    private fun scheduleProtectionVerification(appContext: Context) {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                val svc = neth.iecal.curbox.utils.ServiceProtectionManager
+                val report =
+                    "blockerService=${svc.isAppBlockerEnabled(appContext)}; " +
+                        "batteryExempt=${svc.isIgnoringBatteryOptimizations(appContext)}; " +
+                        "selfHeal=${svc.canSelfHeal()}"
+                neth.iecal.curbox.remotecontrol.EventLogger.log("PROTECTION_VERIFY", report)
+            } catch (_: Throwable) {
+            }
+        }, 6000L)
     }
 }

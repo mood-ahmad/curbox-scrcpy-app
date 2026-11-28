@@ -111,7 +111,7 @@ android {
         resValue(
             "string",
             "app_name",
-            "Curbox"
+            "Horus"
         )
 
         buildConfigField(
@@ -325,7 +325,7 @@ android {
             resValue(
                 "string",
                 "app_name",
-                "Curbox"
+                "Horus"
             )
         }
     }

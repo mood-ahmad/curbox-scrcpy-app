@@ -350,7 +350,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     }
 
     /** Adapter from AccessibilityNodeInfo to the JVM-testable UiNode. */
-    private class AccessibilityUiNode(
+    internal class AccessibilityUiNode(
         private val node: AccessibilityNodeInfo
     ) : UiNode {
         override val text: String? get() = node.text?.toString()
