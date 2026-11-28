@@ -152,4 +152,5 @@
     <color name="glass_stroke">#2EFFFFFF</color>
     <color name="glass_sheen_top">#24FFFFFF</color>
     <color name="glass_sheen_bottom">#00FFFFFF</color>
+    <color name="glass_popup_fill">#E0242424</color>
 </resources>

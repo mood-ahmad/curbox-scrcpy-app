@@ -58,6 +58,7 @@
     <style name="ThemeOverlay.Curbox.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.Curbox.Dialog</item>
         <item name="android:windowAnimationStyle">@style/Animation.Curbox.Dialog</item>
+        <item name="colorSurfaceContainerHigh">@color/glass_popup_fill</item>
     </style>
 
     <style name="ShapeAppearance.Curbox.Small" parent="ShapeAppearance.Material3.SmallComponent">
