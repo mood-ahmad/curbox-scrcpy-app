@@ -95,7 +95,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         val matcher = WirelessDebuggingNodeMatcher
         if (matcher.findByLabels(root, matcher.pairByCodeLabels, matcher.PAIR_BY_CODE_KEY) != null) return "PAIR"
         if (matcher.findAllowButton(root) != null) return "ALLOW"
-        if (matcher.allTexts(root).any { codeRegex.matches(it.trim()) }) return "CODE"
+        if (matcher.allTexts(root).any { codeRegex.matches(matcher.normalizeDigits(it).trim()) }) return "CODE"
         val wd = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
         if (wd != null) return if (matcher.isDeveloperList(root)) "LIST_ROW" else "SUB"
         return "OTHER"

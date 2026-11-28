@@ -84,6 +84,25 @@ object WirelessDebuggingNodeMatcher {
     /** AOSP preference key for "Pair device with pairing code". */
     const val PAIR_BY_CODE_KEY = "adb_pair_method_code_pref"
 
+    /**
+     * Converts Arabic-Indic and Persian digits to ASCII and removes direction
+     * marks and non-breaking spaces, so a pairing code or IP:port shown in an
+     * Arabic locale ("١٢٣ ٤٥٦") is still recognised.
+     */
+    fun normalizeDigits(value: String): String {
+        val sb = StringBuilder(value.length)
+        for (c in value) {
+            when (c) {
+                in '\u0660'..'\u0669' -> sb.append('0' + (c - '\u0660'))
+                in '\u06F0'..'\u06F9' -> sb.append('0' + (c - '\u06F0'))
+                '\u00A0', '\u202F', '\u2009' -> sb.append(' ')
+                '\u200E', '\u200F', '\u202A', '\u202B', '\u202C', '\u2066', '\u2067', '\u2068', '\u2069', '\u061C' -> {}
+                else -> sb.append(c)
+            }
+        }
+        return sb.toString()
+    }
+
     fun normalize(value: String?): String {
         if (value == null) return ""
         return value

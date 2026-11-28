@@ -170,11 +170,13 @@ object AdbPairingAccessibilityExtractor {
                 root,
             depth =
                 0
-        ) { text ->
+        ) { rawText ->
 
             if (!armed.get()) {
                 return@walk true
             }
+
+            val text = WirelessDebuggingNodeMatcher.normalizeDigits(rawText)
 
             if (code == null) {
                 val candidate =
