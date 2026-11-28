@@ -39,4 +39,8 @@
     <style name="Curbox.NavLabel" parent="TextAppearance.Material3.LabelSmall">
         <item name="android:textSize">10sp</item>
     </style>
+    <style name="ShapeAppearanceOverlay.Curbox.Circle" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
 </resources>
