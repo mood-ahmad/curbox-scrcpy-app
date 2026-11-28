@@ -1212,6 +1212,16 @@ class DirectAccessFragment : Fragment() {
     }
 
     private fun openAccessibilitySettings() {
+        // Ask the service to bring Horus back once it is granted (step 2).
+        neth.iecal.curbox.utils.privileged.adb.AccessibilityReturnRequest.request(requireContext())
+        try {
+            PermissionUtils.openAccessibilityServiceScreen(
+                requireContext(),
+                AppBlockerService::class.java
+            )
+            return
+        } catch (_: Throwable) {
+        }
         try {
             startActivity(
                 Intent(

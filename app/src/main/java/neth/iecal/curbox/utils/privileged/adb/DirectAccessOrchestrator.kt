@@ -149,6 +149,23 @@ class DirectAccessOrchestrator(
         val operationId =
             beginNewOperation()
 
+        // Step 1 of the single pairing path: Accessibility must be granted
+        // before anything else (Developer options, Wireless debugging, pairing).
+        if (
+            !AccessibilityServiceStatus
+                .isAppBlockerServiceEnabled(
+                    appContext
+                )
+        ) {
+            listener.onError(
+                IllegalStateException(
+                    "Horus Accessibility service must be enabled before automatic pairing."
+                )
+            )
+
+            return
+        }
+
         publishState(
             operationId,
             listener,
