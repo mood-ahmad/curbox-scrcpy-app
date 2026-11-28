@@ -131,7 +131,7 @@ class AntiUninstallFragment : Fragment() {
             ViewUtils.showHelpPopup(
                 it,
                 getString(R.string.anti_uninstall_help_popup),
-                "https://curbox.app/docs/reducers/tamper-protection/"
+                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
             )
         }
 

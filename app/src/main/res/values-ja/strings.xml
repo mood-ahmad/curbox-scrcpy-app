@@ -86,7 +86,7 @@
     <string name="donate_prompt_give">支援します ❤</string>
     <string name="donate_prompt_share">代わりにシェアします</string>
     <string name="donate_prompt_later">また今度</string>
-    <string name="share_curbox_message">Horusを使ってスクリーンタイムのコントロールを取り戻しています。無料なので、ぜひ試してみてください：https://curbox.app</string>
+    <string name="share_curbox_message">Horusを使ってスクリーンタイムのコントロールを取り戻しています。無料なので、ぜひ試してみてください：https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
     <string name="system_diagnostics">システム診断</string>
     <string name="view_and_share_application_crash_logs">アプリのクラッシュログを確認・共有して、Horusの改善に役立ててください。</string>
     <string name="view_crash_logs">クラッシュログを見る</string>

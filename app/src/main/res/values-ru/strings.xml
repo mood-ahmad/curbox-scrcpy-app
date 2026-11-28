@@ -86,7 +86,7 @@
     <string name="donate_prompt_give">Я внесу свой вклад ❤</string>
     <string name="donate_prompt_share">Я лучше поделюсь им</string>
     <string name="donate_prompt_later">Может быть позже</string>
-    <string name="share_curbox_message">Я пользуюсь Horus, чтобы вернуть контроль над своим экранным временем. Это бесплатно, попробуйте: https://curbox.app</string>
+    <string name="share_curbox_message">Я пользуюсь Horus, чтобы вернуть контроль над своим экранным временем. Это бесплатно, попробуйте: https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
     <string name="system_diagnostics">Диагностика системы</string>
     <string name="view_and_share_application_crash_logs">Просматривайте и делитесь журналами сбоев приложения, чтобы помочь улучшить Horus.</string>
     <string name="view_crash_logs">Просмотреть журналы сбоев</string>

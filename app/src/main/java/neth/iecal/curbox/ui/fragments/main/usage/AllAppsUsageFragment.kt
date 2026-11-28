@@ -321,7 +321,7 @@ class AllAppsUsageFragment : Fragment() {
                             ViewUtils.showHelpPopup(
                                 binding.openMenu,
                                 "Track your application usage statistics to understand your digital habits better.",
-                                "https://curbox.app/docs/usage/usage-stats/"
+                                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                             )
                             true
                         }
@@ -360,9 +360,7 @@ class AllAppsUsageFragment : Fragment() {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mood-ahmad/curbox-scrcpy-app")))
             }
 
-            binding.btnJoinDiscord.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.com/invite/Vs9mwUtuCN")))
-            }
+            binding.btnJoinDiscord.visibility = View.GONE
         }
 
         private fun observeViewModel(adapter: AppUsageAdapter) {

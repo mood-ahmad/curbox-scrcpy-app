@@ -93,7 +93,7 @@ class SettingsChangeDelayFragment : Fragment() {
             ViewUtils.showHelpPopup(
                 it,
                 getString(R.string.change_delay_help_popup),
-                "https://curbox.app/docs/reducers/settings-change-delay/"
+                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
             )
         }
 

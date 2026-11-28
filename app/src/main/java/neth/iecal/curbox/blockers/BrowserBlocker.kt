@@ -44,7 +44,7 @@ class BrowserBlocker(val service: AccessibilityService) : BaseBlocker() {
     }
 
     private fun resolveIsBrowser(context: Context, packageName: String): Boolean {
-        val intent = Intent(Intent.ACTION_VIEW, "http://www.curbox.life".toUri())
+        val intent = Intent(Intent.ACTION_VIEW, "https://github.com/mood-ahmad/curbox-scrcpy-app#readme".toUri())
         intent.setPackage(packageName)
 
         val pm = context.packageManager

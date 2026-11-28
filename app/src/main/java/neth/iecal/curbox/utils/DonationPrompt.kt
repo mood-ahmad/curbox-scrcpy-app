@@ -29,7 +29,7 @@ object DonationPrompt {
     private const val KEY_TIMES_SHOWN = "donate_times_shown"
     private const val KEY_OPTED_OUT = "donate_opted_out"
 
-    private const val DONATE_URL = "https://curbox.app/donate"
+    private const val DONATE_URL = "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
 
     // CHANGED: the prompt is switched off in this build.
     private val promptEnabled = false

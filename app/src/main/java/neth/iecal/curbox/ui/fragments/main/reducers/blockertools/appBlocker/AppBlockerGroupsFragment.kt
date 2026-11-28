@@ -62,7 +62,7 @@ class AppBlockerGroupsFragment : Fragment() {
         fabAddGroup = view.findViewById(R.id.fab_add_group)
 
         view.findViewById<Button>(R.id.btn_help).setOnClickListener {
-            ViewUtils.showHelpPopup(it, "Block distracting apps and regain control over your screen time.", "https://curbox.app/docs/reducers/app-pause/")
+            ViewUtils.showHelpPopup(it, "Block distracting apps and regain control over your screen time.", "https://github.com/mood-ahmad/curbox-scrcpy-app#readme")
         }
 
 

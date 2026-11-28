@@ -98,7 +98,7 @@
     <string name="donate_prompt_give">Tôi sẽ góp sức ❤</string>
     <string name="donate_prompt_share">Thay vào đó tôi sẽ chia sẻ nó</string>
     <string name="donate_prompt_later">Có lẽ sau này</string>
-    <string name="share_curbox_message">Tôi đang sử dụng Horus để lấy lại quyền kiểm soát thời gian sử dụng thiết bị của mình. Nó miễn phí, hãy dùng thử: https://curbox.app</string>
+    <string name="share_curbox_message">Tôi đang sử dụng Horus để lấy lại quyền kiểm soát thời gian sử dụng thiết bị của mình. Nó miễn phí, hãy dùng thử: https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
     <string name="system_diagnostics">Chẩn đoán hệ thống</string>
     <string name="view_and_share_application_crash_logs">Xem và chia sẻ nhật ký sự cố của ứng dụng để giúp cải thiện Horus.</string>
     <string name="view_crash_logs">Xem nhật ký sự cố</string>
@@ -1226,8 +1226,8 @@
     <string name="terms_consent_privacy_link">Đọc Chính sách quyền riêng tư</string>
     <string name="terms_consent_agree">tôi đồng ý</string>
     <string name="terms_consent_exit">Không phải bây giờ</string>
-    <string name="terms_url" translatable="false">https://curbox.app/terms.html</string>
-    <string name="privacy_url" translatable="false">https://curbox.app/privacy.html</string>
+    <string name="terms_url" translatable="false">https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
+    <string name="privacy_url" translatable="false">https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
 
     
     <string name="label_automation">TỰ ĐỘNG</string>

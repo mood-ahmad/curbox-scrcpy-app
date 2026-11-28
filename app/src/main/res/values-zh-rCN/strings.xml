@@ -86,7 +86,7 @@
     <string name="donate_prompt_give">我愿意支持 ❤</string>
     <string name="donate_prompt_share">我选择分享它</string>
     <string name="donate_prompt_later">下次再说</string>
-    <string name="share_curbox_message">我一直在用 Horus 找回自己的屏幕使用时间。它是免费的，来试试吧：https://curbox.app</string>
+    <string name="share_curbox_message">我一直在用 Horus 找回自己的屏幕使用时间。它是免费的，来试试吧：https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
     <string name="system_diagnostics">系统诊断</string>
     <string name="view_and_share_application_crash_logs">查看并分享应用崩溃日志，帮助我们改进 Horus。</string>
     <string name="view_crash_logs">查看崩溃日志</string>

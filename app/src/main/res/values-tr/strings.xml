@@ -100,7 +100,7 @@
   <string name="donate_prompt_give">Ben de katkıda bulunacağım ❤</string>
   <string name="donate_prompt_share">Bunun yerine paylaşacağım</string>
   <string name="donate_prompt_later">Belki daha sonra</string>
-  <string name="share_curbox_message">Ekran sürem üzerindeki kontrolü geri kazanmak için Horus kullanıyorum. Ücretsiz, sen de dene: https://curbox.app</string>
+  <string name="share_curbox_message">Ekran sürem üzerindeki kontrolü geri kazanmak için Horus kullanıyorum. Ücretsiz, sen de dene: https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
   <string name="system_diagnostics">Sistem Tanılama</string>
   <string name="view_and_share_application_crash_logs">Horus’u geliştirmeye yardım etmek için uygulama çökme günlüklerini görüntüle ve paylaş.</string>
   <string name="view_crash_logs">Çökme Günlüklerini Görüntüle</string>

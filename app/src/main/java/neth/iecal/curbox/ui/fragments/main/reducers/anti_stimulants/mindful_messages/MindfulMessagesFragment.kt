@@ -68,7 +68,7 @@ class MindfulMessagesFragment : Fragment() {
 
         binding.toolbar.setOnMenuItemClickListener { item ->
             if (item.itemId == R.id.menu_help) {
-                val url = "https://curbox.app/docs/reducers/mindful-messages/"
+                val url = "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                 try {
                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     startActivity(intent)

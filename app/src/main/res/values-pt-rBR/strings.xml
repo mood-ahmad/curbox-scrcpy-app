@@ -86,7 +86,7 @@
     <string name="donate_prompt_give">Vou contribuir ❤</string>
     <string name="donate_prompt_share">Prefiro compartilhar</string>
     <string name="donate_prompt_later">Talvez depois</string>
-    <string name="share_curbox_message">Tenho usado o Horus para recuperar o controle do meu tempo de tela. É gratuito, dá uma chance: https://curbox.app</string>
+    <string name="share_curbox_message">Tenho usado o Horus para recuperar o controle do meu tempo de tela. É gratuito, dá uma chance: https://github.com/mood-ahmad/curbox-scrcpy-app#readme</string>
     <string name="system_diagnostics">Diagnóstico do sistema</string>
     <string name="view_and_share_application_crash_logs">Veja e compartilhe os registros de falhas do app para ajudar a melhorar o Horus.</string>
     <string name="view_crash_logs">Ver registros de falhas</string>
