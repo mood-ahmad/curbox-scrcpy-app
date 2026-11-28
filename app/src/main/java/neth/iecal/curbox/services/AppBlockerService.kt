@@ -645,6 +645,51 @@ class AppBlockerService : BaseBlockingService() {
      * back from the Accessibility service, which may start activities from the
      * background. Falls back to Back presses while Settings is on screen.
      */
+    /** Last resort: a high-priority notification that opens Horus in one tap. */
+    private fun postReturnNotification() {
+        try {
+            val launch = packageManager.getLaunchIntentForPackage(packageName) ?: return
+            launch.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            )
+            val pi = android.app.PendingIntent.getActivity(
+                this, 7421, launch,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(
+                    android.app.NotificationChannel(
+                        "horus_return",
+                        "Return to Horus",
+                        android.app.NotificationManager.IMPORTANCE_HIGH
+                    )
+                )
+            }
+            val n = androidx.core.app.NotificationCompat.Builder(this, "horus_return")
+                .setSmallIcon(R.drawable.icon)
+                .setContentTitle("Horus is ready")
+                .setContentText("Tap to return to Horus")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+            nm.notify(7421, n)
+            navigatorHost.log("return: posted fallback notification")
+        } catch (t: Throwable) {
+            Log.e("DirectADB", "Return notification failed", t)
+        }
+    }
+
+    private val returnReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            navigatorHost.log("return requested by app after pairing")
+            scheduleReturnToCurbox(200L)
+        }
+    }
+
     private fun scheduleReturnToCurbox(initialDelayMs: Long = 3500L) {
         var tries = 0
 
@@ -710,6 +755,8 @@ class AppBlockerService : BaseBlockingService() {
                             this,
                             1500L
                         )
+                    } else {
+                        postReturnNotification()
                     }
                 }
             }
@@ -1033,6 +1080,16 @@ class AppBlockerService : BaseBlockingService() {
         "UnspecifiedRegisterReceiverFlag"
     )
     override fun onServiceConnected() {
+        try {
+            val filter = android.content.IntentFilter("neth.iecal.curbox.action.RETURN_TO_APP")
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(returnReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(returnReceiver, filter)
+            }
+        } catch (_: Throwable) {
+        }
         super.onServiceConnected()
 
         if (
@@ -1191,6 +1248,10 @@ class AppBlockerService : BaseBlockingService() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(returnReceiver)
+        } catch (_: Throwable) {
+        }
         activePairingSessionId =
             null
 

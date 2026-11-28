@@ -616,6 +616,15 @@ class DirectAccessOrchestrator(
      * Settings. Bring CurBox back so onboarding can continue.
      */
     private fun bringCurboxToFront() {
+        // The accessibility service may start activities from the background
+        // and presses Back until Horus is foreground; ask it to do so first.
+        try {
+            appContext.sendBroadcast(
+                android.content.Intent("neth.iecal.curbox.action.RETURN_TO_APP")
+                    .setPackage(appContext.packageName)
+            )
+        } catch (_: Throwable) {
+        }
         try {
             val launch =
                 appContext
