@@ -4,6 +4,7 @@ import kotlinx.coroutines.launch
 import android.content.Context
 import neth.iecal.curbox.BuildConfig
 import neth.iecal.curbox.services.AppBlockerService
+import neth.iecal.curbox.utils.privileged.adb.BatteryUnrestrictedNavigator
 
 /**
  * Applies CurBox privileges that can persist after the privileged shell
