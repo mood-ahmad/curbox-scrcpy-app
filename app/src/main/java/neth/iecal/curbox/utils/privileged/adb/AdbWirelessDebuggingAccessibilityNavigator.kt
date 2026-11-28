@@ -104,13 +104,32 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         if (matcher.findAllowButton(root) != null) return "ALLOW"
         if (matcher.allTexts(root).any { codeRegex.matches(matcher.normalizeDigits(it).trim()) }) return "CODE"
         val wd = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
-        if (wd != null) return if (matcher.isDeveloperList(root)) "LIST_ROW" else "SUB"
+        val devPage = looksLikeDeveloperOptions(root)
+        if (wd != null) return if (devPage) "LIST_ROW" else "SUB"
         // Language independent: a page with exactly one switch that is not
         // the Developer options list is the Wireless debugging page.
-        if (!matcher.isDeveloperList(root) && matcher.countCheckable(root) == 1 &&
+        if (devPage) return "DEVLIST"
+        if (matcher.countCheckable(root) == 1 &&
             matcher.countClickableRows(root) >= 1 && matcher.hasSettingsListId(root)
         ) return "SUB"
         return "OTHER"
+    }
+
+    /**
+     * True on the Developer options page itself. Beyond the known markers it
+     * also recognises the page by its own title plus a switch (the master
+     * Developer options switch), which works in any language and on short
+     * top-of-list views where fewer than three switches are visible. The
+     * navigator must never click anything blind on this page: its only
+     * switch there is the master switch, and toggling it turns Developer
+     * options off and closes the page.
+     */
+    private fun looksLikeDeveloperOptions(root: UiNode): Boolean {
+        val matcher = WirelessDebuggingNodeMatcher
+        if (matcher.isDeveloperList(root)) return true
+        if (matcher.countCheckable(root) < 1) return false
+        val titles = DEVELOPER_OPTIONS_LABELS.map { matcher.normalize(it) }
+        return matcher.allTexts(root).any { matcher.normalize(it) in titles }
     }
 
     /** Navigate only far enough to make sure Wireless debugging is on. */
@@ -218,7 +237,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         passCount++
         if (passCount <= 3 || passCount % 8 == 0) {
             note(
-                "pass #$passCount list=${matcher.isDeveloperList(root)} " +
+                "pass #$passCount list=${looksLikeDeveloperOptions(root)} " +
                     "switches=${matcher.countCheckable(root)} texts=" +
                     matcher.allTexts(root).take(25)
             )
@@ -289,7 +308,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             if (structuralPairRow(root, now)) return true
         }
         if (wdNode != null) {
-            if (matcher.isDeveloperList(root)) {
+            if (looksLikeDeveloperOptions(root)) {
                 return openWirelessDebugging(root, wdNode)
             }
             // Sub page with Wireless debugging off: switch it on, then wait
@@ -299,7 +318,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
         // 4. Wrong page (Settings home, System, About...): go to Developer options.
         val devEntry = matcher.findByLabels(root, DEVELOPER_OPTIONS_LABELS)
-        if (devEntry != null && !matcher.isDeveloperList(root)) {
+        if (devEntry != null && !looksLikeDeveloperOptions(root)) {
             val own = matcher.normalize(devEntry.text)
             if (DEVELOPER_OPTIONS_LABELS.any { matcher.normalize(it) == own } &&
                 activate(devEntry, "developer-options-entry")

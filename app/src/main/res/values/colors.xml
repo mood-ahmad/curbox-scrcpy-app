@@ -144,4 +144,9 @@
     <color name="md_theme_surfaceContainer_highContrast">#1B211F</color>
     <color name="md_theme_surfaceContainerHigh_highContrast">#252B2A</color>
     <color name="md_theme_surfaceContainerHighest_highContrast">#303634</color>
+    <color name="glass_nav_fill">#D9FFFFFF</color>
+    <color name="glass_card_fill">#E6FFFFFF</color>
+    <color name="glass_stroke">#1F000000</color>
+    <color name="glass_sheen_top">#99FFFFFF</color>
+    <color name="glass_sheen_bottom">#00FFFFFF</color>
 </resources>

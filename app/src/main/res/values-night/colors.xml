@@ -5,10 +5,10 @@
     <color name="md_theme_onPrimary">#00122E</color>
     <color name="md_theme_primaryContainer">#15365F</color>
     <color name="md_theme_onPrimaryContainer">#DCEBFF</color>
-    <color name="md_theme_secondary">#32D583</color>
-    <color name="md_theme_onSecondary">#04230F</color>
-    <color name="md_theme_secondaryContainer">#103B28</color>
-    <color name="md_theme_onSecondaryContainer">#C8F7DE</color>
+    <color name="md_theme_secondary">#62C6B4</color>
+    <color name="md_theme_onSecondary">#03211C</color>
+    <color name="md_theme_secondaryContainer">#123530</color>
+    <color name="md_theme_onSecondaryContainer">#C9F2EA</color>
     <color name="md_theme_tertiary">#50B7FF</color>
     <color name="md_theme_onTertiary">#00263D</color>
     <color name="md_theme_tertiaryContainer">#12354C</color>
@@ -147,4 +147,9 @@
 
     <color name="text_color">#FFFFFF</color>
     <color name="error_color">#F44336</color>
+    <color name="glass_nav_fill">#C71C1C1C</color>
+    <color name="glass_card_fill">#B8151515</color>
+    <color name="glass_stroke">#2EFFFFFF</color>
+    <color name="glass_sheen_top">#24FFFFFF</color>
+    <color name="glass_sheen_bottom">#00FFFFFF</color>
 </resources>
