@@ -354,6 +354,12 @@
         android:layout_height="192dp"
         android:background="?attr/colorSurface" />
 
+    <View
+        android:id="@+id/credit_fade"
+        android:layout_width="match_parent"
+        android:layout_height="24dp"
+        android:layout_marginTop="200dp" />
+
                 <com.google.android.material.card.MaterialCardView
             android:id="@+id/card_credit"
             style="?attr/materialCardViewOutlinedStyle"

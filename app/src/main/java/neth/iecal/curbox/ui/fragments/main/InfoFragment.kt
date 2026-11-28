@@ -117,6 +117,15 @@ class InfoFragment : Fragment() {
             }
         }
 
+        val surface = com.google.android.material.color.MaterialColors.getColor(
+            binding.root,
+            com.google.android.material.R.attr.colorSurface
+        )
+        binding.creditFade.background = android.graphics.drawable.GradientDrawable(
+            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(surface, android.graphics.Color.TRANSPARENT)
+        )
+
         var lastCard = -1
         var lastPhoto = -1
 
@@ -133,9 +142,15 @@ class InfoFragment : Fragment() {
                 card.layoutParams = lp
                 // Opaque strip behind the bar so scrolled content never shows
                 // above or around it.
+                val gap = (10f * density).toInt()
                 val bl = binding.creditBackdrop.layoutParams
-                bl.height = cardPx + (16f * density).toInt()
+                bl.height = cardPx + (16f * density).toInt() + gap
                 binding.creditBackdrop.layoutParams = bl
+                // Soft fade under the bar, so content slides out of sight
+                // with a clean gap instead of a hard cut at the pill edge.
+                val fl = binding.creditFade.layoutParams as android.view.ViewGroup.MarginLayoutParams
+                fl.topMargin = bl.height
+                binding.creditFade.layoutParams = fl
             }
             if (photoPx != lastPhoto) {
                 lastPhoto = photoPx
