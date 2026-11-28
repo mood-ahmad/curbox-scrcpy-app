@@ -361,7 +361,7 @@ class AppBlockerService : BaseBlockingService() {
                         this@AppBlockerService
                     )
                     AdbWirelessDebuggingAccessibilityNavigator.disarm()
-                    scheduleReturnToCurbox(700L)
+                    scheduleReturnToCurbox(700L, force = true)
                 } catch (_: Throwable) {
                 }
             }
@@ -555,6 +555,8 @@ class AppBlockerService : BaseBlockingService() {
         activePairingSessionId =
             sessionId
 
+        cancelReturnToCurbox("new pairing session armed")
+
         AdbPairingAccessibilityExtractor
             .reset()
 
@@ -686,16 +688,40 @@ class AppBlockerService : BaseBlockingService() {
     private val returnReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
             navigatorHost.log("return requested by app after pairing")
-            scheduleReturnToCurbox(200L)
+            scheduleReturnToCurbox(200L, force = true)
         }
     }
 
-    private fun scheduleReturnToCurbox(initialDelayMs: Long = 3500L) {
+    @Volatile private var pendingReturnTask: Runnable? = null
+
+    private fun cancelReturnToCurbox(reason: String) {
+        val t = pendingReturnTask ?: return
+        navigatorHandler.removeCallbacks(t)
+        pendingReturnTask = null
+        navigatorHost.log("return cancelled: $reason")
+    }
+
+    private fun scheduleReturnToCurbox(
+        initialDelayMs: Long = 3500L,
+        force: Boolean = false
+    ) {
         var tries = 0
+        // Only one return task may exist; a newer one replaces the old one.
+        pendingReturnTask?.let { navigatorHandler.removeCallbacks(it) }
 
         val returnTask =
             object : Runnable {
                 override fun run() {
+                    // Never pull the user out of Settings while the pairing
+                    // navigation is running: that is what made Developer
+                    // options flash open and snap back to Horus.
+                    if (AdbWirelessDebuggingAccessibilityNavigator.isArmed() ||
+                        (!force && !activePairingSessionId.isNullOrBlank())
+                    ) {
+                        navigatorHost.log("return skipped: pairing navigation in progress")
+                        pendingReturnTask = null
+                        return
+                    }
                     try {
                         val activePackage =
                             rootInActiveWindow
@@ -761,6 +787,7 @@ class AppBlockerService : BaseBlockingService() {
                 }
             }
 
+        pendingReturnTask = returnTask
         navigatorHandler.postDelayed(
             returnTask,
             initialDelayMs
