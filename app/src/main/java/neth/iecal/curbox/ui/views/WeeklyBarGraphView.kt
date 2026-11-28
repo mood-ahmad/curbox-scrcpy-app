@@ -135,60 +135,141 @@ class WeeklyBarGraphView @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val desiredHeight = (180 * resources.displayMetrics.density).toInt()
+        val desiredHeight = (210 * resources.displayMetrics.density).toInt()
         val height = resolveSize(desiredHeight, heightMeasureSpec)
         super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY))
     }
+
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val avgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.RIGHT }
+    private val chipPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val chipTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    private val pillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    private fun niceMax(v: Float): Float {
+        val steps = floatArrayOf(0.25f, 0.5f, 1f, 2f, 3f, 4f, 6f, 8f, 12f, 16f, 24f, 48f, 96f, 168f)
+        for (st in steps) if (v <= st) return st
+        return kotlin.math.ceil(v / 24f) * 24f
+    }
+
+    private fun fmtHours(h: Float): String {
+        if (h <= 0f) return "0"
+        if (h < 1f) return "${kotlin.math.round(h * 60f).toInt()}m"
+        val rounded = kotlin.math.round(h * 10f) / 10f
+        return if (rounded % 1f == 0f) "${rounded.toInt()}h" else "${rounded}h"
+    }
+
+    private fun fmtAvg(h: Float): String {
+        val totalMin = kotlin.math.round(h * 60f).toInt()
+        val hh = totalMin / 60
+        val mm = totalMin % 60
+        return when {
+            hh == 0 -> "${mm}m"
+            mm == 0 -> "${hh}h"
+            else -> "${hh}h ${mm}m"
+        }
+    }
+
+    private fun axisWidth() = 44f * resources.displayMetrics.density
+    private fun areaLeft() = paddingStart + 12f * resources.displayMetrics.density
+    private fun areaRight() = width.toFloat() - paddingEnd - axisWidth()
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (entries.isEmpty()) return
 
-        val density = resources.displayMetrics.density
+        val d = resources.displayMetrics.density
         val count = entries.size
-        val labelAreaHeight = 28f * density  // space for day labels
-        val titleAreaHeight = 24f * density  // space for "WEEKLY ACTIVITY"
-        val topPadding = 16f * density
-        val bottomPadding = 8f * density
+        val onSurfaceVariant = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant)
+        val outline = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOutlineVariant)
+        val onSurface = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
+        val primary = MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary)
+        val onPrimary = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimary)
+        val container = MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurfaceContainerHigh)
 
-        val availableWidth = width.toFloat() - paddingStart - paddingEnd
-        val barAreaWidth = availableWidth * 0.85f
-        val leftOffset = (availableWidth - barAreaWidth) / 2f + paddingStart
+        gridPaint.color = ColorUtils.setAlphaComponent(outline, 150)
+        gridPaint.strokeWidth = 1f * d
+        avgPaint.color = onSurfaceVariant
+        avgPaint.strokeWidth = 1.2f * d
+        avgPaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(5f * d, 4f * d), 0f)
+        axisPaint.color = onSurfaceVariant
+        axisPaint.textSize = 11f * d
+        chipPaint.color = container
+        chipTextPaint.color = onSurface
+        chipTextPaint.textSize = 10f * d
+        pillPaint.color = primary
+        trackPaint.color = ColorUtils.setAlphaComponent(outline, 70)
 
-        val barWidth = barAreaWidth / count * 0.35f
-        val gapWidth = barAreaWidth / count
+        val labelArea = 30f * d
+        val chartTop = 12f * d
+        val chartBottom = height - labelArea
+        val chartHeight = chartBottom - chartTop
+        val left = areaLeft()
+        val right = areaRight()
+        val gap = (right - left) / count
+        val barWidth = minOf(gap * 0.5f, 22f * d)
 
-        val chartTop = topPadding
-        val chartBottom = height - labelAreaHeight - titleAreaHeight - bottomPadding
-        val maxBarHeight = chartBottom - chartTop
-        val maxValue = entries.maxOfOrNull { it.value } ?: 1f
-        val effectiveMax = if (maxValue == 0f) 1f else maxValue
+        val maxValue = entries.maxOfOrNull { it.value } ?: 0f
+        val axisMax = niceMax(if (maxValue <= 0f) 1f else maxValue)
 
-        val minBarPx = minBarHeight * density
+        // grid: bottom, middle, top
+        val levels = floatArrayOf(0f, axisMax / 2f, axisMax)
+        for (lv in levels) {
+            val y = chartBottom - chartHeight * (lv / axisMax)
+            canvas.drawLine(left - 6f * d, y, right + 6f * d, y, gridPaint)
+            canvas.drawText(fmtHours(lv), width - paddingEnd - 6f * d, y - 4f * d, axisPaint)
+        }
 
+        // soft track behind each bar
         for (i in entries.indices) {
-            val cx = leftOffset + gapWidth * i + gapWidth / 2f
-            val ratio = entries[i].value / effectiveMax
-            var barHeight = maxBarHeight * ratio
-            if (entries[i].value > 0f && barHeight < minBarPx) barHeight = minBarPx
+            val cx = left + gap * i + gap / 2f
+            barRect.set(cx - barWidth / 2f, chartTop, cx + barWidth / 2f, chartBottom)
+            canvas.drawRoundRect(barRect, barWidth / 2f, barWidth / 2f, trackPaint)
+        }
 
-            val left = cx - barWidth / 2f
-            val right = cx + barWidth / 2f
-            val top = chartBottom - barHeight
-            val bottom = chartBottom
-
-            barRect.set(left, top, right, bottom)
+        val minBarPx = minBarHeight * d
+        for (i in entries.indices) {
+            val cx = left + gap * i + gap / 2f
+            var h = chartHeight * (entries[i].value / axisMax)
+            if (entries[i].value > 0f && h < minBarPx) h = minBarPx
+            if (h <= 0f) continue
+            barRect.set(cx - barWidth / 2f, chartBottom - h, cx + barWidth / 2f, chartBottom)
             val paint = if (i == selectedIndex) selectedBarPaint else barPaint
-            canvas.drawRoundRect(barRect, barRadius * density, barRadius * density, paint)
+            canvas.drawRoundRect(barRect, barWidth / 2f, barWidth / 2f, paint)
         }
 
-        val labelY = chartBottom + labelAreaHeight * 0.65f
+        // average line (days that have usage)
+        val used = entries.filter { it.value > 0f }
+        if (used.isNotEmpty()) {
+            val avg = used.map { it.value }.average().toFloat()
+            val y = chartBottom - chartHeight * (minOf(avg, axisMax) / axisMax)
+            val p = android.graphics.Path().apply { moveTo(left - 6f * d, y); lineTo(right + 6f * d, y) }
+            canvas.drawPath(p, avgPaint)
+            val text = "Avg " + fmtAvg(avg)
+            val tw = chipTextPaint.measureText(text) + 12f * d
+            val cx = width - paddingEnd - 4f * d - tw / 2f
+            barRect.set(cx - tw / 2f, y - 10f * d, cx + tw / 2f, y + 10f * d)
+            canvas.drawRoundRect(barRect, 10f * d, 10f * d, chipPaint)
+            canvas.drawText(text, cx, y + 3.5f * d, chipTextPaint)
+        }
+
+        // day labels, selected one gets a filled pill
+        val labelY = chartBottom + labelArea * 0.62f
         for (i in entries.indices) {
-            val cx = leftOffset + gapWidth * i + gapWidth / 2f
-            val paint = if (i == selectedIndex) selectedLabelPaint else labelPaint
-            canvas.drawText(entries[i].label, cx, labelY, paint)
+            val cx = left + gap * i + gap / 2f
+            if (i == selectedIndex) {
+                canvas.drawCircle(cx, labelY - 4f * d, 12f * d, pillPaint)
+                selectedLabelPaint.color = onPrimary
+                canvas.drawText(entries[i].label, cx, labelY, selectedLabelPaint)
+            } else {
+                canvas.drawText(entries[i].label, cx, labelY, labelPaint)
+            }
         }
-
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -223,10 +304,8 @@ class WeeklyBarGraphView @JvmOverloads constructor(
 
     private fun selectBarAt(touchX: Float) {
         if (entries.isEmpty()) return
-        val availableWidth = width.toFloat() - paddingStart - paddingEnd
-        val barAreaWidth = availableWidth * 0.85f
-        val leftOffset = (availableWidth - barAreaWidth) / 2f + paddingStart
-        val gapWidth = barAreaWidth / entries.size
+        val leftOffset = areaLeft()
+        val gapWidth = (areaRight() - leftOffset) / entries.size
 
         for (i in entries.indices) {
             val centerX = leftOffset + gapWidth * i + gapWidth / 2f
