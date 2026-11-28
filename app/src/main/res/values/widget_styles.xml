@@ -57,6 +57,7 @@
 
     <style name="ThemeOverlay.Curbox.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
         <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.Curbox.Dialog</item>
+        <item name="android:windowAnimationStyle">@style/Animation.Curbox.Dialog</item>
     </style>
 
     <style name="ShapeAppearance.Curbox.Small" parent="ShapeAppearance.Material3.SmallComponent">
@@ -92,5 +93,17 @@
     <style name="TextAppearance.Curbox.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
         <item name="android:textSize">17sp</item>
         <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Animation.Curbox.Activity" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/screen_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/screen_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/screen_pop_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/screen_pop_exit</item>
+    </style>
+
+    <style name="Animation.Curbox.Dialog" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/dialog_exit</item>
     </style>
 </resources>

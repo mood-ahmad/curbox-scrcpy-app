@@ -162,6 +162,7 @@ class ReducersFragment : Fragment() {
             advancedArrow.animate().rotation(if (isVisible) 0f else 90f).start()
         }
 
+        neth.iecal.curbox.ui.utils.LargeHeader.install(view, getString(R.string.reducers))
         return view
     }
 }

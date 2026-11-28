@@ -50,6 +50,7 @@
 
         <item name="android:fontFamily">@font/inter</item>
         <item name="fontFamily">@font/inter</item>
+        <item name="android:windowAnimationStyle">@style/Animation.Curbox.Activity</item>
         <item name="popupMenuStyle">@style/Widget.Curbox.PopupMenu</item>
         <item name="materialAlertDialogTheme">@style/ThemeOverlay.Curbox.Dialog</item>
         <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Curbox.Small</item>
