@@ -1533,21 +1533,7 @@ class DirectAccessSetupFragment : Fragment() {
     }
 
     private fun openDeveloperOptions() {
-        try {
-            startActivity(
-                Intent(
-                    Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
-                )
-            )
-        } catch (
-            _: ActivityNotFoundException
-        ) {
-            startActivity(
-                Intent(
-                    Settings.ACTION_SETTINGS
-                )
-            )
-        }
+        neth.iecal.curbox.utils.privileged.adb.SettingsLauncher.openBest(requireContext())
     }
 
     private fun postToUi(

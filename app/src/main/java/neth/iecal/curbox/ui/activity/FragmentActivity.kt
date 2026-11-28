@@ -169,7 +169,7 @@ class FragmentActivity : AppCompatActivity() {
                     ?.let { lp ->
                         lp.bottomMargin =
                             if (bottomNav.isVisible) {
-                                (88 * density).toInt() +
+                                (92 * density).toInt() +
                                     systemBars.bottom
                             } else {
                                 0

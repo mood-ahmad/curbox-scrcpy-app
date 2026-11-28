@@ -58,7 +58,11 @@ object WirelessDebuggingNodeMatcher {
         "wlan-debugging",
         "depuração sem fio",
         "беспроводная отладка",
-        "kablosuz hata ayıklama"
+        "kablosuz hata ayıklama",
+        "无线调试", "無線偵錯", "ワイヤレス デバッグ", "ワイヤレスデバッグ", "무선 디버깅",
+        "debug wireless", "debugging nirkabel", "draadloze foutopsporing",
+        "debugowanie bezprzewodowe", "वायरलेस डीबगिंग", "бездротове налагодження",
+        "gỡ lỗi không dây", "اشکال‌زدایی بی‌سیم"
     )
 
     val pairByCodeLabels = listOf(
@@ -300,9 +304,75 @@ object WirelessDebuggingNodeMatcher {
                 found = node
                 return
             }
+            // Language independent: the positive button (android:id/button1)
+            // of a dialog that carries the "always allow on this network"
+            // checkbox.
+            if (
+                node.isEnabled &&
+                node.viewId?.endsWith("id/button1") == true &&
+                hasCheckBox(root)
+            ) {
+                found = node
+                return
+            }
             for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
         }
         visit(root, 0)
         return found
+    }
+
+    private fun hasCheckBox(root: UiNode?): Boolean {
+        var any = false
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH || any) return
+            if (node.className.orEmpty().contains("CheckBox")) {
+                any = true
+                return
+            }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return any
+    }
+
+    /** True when the window is a Settings preference list (has a list id). */
+    fun hasSettingsListId(root: UiNode?): Boolean {
+        var any = false
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH || any) return
+            val id = node.viewId.orEmpty()
+            if (id.endsWith("id/recycler_view") || id.endsWith("id/list") || id.endsWith("id/main_content")) {
+                any = true
+                return
+            }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return any
+    }
+
+    fun countClickableRows(root: UiNode?): Int = clickableTextRows(root).size
+
+    /** Clickable, non-checkable rows that carry text but no IP:port, in screen order. */
+    fun clickableTextRows(root: UiNode?): List<UiNode> {
+        val rows = mutableListOf<UiNode>()
+        fun visit(node: UiNode?, depth: Int) {
+            if (node == null || depth > MAX_DEPTH) return
+            if (node.isClickable && node.isEnabled && !node.isCheckable) {
+                val texts = mutableListOf<String>()
+                fun collect(n: UiNode?, d: Int) {
+                    if (n == null || d > 6) return
+                    n.text?.takeIf { it.isNotBlank() }?.let { texts.add(it) }
+                    for (i in 0 until n.childCount) collect(n.child(i), d + 1)
+                }
+                collect(node, 0)
+                val hasPort = texts.any { Regex("\\d+\\.\\d+\\.\\d+\\.\\d+").containsMatchIn(normalizeDigits(it)) }
+                if (texts.isNotEmpty() && !hasPort) rows.add(node)
+                return
+            }
+            for (i in 0 until node.childCount) visit(node.child(i), depth + 1)
+        }
+        visit(root, 0)
+        return rows
     }
 }

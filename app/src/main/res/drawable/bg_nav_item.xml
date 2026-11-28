@@ -3,7 +3,7 @@
     android:enterFadeDuration="220"
     android:exitFadeDuration="220">
     <item android:state_checked="true">
-        <inset android:insetLeft="3dp" android:insetTop="4dp" android:insetRight="3dp" android:insetBottom="4dp">
+        <inset android:insetLeft="1dp" android:insetTop="4dp" android:insetRight="1dp" android:insetBottom="4dp">
             <shape android:shape="rectangle">
                 <solid android:color="?attr/colorSecondaryContainer" />
                 <corners android:radius="26dp" />

@@ -348,16 +348,12 @@ class AppBlockerService : BaseBlockingService() {
             }
 
             override fun openDeveloperOptions(): Boolean =
-                try {
-                    startActivity(
-                        android.content.Intent(
-                            android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
-                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                    true
-                } catch (_: Throwable) {
-                    false
-                }
+                neth.iecal.curbox.utils.privileged.adb.SettingsLauncher
+                    .openDeveloperOptions(this@AppBlockerService)
+
+            override fun openWirelessDebugging(): Boolean =
+                neth.iecal.curbox.utils.privileged.adb.SettingsLauncher
+                    .openWirelessDebugging(this@AppBlockerService)
 
             override fun wirelessEnabled() {
                 try {

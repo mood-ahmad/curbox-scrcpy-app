@@ -26,7 +26,10 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     private val DEVELOPER_OPTIONS_LABELS = listOf(
         "developer options", "خيارات المطور", "خيارات المطوّر", "options pour les développeurs",
         "opciones de desarrollador", "entwickleroptionen", "opções do desenvolvedor",
-        "для разработчиков", "geliştirici seçenekleri", "opzioni sviluppatore"
+        "для разработчиков", "geliştirici seçenekleri", "opzioni sviluppatore",
+        "开发者选项", "開發人員選項", "開発者向けオプション", "개발자 옵션", "opsi developer",
+        "ontwikkelaarsopties", "opcje programisty", "डेवलपर विकल्प", "параметри розробника",
+        "tùy chọn nhà phát triển", "گزینه‌های برنامه‌نویس"
     )
     private const val HINT_AFTER_MS = 12_000L
 
@@ -44,6 +47,9 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
         /** Reopens Android's Developer options when the user wandered off. */
         fun openDeveloperOptions(): Boolean = false
+
+        /** Direct jump to the Wireless debugging page (no labels needed). */
+        fun openWirelessDebugging(): Boolean = false
 
         /** Enable-only mode: Wireless debugging is confirmed on. */
         fun wirelessEnabled() {}
@@ -80,6 +86,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         stallCount = 0
         lastSignature = 0
         rowAttempts = 0
+        structuralPairClicks = 0
         subPageClicks = 0
         reversed = false
         lastSubClickAt = 0L
@@ -98,6 +105,11 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         if (matcher.allTexts(root).any { codeRegex.matches(matcher.normalizeDigits(it).trim()) }) return "CODE"
         val wd = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
         if (wd != null) return if (matcher.isDeveloperList(root)) "LIST_ROW" else "SUB"
+        // Language independent: a page with exactly one switch that is not
+        // the Developer options list is the Wireless debugging page.
+        if (!matcher.isDeveloperList(root) && matcher.countCheckable(root) == 1 &&
+            matcher.countClickableRows(root) >= 1 && matcher.hasSettingsListId(root)
+        ) return "SUB"
         return "OTHER"
     }
 
@@ -186,7 +198,10 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         if (now - lastRecoveryAt < 6_000L || recoveries >= MAX_RECOVERIES) return
         lastRecoveryAt = now
         recoveries++
-        val ok = try { host?.openDeveloperOptions() == true } catch (_: Throwable) { false }
+        val ok = try {
+            (recoveries % 2 == 1 && host?.openWirelessDebugging() == true) ||
+                host?.openDeveloperOptions() == true
+        } catch (_: Throwable) { false }
         note("recovery #$recoveries: reopened Developer options ok=$ok")
         resetAttempts("recovery")
     }
@@ -261,6 +276,10 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         // 3. The Wireless debugging row (Developer options). Once it is
         // visible, never scroll again: keep trying to open it.
         val wdNode = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
+        if (wdNode == null && cls == "SUB") {
+            if (enableOnSubPage(root, now)) return true
+            if (structuralPairRow(root, now)) return true
+        }
         if (wdNode != null) {
             if (matcher.isDeveloperList(root)) {
                 return openWirelessDebugging(root, wdNode)
@@ -290,6 +309,23 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     }
 
     @Volatile private var rowAttempts = 0
+    @Volatile private var structuralPairClicks = 0
+
+    /**
+     * Label-free fallback on the Wireless debugging page (switch on): after a
+     * short stall, try the clickable text rows in order, each a bounded number
+     * of times. Opening the wrong row is recovered by the stall logic.
+     */
+    private fun structuralPairRow(root: UiNode, now: Long): Boolean {
+        if (now - lastProgressAt < 8_000L || structuralPairClicks >= 3) return false
+        if (now - pairClickedAt < 6_000L) return false
+        val rows = WirelessDebuggingNodeMatcher.clickableTextRows(root)
+        val target = rows.getOrNull(structuralPairClicks) ?: return false
+        structuralPairClicks++
+        pairClickedAt = now
+        note("structural pair row attempt #$structuralPairClicks")
+        return target.click()
+    }
 
     private fun enableOnSubPage(root: UiNode, now: Long): Boolean {
         val off = WirelessDebuggingNodeMatcher.uncheckedSwitches(root)
