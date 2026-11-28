@@ -363,22 +363,15 @@
                 android:layout_height="match_parent"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
+                android:layoutDirection="ltr"
                 android:paddingHorizontal="20dp"
                 android:paddingVertical="8dp">
 
-                <ImageView
-                    android:id="@+id/image_creator"
-                    android:layout_width="120dp"
-                    android:layout_height="120dp"
-                    android:background="?attr/colorSecondaryContainer"
-                    android:contentDescription="@string/credit_powered_by"
-                    android:scaleType="centerCrop"
-                    android:src="@drawable/creator_photo" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="20dp"
+                    android:layout_marginEnd="20dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
@@ -409,6 +402,14 @@
                         android:textColor="?attr/colorPrimary"
                         style="@style/TextAppearance.Material3.BodyMedium" />
                 </LinearLayout>
+                <ImageView
+                    android:id="@+id/image_creator"
+                    android:layout_width="120dp"
+                    android:layout_height="120dp"
+                    android:background="?attr/colorSecondaryContainer"
+                    android:contentDescription="@string/credit_powered_by"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/creator_photo" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
