@@ -380,13 +380,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/credit_powered_by"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:includeFontPadding="true"
+                        android:maxLines="2"
+                        android:includeFontPadding="false"
                         android:paddingVertical="2dp"
-                        android:autoSizeTextType="uniform"
-                        android:autoSizeMinTextSize="14sp"
-                        android:autoSizeMaxTextSize="22sp"
+                        android:textSize="18sp"
                         style="@style/TextAppearance.Material3.TitleLarge" />
 
                     <TextView
