@@ -109,6 +109,20 @@ class FragmentActivity : AppCompatActivity() {
         maybeShowTermsConsent()
         maybeShowWhatsNew()
 
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fm: androidx.fragment.app.FragmentManager,
+                    f: androidx.fragment.app.Fragment,
+                    v: android.view.View,
+                    savedInstanceState: Bundle?
+                ) {
+                    v.post { applyNavClearance(v) }
+                }
+            },
+            true
+        )
+
         val bottomNav =
             findViewById<
                 com.google.android.material.bottomnavigation.BottomNavigationView
@@ -162,20 +176,23 @@ class FragmentActivity : AppCompatActivity() {
                     bottomNav.layoutParams = lp
                 }
 
+            // Content runs full height, under the floating bar: the bar's own
+            // rounded shape is its only edge. Scrollers get bottom padding
+            // (clipToPadding=false) so the last item scrolls fully clear.
+            lastSystemBottom = systemBars.bottom
+
             findViewById<android.view.View>(
                 R.id.fragment_holder
             )?.let { holder ->
                 (holder.layoutParams as? android.view.ViewGroup.MarginLayoutParams)
                     ?.let { lp ->
-                        lp.bottomMargin =
-                            if (bottomNav.isVisible) {
-                                (92 * density).toInt() +
-                                    systemBars.bottom
-                            } else {
-                                0
-                            }
+                        lp.bottomMargin = 0
                         holder.layoutParams = lp
                     }
+            }
+
+            supportFragmentManager.fragments.forEach { f ->
+                f.view?.let { applyNavClearance(it) }
             }
 
             insets
@@ -676,5 +693,43 @@ class FragmentActivity : AppCompatActivity() {
                 itemId
             )
         }
+    }
+
+    private var lastSystemBottom = 0
+
+    private val navClearancePx: Int
+        get() {
+            val nav = findViewById<android.view.View>(R.id.bottom_nav)
+            return if (nav != null && nav.visibility == android.view.View.VISIBLE) {
+                (92 * resources.displayMetrics.density).toInt() + lastSystemBottom
+            } else {
+                0
+            }
+        }
+
+    /**
+     * Gives each top-level vertical scroller bottom padding equal to the
+     * floating bar clearance, without clipping to it.
+     */
+    private fun applyNavClearance(root: android.view.View) {
+        fun visit(v: android.view.View, insideScroller: Boolean) {
+            val isScroller =
+                (v is androidx.core.widget.NestedScrollView) ||
+                    (v is android.widget.ScrollView) ||
+                    (v is androidx.recyclerview.widget.RecyclerView) ||
+                    (v is android.widget.ListView)
+            if (isScroller && !insideScroller) {
+                val tag = v.getTag(R.id.main) as? Int ?: 0
+                val base = v.paddingBottom - tag
+                v.clipToPadding = false
+                v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, base + navClearancePx)
+                v.setTag(R.id.main, navClearancePx)
+                return
+            }
+            if (v is android.view.ViewGroup) {
+                for (i in 0 until v.childCount) visit(v.getChildAt(i), insideScroller || isScroller)
+            }
+        }
+        visit(root, false)
     }
 }
