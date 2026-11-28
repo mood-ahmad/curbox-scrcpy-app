@@ -159,6 +159,18 @@ class DirectAccessFragment : Fragment() {
         renderStatus()
 
         if (
+            !operationInProgress &&
+            neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest
+                .consumeEnabled(requireContext())
+        ) {
+            startAutomaticPairing(
+                openSettingsAfterReady =
+                    true
+            )
+            return
+        }
+
+        if (
             waitingForAccessibilityReturn &&
             isCurBoxAccessibilityEnabled() &&
             !operationInProgress
@@ -266,15 +278,25 @@ class DirectAccessFragment : Fragment() {
                         .text =
                         "Start automatic pairing"
 
-                    binding
-                        .operationStatus
-                        .text =
-                        "Wireless Debugging must be enabled. Enable it in Developer Options, then return to Horus and start automatic pairing again."
-
                     renderStatus()
 
-                    if (openSettingsAfterReady) {
+                    if (isCurBoxAccessibilityEnabled()) {
+                        // Switch it on for the user, then come back and resume.
+                        binding
+                            .operationStatus
+                            .text =
+                            "Turning on Wireless Debugging for you…"
+                        neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest
+                            .request(requireContext())
                         openDeveloperOptions()
+                    } else {
+                        binding
+                            .operationStatus
+                            .text =
+                            "Wireless Debugging must be enabled. Enable it in Developer Options, then return to Horus and start automatic pairing again."
+                        if (openSettingsAfterReady) {
+                            openDeveloperOptions()
+                        }
                     }
                 },
 

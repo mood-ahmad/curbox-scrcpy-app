@@ -44,6 +44,9 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
         /** Reopens Android's Developer options when the user wandered off. */
         fun openDeveloperOptions(): Boolean = false
+
+        /** Enable-only mode: Wireless debugging is confirmed on. */
+        fun wirelessEnabled() {}
     }
 
     @Volatile
@@ -67,6 +70,8 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     @Volatile private var recoveries = 0
     @Volatile private var lastRecoveryAt = 0L
     @Volatile private var pairClickedAt = 0L
+    @Volatile var enableOnly = false
+        private set
     private val codeRegex = Regex("^\\d{3}\\s?\\d{3}$")
 
     /** Forget per-screen attempt limits so no screen is ever a dead end. */
@@ -96,7 +101,15 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         return "OTHER"
     }
 
+    /** Navigate only far enough to make sure Wireless debugging is on. */
+    fun armEnableOnly() {
+        arm()
+        enableOnly = true
+        note("armed (enable only)")
+    }
+
     fun arm() {
+        enableOnly = false
         scrollCount = 0
         stallCount = 0
         lastSignature = 0
@@ -216,6 +229,14 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             matcher.pairByCodeLabels,
             matcher.PAIR_BY_CODE_KEY
         )
+        if (enableOnly) {
+            // Already on (pairing row, code dialog, or allow prompt visible)?
+            if (cls == "PAIR" || cls == "CODE") {
+                note("enable-only: Wireless debugging already on")
+                host?.wirelessEnabled()
+                return true
+            }
+        }
         if (cls == "CODE") {
             // The pairing dialog with its code is open: the extractor reads it.
             lastProgressAt = now
@@ -274,6 +295,10 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         val off = WirelessDebuggingNodeMatcher.uncheckedSwitches(root)
         if (off.isEmpty()) {
             logOnce("sub page: switch already on, waiting for pairing row")
+            if (enableOnly) {
+                host?.wirelessEnabled()
+                return true
+            }
             return false
         }
         if (subPageClicks >= 4 || now - lastSubClickAt < 2500L) return false

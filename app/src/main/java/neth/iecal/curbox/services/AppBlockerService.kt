@@ -227,6 +227,14 @@ class AppBlockerService : BaseBlockingService() {
                     return
                 }
 
+                if (AdbWirelessDebuggingAccessibilityNavigator.enableOnly &&
+                    !neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest
+                        .pending(this@AppBlockerService)
+                ) {
+                    AdbWirelessDebuggingAccessibilityNavigator.disarm()
+                    return
+                }
+
                 try {
                     val root =
                         rootInActiveWindow
@@ -292,6 +300,16 @@ class AppBlockerService : BaseBlockingService() {
             }
         }
 
+    /** Starts enable-only navigation when the app asked for Wireless debugging. */
+    private fun maybeStartWirelessEnable() {
+        if (AdbWirelessDebuggingAccessibilityNavigator.isArmed()) return
+        if (neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest.pending(this)) {
+            AdbWirelessDebuggingAccessibilityNavigator.host = navigatorHost
+            AdbWirelessDebuggingAccessibilityNavigator.armEnableOnly()
+            startNavigatorTicker()
+        }
+    }
+
     private fun maybeStartBatteryTick() {
         if (neth.iecal.curbox.utils.privileged.adb
                 .BatteryUnrestrictedNavigator.pending(this)
@@ -340,6 +358,17 @@ class AppBlockerService : BaseBlockingService() {
                 } catch (_: Throwable) {
                     false
                 }
+
+            override fun wirelessEnabled() {
+                try {
+                    neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest.markEnabled(
+                        this@AppBlockerService
+                    )
+                    AdbWirelessDebuggingAccessibilityNavigator.disarm()
+                    scheduleReturnToCurbox(700L)
+                } catch (_: Throwable) {
+                }
+            }
 
             override fun toast(
                 message: String
@@ -702,6 +731,7 @@ class AppBlockerService : BaseBlockingService() {
 
         if (event.packageName?.toString() == "com.android.settings") {
             maybeStartBatteryTick()
+            maybeStartWirelessEnable()
         }
 
         try {
