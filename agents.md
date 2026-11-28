@@ -142,7 +142,7 @@ Feature broadcasts use companion constants such as `AppBlocker.INTENT_ACTION_REF
 - `trackers/`: app usage, website usage, and short video counts. `WebsiteUsageTracker` has a 15 second heartbeat for browsers that omit URL change events.
 - `anti_stimulants/`: `AutoDnd`, `GrayScaleFilter`, and `MindfulMessage`. Combine DND requests through `AppBlockerService.syncDndState()`.
 - `hardcoded/`: all per app view IDs and configuration. Do not inline these values in feature code.
-- `api/`: the exported AIDL service, user approval flow, and auth store. Keep responses consistent with flavor flags. See `CURBOX_API.md` and the `:apitester` client.
+- `api/`: the exported AIDL service, user approval flow, and auth store. Keep responses consistent with flavor flags. See `docs/api.md` and the `:apitester` client.
 
 User facing blocking screens go through `ui/activity/WarningActivity` with the appropriate `Constants.WARNING_SCREEN_MODE_*` value.
 
@@ -213,5 +213,5 @@ Use the check that matches the change. Documentation only changes do not need a 
 ## Reference docs
 
 - `CONTRIBUTING.md`: contributor workflows
-- `CURBOX_API.md`: API contract and integration guide
-- `Readme.md`: product overview
+- `docs/api.md`: API contract and integration guide
+- `README.md`: product overview

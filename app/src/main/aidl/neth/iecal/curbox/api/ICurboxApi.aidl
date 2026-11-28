@@ -1,5 +1,5 @@
 // Public Curbox API. Copy this file (keeping the package) to generate the client stub.
-// Integration guide: CURBOX_API.md.
+// Integration guide: docs/api.md.
 package neth.iecal.curbox.api;
 
 interface ICurboxApi {

@@ -29,7 +29,7 @@ object CurboxApiContract {
     const val STATUS_FAILED = "FAILED"
 }
 
-/** Actions a client can run through execute(). Each command's args are documented in CURBOX_API.md. */
+/** Actions a client can run through execute(). Each command's args are documented in docs/api.md. */
 enum class ApiCommand {
     START_FOCUS,
     STOP_FOCUS,
