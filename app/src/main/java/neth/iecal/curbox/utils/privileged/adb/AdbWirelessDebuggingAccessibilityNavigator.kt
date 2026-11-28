@@ -21,6 +21,13 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
     private const val MIN_STEP_INTERVAL_MS = 450L
     private const val MAX_SCROLLS = 40
+    private const val STALL_RESET_MS = 12_000L
+    private const val MAX_RECOVERIES = 6
+    private val DEVELOPER_OPTIONS_LABELS = listOf(
+        "developer options", "خيارات المطور", "خيارات المطوّر", "options pour les développeurs",
+        "opciones de desarrollador", "entwickleroptionen", "opções do desenvolvedor",
+        "для разработчиков", "geliştirici seçenekleri", "opzioni sviluppatore"
+    )
     private const val HINT_AFTER_MS = 12_000L
 
     private val armed = AtomicBoolean(false)
@@ -34,6 +41,9 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         fun toast(message: String)
         fun highlight(left: Int, top: Int, right: Int, bottom: Int)
         fun log(message: String)
+
+        /** Reopens Android's Developer options when the user wandered off. */
+        fun openDeveloperOptions(): Boolean = false
     }
 
     @Volatile
@@ -52,6 +62,39 @@ object AdbWirelessDebuggingAccessibilityNavigator {
     @Volatile private var reversed = false
     @Volatile private var subPageClicks = 0
     @Volatile private var lastSubClickAt = 0L
+    @Volatile private var screenClass = ""
+    @Volatile private var lastProgressAt = 0L
+    @Volatile private var recoveries = 0
+    @Volatile private var lastRecoveryAt = 0L
+    @Volatile private var pairClickedAt = 0L
+    private val codeRegex = Regex("^\\d{3}\\s?\\d{3}$")
+
+    /** Forget per-screen attempt limits so no screen is ever a dead end. */
+    private fun resetAttempts(reason: String) {
+        scrollCount = 0
+        stallCount = 0
+        lastSignature = 0
+        rowAttempts = 0
+        subPageClicks = 0
+        reversed = false
+        lastSubClickAt = 0L
+        note("attempts reset: $reason")
+    }
+
+    /**
+     * The screen the user is on now, decided fresh on every pass so out of
+     * order user actions (switching things on, opening other pages) are just
+     * another starting point.
+     */
+    private fun classify(root: UiNode): String {
+        val matcher = WirelessDebuggingNodeMatcher
+        if (matcher.findByLabels(root, matcher.pairByCodeLabels, matcher.PAIR_BY_CODE_KEY) != null) return "PAIR"
+        if (matcher.findAllowButton(root) != null) return "ALLOW"
+        if (matcher.allTexts(root).any { codeRegex.matches(it.trim()) }) return "CODE"
+        val wd = matcher.findByLabels(root, matcher.wirelessDebuggingLabels)
+        if (wd != null) return if (matcher.isDeveloperList(root)) "LIST_ROW" else "SUB"
+        return "OTHER"
+    }
 
     fun arm() {
         scrollCount = 0
@@ -67,7 +110,12 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         subPageClicks = 0
         lastSubClickAt = 0L
         lastStepAt = 0L
+        screenClass = ""
+        pairClickedAt = 0L
+        recoveries = 0
+        lastRecoveryAt = 0L
         armedAt = System.currentTimeMillis()
+        lastProgressAt = armedAt
         armed.set(true)
         note("armed")
     }
@@ -121,6 +169,15 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         }
     }
 
+    private fun recoverToDeveloperOptions(root: UiNode, now: Long) {
+        if (now - lastRecoveryAt < 6_000L || recoveries >= MAX_RECOVERIES) return
+        lastRecoveryAt = now
+        recoveries++
+        val ok = try { host?.openDeveloperOptions() == true } catch (_: Throwable) { false }
+        note("recovery #$recoveries: reopened Developer options ok=$ok")
+        resetAttempts("recovery")
+    }
+
     private fun logOnce(state: String) {
         if (state != lastLoggedState) {
             lastLoggedState = state
@@ -139,15 +196,37 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             )
         }
 
+        // Every pass starts by re-detecting the screen. A new screen or a
+        // long stall resets all attempt limits, so nothing stays stuck.
+        val cls = classify(root)
+        if (cls != screenClass) {
+            note("screen $screenClass -> $cls")
+            screenClass = cls
+            lastProgressAt = now
+            resetAttempts("screen changed")
+        } else if (now - lastProgressAt > STALL_RESET_MS) {
+            lastProgressAt = now
+            resetAttempts("no progress for ${STALL_RESET_MS / 1000}s")
+            if (cls == "OTHER" || cls == "PAIR") recoverToDeveloperOptions(root, now)
+        }
+
         // 1. Pair with pairing code: the goal of navigation.
         val pairNode = matcher.findByLabels(
             root,
             matcher.pairByCodeLabels,
             matcher.PAIR_BY_CODE_KEY
         )
-        if (pairNode != null && activate(pairNode, "pair-by-code")) {
-            // The extractor owns the code capture from here.
-            disarm()
+        if (cls == "CODE") {
+            // The pairing dialog with its code is open: the extractor reads it.
+            lastProgressAt = now
+            return false
+        }
+        if (pairNode != null && now - pairClickedAt > 6_000L &&
+            activate(pairNode, "pair-by-code")
+        ) {
+            // Stay armed until the code is delivered, so a dismissed dialog
+            // is simply opened again.
+            pairClickedAt = now
             return true
         }
 
@@ -170,8 +249,23 @@ object AdbWirelessDebuggingAccessibilityNavigator {
             if (enableOnSubPage(root, now)) return true
         }
 
-        // 4. Not visible yet: scroll the list.
-        return scrollStep(root, now)
+        // 4. Wrong page (Settings home, System, About...): go to Developer options.
+        val devEntry = matcher.findByLabels(root, DEVELOPER_OPTIONS_LABELS)
+        if (devEntry != null && !matcher.isDeveloperList(root)) {
+            val own = matcher.normalize(devEntry.text)
+            if (DEVELOPER_OPTIONS_LABELS.any { matcher.normalize(it) == own } &&
+                activate(devEntry, "developer-options-entry")
+            ) {
+                return true
+            }
+        }
+
+        // 5. Not visible yet: scroll the list.
+        val scrolled = scrollStep(root, now)
+        if (!scrolled && (scrollCount >= MAX_SCROLLS || stallCount >= 3)) {
+            recoverToDeveloperOptions(root, now)
+        }
+        return scrolled
     }
 
     @Volatile private var rowAttempts = 0

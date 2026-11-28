@@ -328,6 +328,18 @@ class AppBlockerService : BaseBlockingService() {
                 }
             }
 
+            override fun openDeveloperOptions(): Boolean =
+                try {
+                    startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    true
+                } catch (_: Throwable) {
+                    false
+                }
+
             override fun toast(
                 message: String
             ) {
@@ -533,6 +545,7 @@ class AppBlockerService : BaseBlockingService() {
 
         AdbPairingAccessibilityExtractor.onCodeDelivered = {
             navigatorHost.log("pairing code delivered")
+            AdbWirelessDebuggingAccessibilityNavigator.disarm()
         }
 
         AdbWirelessDebuggingAccessibilityNavigator

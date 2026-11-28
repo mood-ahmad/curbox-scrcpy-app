@@ -112,6 +112,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
                         android:layout_marginEnd="12dp"
                         android:text="@string/curbox_extension_repo"
                         style="@style/TextAppearance.Material3.BodyMedium"
@@ -362,8 +363,8 @@
                 android:layout_height="match_parent"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
-                android:paddingHorizontal="24dp"
-                android:paddingVertical="12dp">
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="8dp">
 
                 <ImageView
                     android:id="@+id/image_creator"
@@ -385,6 +386,13 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/credit_powered_by"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:includeFontPadding="true"
+                        android:paddingVertical="2dp"
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="14sp"
+                        android:autoSizeMaxTextSize="22sp"
                         style="@style/TextAppearance.Material3.TitleLarge" />
 
                     <TextView
@@ -392,6 +400,11 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="9sp"
+                        android:autoSizeMaxTextSize="14sp"
                         android:text="@string/credit_email"
                         android:textColor="?attr/colorPrimary"
                         style="@style/TextAppearance.Material3.BodyMedium" />

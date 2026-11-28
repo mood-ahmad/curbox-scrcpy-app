@@ -101,9 +101,9 @@ class InfoFragment : Fragment() {
     private fun setupCreatorHeader() {
         val density = resources.displayMetrics.density
         val maxCard = 176f * density
-        val minCard = 64f * density
+        val minCard = 72f * density
         val maxPhoto = 120f * density
-        val minPhoto = 40f * density
+        val minPhoto = 48f * density
         val range = maxCard - minCard
 
         val card = binding.cardCredit
