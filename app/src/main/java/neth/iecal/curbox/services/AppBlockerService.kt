@@ -669,7 +669,7 @@ class AppBlockerService : BaseBlockingService() {
                 )
             }
             val n = androidx.core.app.NotificationCompat.Builder(this, "horus_return")
-                .setSmallIcon(R.drawable.icon)
+                .setSmallIcon(neth.iecal.curbox.R.drawable.icon)
                 .setContentTitle("Horus is ready")
                 .setContentText("Tap to return to Horus")
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)

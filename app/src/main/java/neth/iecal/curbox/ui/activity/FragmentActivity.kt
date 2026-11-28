@@ -721,7 +721,7 @@ class FragmentActivity : AppCompatActivity() {
             if (isScroller && !insideScroller) {
                 val tag = v.getTag(R.id.main) as? Int ?: 0
                 val base = v.paddingBottom - tag
-                v.clipToPadding = false
+                (v as? android.view.ViewGroup)?.clipToPadding = false
                 v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, base + navClearancePx)
                 v.setTag(R.id.main, navClearancePx)
                 return
