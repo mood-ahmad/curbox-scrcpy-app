@@ -140,6 +140,12 @@ class InfoFragment : Fragment() {
                 photo.layoutParams = lp
             }
             photo.invalidateOutline()
+
+            // The email line fades out before the bar gets too short for it,
+            // so the name line always fits whole and centred.
+            val fade = (1f - t * 2.2f).coerceIn(0f, 1f)
+            binding.textCreditEmail.alpha = fade
+            binding.textCreditEmail.visibility = if (fade <= 0f) View.GONE else View.VISIBLE
         }
 
         binding.scrollInfo.setOnScrollChangeListener(

@@ -1,5 +1,6 @@
 package neth.iecal.curbox.services
 
+import neth.iecal.curbox.utils.privileged.adb.WirelessDebuggingNodeMatcher
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.provider.Settings
@@ -701,6 +702,44 @@ class AppBlockerService : BaseBlockingService() {
 
         if (event.packageName?.toString() == "com.android.settings") {
             maybeStartBatteryTick()
+        }
+
+        try {
+            if (neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.pending(this) &&
+                event.className?.toString()?.contains("DeviceAdminAdd") == true
+            ) {
+                val r = rootInActiveWindow
+                if (r != null) {
+                    val node = neth.iecal.curbox.utils.privileged.adb.AdbWirelessDebuggingAccessibilityNavigator
+                        .AccessibilityUiNode(r)
+                    val target = WirelessDebuggingNodeMatcher.findByLabels(
+                        node,
+                        neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.activateLabels
+                    )
+                    if (target != null && (target.click() ||
+                            WirelessDebuggingNodeMatcher.clickableAncestor(target)?.click() == true)
+                    ) {
+                        neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.finish(this)
+                        navigatorHost.log("tamper: tapped Activate on device admin screen")
+                        navigatorHandler.postDelayed({
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                if (neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(this@AppBlockerService)) {
+                                    dataStoreManager.updateAntiUninstallConfig {
+                                        it.copy(
+                                            isEnabled = true,
+                                            mode = neth.iecal.curbox.data.models.AntiUninstallMode.REMOTE,
+                                            unlockRequestedAtMs = 0L
+                                        )
+                                    }
+                                    navigatorHost.log("tamper: protection enabled after Activate")
+                                }
+                            }
+                            scheduleReturnToCurbox(500L)
+                        }, 1500L)
+                    }
+                }
+            }
+        } catch (_: Throwable) {
         }
 
         super.onAccessibilityEvent(

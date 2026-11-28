@@ -261,6 +261,22 @@ object PersistentPrivilegesManager {
             try {
                 val active =
                     neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(appContext)
+                if (!active) {
+                    // Shell refused: open the system screen; the accessibility
+                    // service taps Activate and the service finishes the setup.
+                    try {
+                        neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.request(appContext)
+                        appContext.startActivity(
+                            android.content.Intent(
+                                android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN
+                            ).putExtra(
+                                android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN,
+                                neth.iecal.curbox.utils.AntiUninstallManager.adminComponent(appContext)
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (_: Throwable) {
+                    }
+                }
                 if (active) {
                     store.updateAntiUninstallConfig {
                         it.copy(

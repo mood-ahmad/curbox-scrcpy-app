@@ -65,7 +65,7 @@
         <Space
             android:id="@+id/spacer_creator"
             android:layout_width="match_parent"
-            android:layout_height="192dp" />
+            android:layout_height="208dp" />
 
 <com.google.android.material.card.MaterialCardView
             style="?attr/materialCardViewOutlinedStyle"
