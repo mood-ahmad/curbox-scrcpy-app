@@ -187,8 +187,5 @@
             android:text="@string/add_a_reducer"
             app:icon="@drawable/baseline_add_24" />
 
-        <Space
-            android:layout_width="1dp"
-            android:layout_height="300dp"/>
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

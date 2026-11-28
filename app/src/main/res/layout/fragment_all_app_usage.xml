@@ -159,9 +159,6 @@
                     android:paddingBottom="16dp"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
 
-                <Space
-                    android:layout_width="1dp"
-                    android:layout_height="120dp" />
             </LinearLayout>
         </FrameLayout>
     </androidx.core.widget.NestedScrollView>

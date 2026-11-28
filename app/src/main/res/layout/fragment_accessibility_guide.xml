@@ -14,7 +14,7 @@
         android:overScrollMode="never"
         android:paddingHorizontal="24dp"
         android:paddingTop="24dp"
-        android:paddingBottom="100dp"
+        android:paddingBottom="0dp"
         android:scrollbars="none"
         app:layout_constraintTop_toTopOf="parent">
 
