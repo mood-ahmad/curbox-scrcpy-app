@@ -94,6 +94,12 @@ class DirectAccessFragment : Fragment() {
             savedInstanceState
         )
 
+        neth.iecal.curbox.ui.utils.LargeHeader.install(
+            view,
+            getString(neth.iecal.curbox.R.string.direct_access_tab),
+            view.findViewById(neth.iecal.curbox.R.id.title)
+        )
+
         orchestrator =
             DirectAccessOrchestrator(
                 requireContext()
@@ -159,6 +165,18 @@ class DirectAccessFragment : Fragment() {
         renderStatus()
 
         if (
+            !operationInProgress &&
+            neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest
+                .consumeEnabled(requireContext())
+        ) {
+            startAutomaticPairing(
+                openSettingsAfterReady =
+                    true
+            )
+            return
+        }
+
+        if (
             waitingForAccessibilityReturn &&
             isCurBoxAccessibilityEnabled() &&
             !operationInProgress
@@ -174,6 +192,7 @@ class DirectAccessFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(context, "fragment onDestroyView (cancels orchestrator)")
         waitingForAccessibilityReturn =
             false
 
@@ -200,6 +219,10 @@ class DirectAccessFragment : Fragment() {
     private fun startAutomaticPairing(
         openSettingsAfterReady: Boolean
     ) {
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(
+            context,
+            "fragment startAutomaticPairing openSettings=$openSettingsAfterReady inProgress=$operationInProgress"
+        )
         if (operationInProgress) {
             return
         }
@@ -248,6 +271,10 @@ class DirectAccessFragment : Fragment() {
                 },
 
                 onWirelessRequired = {
+                    neth.iecal.curbox.utils.privileged.adb.NavLog.log(
+                        context,
+                        "fragment: Wireless debugging required, accessibility=${isCurBoxAccessibilityEnabled()}"
+                    )
                     openSettingsWhenAccessibilityReady =
                         false
 
@@ -266,15 +293,25 @@ class DirectAccessFragment : Fragment() {
                         .text =
                         "Start automatic pairing"
 
-                    binding
-                        .operationStatus
-                        .text =
-                        "Wireless Debugging must be enabled. Enable it in Developer Options, then return to CurBox and start automatic pairing again."
-
                     renderStatus()
 
-                    if (openSettingsAfterReady) {
+                    if (isCurBoxAccessibilityEnabled()) {
+                        // Switch it on for the user, then come back and resume.
+                        binding
+                            .operationStatus
+                            .text =
+                            "Turning on Wireless Debugging for you…"
+                        neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest
+                            .request(requireContext())
                         openDeveloperOptions()
+                    } else {
+                        binding
+                            .operationStatus
+                            .text =
+                            "Wireless Debugging must be enabled. Enable it in Developer Options, then return to Horus and start automatic pairing again."
+                        if (openSettingsAfterReady) {
+                            openDeveloperOptions()
+                        }
                     }
                 },
 
@@ -326,7 +363,7 @@ class DirectAccessFragment : Fragment() {
         binding
             .operationStatus
             .text =
-            "CurBox is already paired. Retrying the Direct ADB connection…"
+            "Horus is already paired. Retrying the Direct ADB connection…"
 
         currentOrchestrator.ensureConnected(
             createListener(
@@ -539,7 +576,7 @@ class DirectAccessFragment : Fragment() {
         binding
             .operationStatus
             .text =
-            "Direct ADB connected. Applying CurBox privileges…"
+            "Direct ADB connected. Applying Horus privileges…"
 
         PersistentPrivilegesManager.apply(
             context =
@@ -579,7 +616,7 @@ class DirectAccessFragment : Fragment() {
                                     .text =
                                     buildString {
                                         append(
-                                            "Direct ADB connected, but CurBox could not apply persistent privileges."
+                                            "Direct ADB connected, but Horus could not apply persistent privileges."
                                         )
 
                                         result.error
@@ -808,7 +845,7 @@ class DirectAccessFragment : Fragment() {
             .text =
             buildString {
                 append(
-                    "CurBox paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again."
+                    "Horus paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again."
                 )
 
                 cause
@@ -864,7 +901,7 @@ class DirectAccessFragment : Fragment() {
             binding
                 .operationStatus
                 .text =
-                "Enable CurBox Accessibility. When you return to CurBox, automatic pairing will continue."
+                "Enable Horus Accessibility. When you return to Horus, automatic pairing will continue."
 
             openAccessibilitySettings()
 
@@ -966,16 +1003,16 @@ class DirectAccessFragment : Fragment() {
                     "Pairing information captured. Waiting for the pairing service…"
 
                 DirectAccessOrchestrator.State.PAIRING ->
-                    "Pairing CurBox automatically…"
+                    "Pairing Horus automatically…"
 
                 DirectAccessOrchestrator.State.PAIRED ->
-                    "CurBox is paired. Preparing the Direct ADB connection…"
+                    "Horus is paired. Preparing the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.DISCOVERING_CONNECTION ->
-                    "CurBox is paired. Looking for the Direct ADB connection…"
+                    "Horus is paired. Looking for the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.CONNECTING ->
-                    "CurBox is paired. Connecting to Direct ADB…"
+                    "Horus is paired. Connecting to Direct ADB…"
 
                 DirectAccessOrchestrator.State.CONNECTED ->
                     "Direct ADB connected."
@@ -1088,6 +1125,10 @@ class DirectAccessFragment : Fragment() {
                     appContext
                 )
 
+        // Re-pairing is only needed while not connected.
+        binding.autoSetupCard.visibility =
+            if (connected) android.view.View.GONE else android.view.View.VISIBLE
+
         binding
             .directAccessStatus
             .text =
@@ -1186,6 +1227,16 @@ class DirectAccessFragment : Fragment() {
     }
 
     private fun openAccessibilitySettings() {
+        // Ask the service to bring Horus back once it is granted (step 2).
+        neth.iecal.curbox.utils.privileged.adb.AccessibilityReturnRequest.request(requireContext())
+        try {
+            PermissionUtils.openAccessibilityServiceScreen(
+                requireContext(),
+                AppBlockerService::class.java
+            )
+            return
+        } catch (_: Throwable) {
+        }
         try {
             startActivity(
                 Intent(
@@ -1204,21 +1255,7 @@ class DirectAccessFragment : Fragment() {
     }
 
     private fun openDeveloperOptions() {
-        try {
-            startActivity(
-                Intent(
-                    Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS
-                )
-            )
-        } catch (
-            _: ActivityNotFoundException
-        ) {
-            startActivity(
-                Intent(
-                    Settings.ACTION_SETTINGS
-                )
-            )
-        }
+        neth.iecal.curbox.utils.privileged.adb.SettingsLauncher.openBest(requireContext())
     }
 
     private fun postToUi(

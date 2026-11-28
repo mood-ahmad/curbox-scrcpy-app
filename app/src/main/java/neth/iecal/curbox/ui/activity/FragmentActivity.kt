@@ -109,12 +109,28 @@ class FragmentActivity : AppCompatActivity() {
         maybeShowTermsConsent()
         maybeShowWhatsNew()
 
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fm: androidx.fragment.app.FragmentManager,
+                    f: androidx.fragment.app.Fragment,
+                    v: android.view.View,
+                    savedInstanceState: Bundle?
+                ) {
+                    v.post { applyNavClearance(v) }
+                }
+            },
+            true
+        )
+
         val bottomNav =
             findViewById<
                 com.google.android.material.bottomnavigation.BottomNavigationView
                 >(
                 R.id.bottom_nav
             )
+
+        setupNavGlass()
 
         ViewCompat.setOnApplyWindowInsetsListener(
             findViewById(
@@ -149,6 +165,38 @@ class FragmentActivity : AppCompatActivity() {
                 bottomPadding
             )
 
+            // Floating bottom bar: lift it above the system bar and keep
+            // page content clear of it.
+            val density =
+                resources.displayMetrics.density
+
+            (bottomNav.layoutParams as? android.view.ViewGroup.MarginLayoutParams)
+                ?.let { lp ->
+                    lp.bottomMargin =
+                        (12 * density).toInt() +
+                        systemBars.bottom
+                    bottomNav.layoutParams = lp
+                }
+
+            // Content runs full height, under the floating bar: the bar's own
+            // rounded shape is its only edge. Scrollers get bottom padding
+            // (clipToPadding=false) so the last item scrolls fully clear.
+            lastSystemBottom = systemBars.bottom
+
+            findViewById<android.view.View>(
+                R.id.fragment_holder
+            )?.let { holder ->
+                (holder.layoutParams as? android.view.ViewGroup.MarginLayoutParams)
+                    ?.let { lp ->
+                        lp.bottomMargin = 0
+                        holder.layoutParams = lp
+                    }
+            }
+
+            supportFragmentManager.fragments.forEach { f ->
+                f.view?.let { applyNavClearance(it) }
+            }
+
             insets
         }
 
@@ -178,6 +226,8 @@ class FragmentActivity : AppCompatActivity() {
 
                 // Hide bottom nav for these standalone fragments.
                 bottomNav.visibility =
+                    android.view.View.GONE
+                findViewById<android.view.View>(R.id.nav_blur)?.visibility =
                     android.view.View.GONE
 
                 val fragment =
@@ -265,6 +315,8 @@ class FragmentActivity : AppCompatActivity() {
                 // Show bottom nav for main fragments.
                 bottomNav.visibility =
                     android.view.View.VISIBLE
+                findViewById<android.view.View>(R.id.nav_blur)?.visibility =
+                    android.view.View.VISIBLE
 
                 if (
                     !neth.iecal.curbox.BuildConfig
@@ -282,7 +334,7 @@ class FragmentActivity : AppCompatActivity() {
                                 )
 
                             setIcon(
-                                R.drawable.baseline_settings_24
+                                R.drawable.ic_nav_settings
                             )
                         }
                 }
@@ -319,6 +371,26 @@ class FragmentActivity : AppCompatActivity() {
                     switchTab(
                         item.itemId
                     )
+
+                    // Small pop on the selected tab, like a tap response.
+                    bottomNav
+                        .findViewById<android.view.View>(
+                            item.itemId
+                        )
+                        ?.let { tab ->
+                            tab.animate()
+                                .scaleX(1.15f)
+                                .scaleY(1.15f)
+                                .setDuration(110L)
+                                .withEndAction {
+                                    tab.animate()
+                                        .scaleX(1f)
+                                        .scaleY(1f)
+                                        .setDuration(160L)
+                                        .start()
+                                }
+                                .start()
+                        }
 
                     true
                 }
@@ -627,5 +699,64 @@ class FragmentActivity : AppCompatActivity() {
                 itemId
             )
         }
+    }
+
+    private var lastSystemBottom = 0
+
+    /**
+     * Real backdrop blur behind the floating nav pill on Android 12+ (API 31).
+     * Older devices, or any failure, keep the translucent glass fill, which is
+     * more opaque there so it stays readable without blur.
+     */
+    private fun setupNavGlass() {
+        if (android.os.Build.VERSION.SDK_INT < 31) return
+        try {
+            val blur = findViewById<eightbitlab.com.blurview.BlurView>(R.id.nav_blur) ?: return
+            val target = findViewById<eightbitlab.com.blurview.BlurTarget>(R.id.blur_target) ?: return
+            val tv = android.util.TypedValue()
+            theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)
+            blur.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND)
+            blur.clipToOutline = true
+            blur.setupWith(target)
+                .setFrameClearDrawable(android.graphics.drawable.ColorDrawable(tv.data))
+                .setBlurRadius(24f)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private val navClearancePx: Int
+        get() {
+            val nav = findViewById<android.view.View>(R.id.bottom_nav)
+            return if (nav != null && nav.visibility == android.view.View.VISIBLE) {
+                (92 * resources.displayMetrics.density).toInt() + lastSystemBottom
+            } else {
+                0
+            }
+        }
+
+    /**
+     * Gives each top-level vertical scroller bottom padding equal to the
+     * floating bar clearance, without clipping to it.
+     */
+    private fun applyNavClearance(root: android.view.View) {
+        fun visit(v: android.view.View, insideScroller: Boolean) {
+            val isScroller =
+                (v is androidx.core.widget.NestedScrollView) ||
+                    (v is android.widget.ScrollView) ||
+                    (v is androidx.recyclerview.widget.RecyclerView) ||
+                    (v is android.widget.ListView)
+            if (isScroller && !insideScroller) {
+                val tag = v.getTag(R.id.main) as? Int ?: 0
+                val base = v.paddingBottom - tag
+                (v as? android.view.ViewGroup)?.clipToPadding = false
+                v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, base + navClearancePx)
+                v.setTag(R.id.main, navClearancePx)
+                return
+            }
+            if (v is android.view.ViewGroup) {
+                for (i in 0 until v.childCount) visit(v.getChildAt(i), insideScroller || isScroller)
+            }
+        }
+        visit(root, false)
     }
 }

@@ -139,7 +139,7 @@ class AdbAutoPairingCoordinator(
         ) {
             listener.onError(
                 IllegalStateException(
-                    "CurBox Accessibility service must be enabled before automatic pairing."
+                    "Horus Accessibility service must be enabled before automatic pairing."
                 )
             )
 
@@ -320,6 +320,7 @@ class AdbAutoPairingCoordinator(
     }
 
     fun stop() {
+        NavLog.log(appContext, "coordinator stop() by " + NavLog.caller())
         cancelAccessibilityAckTimeout()
 
         val sessionId:
@@ -463,7 +464,7 @@ class AdbAutoPairingCoordinator(
 
                 fail(
                     IllegalStateException(
-                        "CurBox Accessibility service did not become ready for automatic pairing."
+                        "Horus Accessibility service did not become ready for automatic pairing."
                     )
                 )
             }
@@ -598,7 +599,7 @@ class AdbAutoPairingCoordinator(
                 info.code
 
             accessibilityPort =
-                info.port
+                info.port ?: accessibilityPort
         }
 
         tryStartPairing(

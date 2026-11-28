@@ -34,7 +34,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center"
-            android:text="Choose Direct ADB or Shizuku to prepare the privileged access CurBox needs."
+            android:text="Choose Direct ADB or Shizuku to prepare the privileged access Horus needs."
             android:textColor="?attr/colorOnSurfaceVariant" />
  
         <com.google.android.material.card.MaterialCardView
@@ -42,7 +42,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="28dp"
             style="?attr/materialCardViewOutlinedStyle"
-            app:cardCornerRadius="24dp"
+            app:cardCornerRadius="28dp"
             app:strokeColor="?attr/colorOutlineVariant">
  
             <LinearLayout
@@ -64,7 +64,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="CurBox can pair with Android Wireless Debugging, capture the temporary pairing code, and establish a persistent Direct ADB identity."
+                    android:text="Horus can pair with Android Wireless Debugging, capture the temporary pairing code, and establish a persistent Direct ADB identity."
                     android:textColor="?attr/colorOnSurfaceVariant" />
  
                 <TextView
@@ -133,7 +133,7 @@
             android:layout_marginTop="20dp"
             android:visibility="gone"
             style="?attr/materialCardViewOutlinedStyle"
-            app:cardCornerRadius="24dp"
+            app:cardCornerRadius="28dp"
             app:strokeColor="?attr/colorOutlineVariant">
  
             <LinearLayout
@@ -155,7 +155,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="If Shizuku is already running, CurBox can use it instead of Direct ADB."
+                    android:text="If Shizuku is already running, Horus can use it instead of Direct ADB."
                     android:textColor="?attr/colorOnSurfaceVariant" />
  
                 <TextView

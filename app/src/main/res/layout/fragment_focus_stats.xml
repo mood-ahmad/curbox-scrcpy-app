@@ -63,7 +63,7 @@
                     android:layout_marginEnd="4dp"
                     android:layout_weight="1"
                     app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="28dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
 
@@ -98,7 +98,7 @@
                     android:layout_marginHorizontal="4dp"
                     android:layout_weight="1"
                     app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="28dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
 
@@ -138,7 +138,7 @@
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="28dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
 
@@ -179,7 +179,7 @@
                     android:layout_marginEnd="4dp"
                     android:layout_weight="1"
                     app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="28dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
 
@@ -219,7 +219,7 @@
                     android:layout_marginStart="4dp"
                     android:layout_weight="1"
                     app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="14dp"
+                    app:cardCornerRadius="28dp"
                     app:cardElevation="0dp"
                     app:strokeWidth="0dp">
 
@@ -254,7 +254,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="14dp"
+                app:cardCornerRadius="28dp"
                 app:cardElevation="0dp"
                 app:strokeWidth="0dp">
 
@@ -279,7 +279,7 @@
                 android:layout_marginTop="8dp"
                 android:visibility="gone"
                 app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                app:cardCornerRadius="14dp"
+                app:cardCornerRadius="28dp"
                 app:cardElevation="0dp"
                 app:strokeWidth="0dp">
 

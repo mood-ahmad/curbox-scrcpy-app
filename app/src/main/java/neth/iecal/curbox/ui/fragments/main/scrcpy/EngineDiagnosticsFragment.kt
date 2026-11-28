@@ -929,7 +929,7 @@ class EngineDiagnosticsFragment : Fragment() {
 
         clipboard.setPrimaryClip(
             ClipData.newPlainText(
-                "CurBox Engine Diagnostics",
+                "Horus Engine Diagnostics",
                 b.outputText.text
             )
         )

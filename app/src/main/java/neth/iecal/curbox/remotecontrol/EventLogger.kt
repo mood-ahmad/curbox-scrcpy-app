@@ -30,7 +30,13 @@ object EventLogger {
         "events"
 
     private const val MAX_EVENTS =
-        200
+        500
+
+    private const val MAX_PROCESS_LOG_BYTES =
+        160 * 1024L
+
+    private const val MAX_MERGED_EVENTS =
+        1000
 
     private const val EMAIL_LOG_FILE =
         "email.log"
@@ -94,8 +100,8 @@ object EventLogger {
         message: String
     ) {
         synchronized(lock) {
-            val p =
-                prefs ?: return
+            val ctx =
+                appContext ?: return
 
             val timestamp =
                 dateFormat.format(
@@ -118,41 +124,17 @@ object EventLogger {
             val event =
                 "[$timestamp] $safeType - $safeMessage"
 
-            val existing =
-                p.getString(
-                    KEY_EVENTS,
-                    ""
-                ) ?: ""
-
-            val lines =
-                existing
-                    .lineSequence()
-                    .filter {
-                        it.isNotBlank()
-                    }
-                    .toMutableList()
-
-            lines.add(
-                event
-            )
-
-            while (
-                lines.size >
-                MAX_EVENTS
-            ) {
-                lines.removeAt(
-                    0
-                )
+            // Each process appends to its own file: SharedPreferences are
+            // cached per process and would overwrite each other's lines.
+            try {
+                val f = File(ctx.filesDir, "events_" + procTag + ".log")
+                f.appendText(event + "\n")
+                if (f.length() > MAX_PROCESS_LOG_BYTES) {
+                    val keep = f.readLines().takeLast(MAX_EVENTS)
+                    f.writeText(keep.joinToString("\n") + "\n")
+                }
+            } catch (_: Throwable) {
             }
-
-            p.edit()
-                .putString(
-                    KEY_EVENTS,
-                    lines.joinToString(
-                        "\n"
-                    )
-                )
-                .apply()
 
             Log.d(
                 TAG,
@@ -360,9 +342,6 @@ object EventLogger {
         limit: Int = 20
     ): List<String> {
         synchronized(lock) {
-            val p =
-                prefs ?: return emptyList()
-
             val safeLimit =
                 limit.coerceAtLeast(
                     0
@@ -372,18 +351,7 @@ object EventLogger {
                 return emptyList()
             }
 
-            val existing =
-                p.getString(
-                    KEY_EVENTS,
-                    ""
-                ) ?: ""
-
-            return existing
-                .lineSequence()
-                .filter {
-                    it.isNotBlank()
-                }
-                .toList()
+            return mergedLines()
                 .takeLast(
                     safeLimit
                 )
@@ -392,17 +360,12 @@ object EventLogger {
     }
 
     /**
-     * Returns all stored general events in chronological order.
+     * Returns all stored general events in chronological order, merged
+     * across the app's processes.
      */
     fun getAll(): String {
         synchronized(lock) {
-            val p =
-                prefs ?: return ""
-
-            return p.getString(
-                KEY_EVENTS,
-                ""
-            ) ?: ""
+            return mergedLines().joinToString("\n")
         }
     }
 
@@ -420,8 +383,48 @@ object EventLogger {
                 )
                 ?.apply()
 
+            try {
+                appContext?.filesDir?.listFiles()?.forEach {
+                    if (it.name.startsWith("events_") && it.name.endsWith(".log")) {
+                        it.delete()
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+
             Unit
         }
+    }
+
+    private fun mergedLines(): List<String> {
+        val ctx = appContext ?: return emptyList()
+        val all = ArrayList<String>()
+        try {
+            ctx.filesDir.listFiles()?.forEach {
+                if (it.name.startsWith("events_") && it.name.endsWith(".log")) {
+                    all.addAll(it.readLines().filter { l -> l.isNotBlank() })
+                }
+            }
+        } catch (_: Throwable) {
+        }
+        all.sort()
+        return all.takeLast(MAX_MERGED_EVENTS)
+    }
+
+    private val procTag: String by lazy { processTag() }
+
+    private fun processTag(): String {
+        val name = try {
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                android.app.Application.getProcessName()
+            } else {
+                File("/proc/self/cmdline").readText().trim { it <= ' ' || it == '\u0000' }
+            }
+        } catch (_: Throwable) {
+            null
+        } ?: "p" + android.os.Process.myPid()
+        val suffix = name.substringAfter(':', "main")
+        return suffix.replace(Regex("[^A-Za-z0-9_]"), "_")
     }
 
     /**

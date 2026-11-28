@@ -24,7 +24,9 @@ object AdbPairingAccessibilityExtractor {
 
     private val allowedSettingsPackages =
         setOf(
-            "com.android.settings"
+            "com.android.settings",
+            "com.samsung.android.settings",
+            "com.google.android.settings"
         )
 
     /**
@@ -122,6 +124,33 @@ object AdbPairingAccessibilityExtractor {
                 ?.toString()
                 ?: return
 
+        // Notification path: the system posts the pairing code as a
+        // notification (from the system or Settings package). The code is
+        // read from the notification text; the port comes from discovery.
+        if (
+            event.eventType ==
+            AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED &&
+            (packageName in allowedSettingsPackages || packageName == "android")
+        ) {
+            val joined =
+                event.text.joinToString(" ") { it?.toString().orEmpty() }
+            val normalized = WirelessDebuggingNodeMatcher.normalizeDigits(joined)
+            val m = Regex("(?<!\\d)(\\d{3})\\s?(\\d{3})(?!\\d)").find(normalized)
+            if (m != null) {
+                deliver(
+                    context = context.applicationContext,
+                    sessionId = sessionId,
+                    info =
+                        PairingInfo(
+                            code = m.groupValues[1] + m.groupValues[2],
+                            port = null,
+                            rawAddress = null
+                        )
+                )
+            }
+            return
+        }
+
         if (
             packageName !in
             allowedSettingsPackages
@@ -170,11 +199,13 @@ object AdbPairingAccessibilityExtractor {
                 root,
             depth =
                 0
-        ) { text ->
+        ) { rawText ->
 
             if (!armed.get()) {
                 return@walk true
             }
+
+            val text = WirelessDebuggingNodeMatcher.normalizeDigits(rawText)
 
             if (code == null) {
                 val candidate =
@@ -317,7 +348,16 @@ object AdbPairingAccessibilityExtractor {
             info =
                 info
         )
+
+        try {
+            onCodeDelivered?.invoke()
+        } catch (_: Throwable) {
+        }
     }
+
+    /** Called after a pairing code has been forwarded to the main process. */
+    @Volatile
+    var onCodeDelivered: (() -> Unit)? = null
 
     /**
      * Clears duplicate tracking without changing capture state.

@@ -8,7 +8,7 @@
     <string name="minutes">minuti</string>
     <string name="app_icon">app_icon</string>
 
-    <string name="admin_permission_desc">Protezione anti-disinstallazione di Curbox</string>
+    <string name="admin_permission_desc">Protezione anti-disinstallazione di Horus</string>
     <string name="close">Chiudi</string>
     <string name="proceed">Continua</string>
     <string name="cancel">Annulla</string>
@@ -33,7 +33,7 @@
     <string name="focus_top_tags">Tag principali</string>
     <string name="quick_setup_guide">Guida rapida alla configurazione</string>
     <string name="curbox_needs_accessibility_permissions_to_help">
-        Curbox necessita dei permessi di accessibilità per aiutarti a monitorare il tempo trascorso sullo schermo. Il processo di configurazione varia in base a come hai installato l\'app.
+        Horus necessita dei permessi di accessibilità per aiutarti a monitorare il tempo trascorso sullo schermo. Il processo di configurazione varia in base a come hai installato l\'app.
     </string>
     <string name="fdroid_installation">Installazione F-Droid</string>
     <string name="installed_via_fdroid_appnyoure_all_set">
@@ -41,7 +41,7 @@
     </string>
     <string name="apk_installation">Installazione APK</string>
     <string name="if_you_installed_from_an_apk">
-        Se hai installato l\'app tramite APK, segui questi passaggi:\n\n1️⃣ Apri Impostazioni → App → Curbox\n\n2️⃣ Tocca Permessi → Accesso speciale app → Accessibilità → Abilita Curbox\n\n3️⃣ Torna alle informazioni dell\'app Curbox → Scorri verso il basso → Tocca Impostazioni limitate → Consenti\n\n💡 Consiglio: installa tramite l\'app F-Droid per una configurazione più semplice! 🚀
+        Se hai installato l\'app tramite APK, segui questi passaggi:\n\n1️⃣ Apri Impostazioni → App → Horus\n\n2️⃣ Tocca Permessi → Accesso speciale app → Accessibilità → Abilita Horus\n\n3️⃣ Torna alle informazioni dell\'app Horus → Scorri verso il basso → Tocca Impostazioni limitate → Consenti\n\n💡 Consiglio: installa tramite l\'app F-Droid per una configurazione più semplice! 🚀
     </string>
     <string name="usage_timeline">Cronologia utilizzo</string>
     <string name="screentime">Tempo di utilizzo</string>
@@ -88,7 +88,7 @@
     <string name="reduce_visual_stimulation">Riduci la stimolazione visiva</string>
     <string name="fuel_the_developer">Offri un caffè allo sviluppatore ☕</string>
     <string name="hello_this_is_nethical_the_creator">
-        Ciao, sono Nethical, il creatore di Curbox. Ho 17 anni e frequento il liceo, con una grande passione per la tecnologia e i computer. Qualche anno fa non riuscivo a trovare una soluzione gratuita per bloccare le app che soddisfacesse davvero le mie esigenze, quindi ho deciso di crearne una io stesso. Se trovi Curbox utile, considera anche una piccola donazione per supportarne lo sviluppo continuo. Grazie!
+        Ciao, sono Nethical, il creatore di Horus. Ho 17 anni e frequento il liceo, con una grande passione per la tecnologia e i computer. Qualche anno fa non riuscivo a trovare una soluzione gratuita per bloccare le app che soddisfacesse davvero le mie esigenze, quindi ho deciso di crearne una io stesso. Se trovi Horus utile, considera anche una piccola donazione per supportarne lo sviluppo continuo. Grazie!
     </string>
     <string name="support_the_project">Supporta il progetto ↗</string>
     <string name="join_the_focus_pack">Unisciti al Focus Pack 🐾</string>
@@ -98,7 +98,7 @@
     <string name="join_the_discord">Unisciti a Discord</string>
     <string name="system_diagnostics">Diagnostica di sistema</string>
     <string name="view_and_share_application_crash_logs">
-        Visualizza e condividi i log di crash dell\'applicazione per aiutare a migliorare Curbox.
+        Visualizza e condividi i log di crash dell\'applicazione per aiutare a migliorare Horus.
     </string>
     <string name="view_crash_logs">Visualizza log di crash</string>
 

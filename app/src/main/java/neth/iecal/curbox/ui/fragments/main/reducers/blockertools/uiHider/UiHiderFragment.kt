@@ -55,7 +55,7 @@ class UiHiderFragment : Fragment() {
         binding.btnStartNodePicker.setOnClickListener { startNodePicker() }
 
         binding.btnHelp.setOnClickListener {
-            ViewUtils.showHelpPopup(it, "Hide specific UI elements within apps using custom scripts.", "https://curbox.app/docs/reducers/hide-ui-elements/")
+            ViewUtils.showHelpPopup(it, "Hide specific UI elements within apps using custom scripts.", "https://github.com/mood-ahmad/curbox-scrcpy-app#readme")
         }
 
         viewLifecycleOwner.lifecycleScope.launch {

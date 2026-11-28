@@ -77,21 +77,22 @@ class AntiUninstallBlocker : BaseBlocker() {
             return
         }
 
-        val appNameMatch = service.rootInActiveWindow.findAccessibilityNodeInfosByText(service.getString(R.string.app_name))
-        if(appNameMatch!=null){
+        // The active window can be null while Settings transitions: skip the
+        // text checks then and still run the click check below.
+        val activeRoot = service.rootInActiveWindow
+        if (activeRoot != null) {
             //Device admin check
-            val admMatch = service.rootInActiveWindow.findAccessibilityNodeInfosByText("device admin app")
-            if(!admMatch.isNullOrEmpty()) bounce()
+            val admMatch = activeRoot.findAccessibilityNodeInfosByText("device admin app")
+            if (!admMatch.isNullOrEmpty()) bounce()
+
+            //Accessibility Service Block
+            val matches = activeRoot.findAccessibilityNodeInfosByText("Horus App Blocker shortcut").orEmpty() +
+                activeRoot.findAccessibilityNodeInfosByText("Curbox App Blocker shortcut").orEmpty()
+            if (matches.isNotEmpty()) {
+                bounce()
+                return
+            }
         }
-
-        //Accessibility Service Block
-        val matches = service.rootInActiveWindow.findAccessibilityNodeInfosByText("Curbox App Blocker shortcut")
-        if(!matches.isNullOrEmpty()){
-            bounce()
-            return
-        }
-
-
 
         // Bounce the moment the user taps Curbox's row in accessibility settings.
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && clickHitsOurService(event.source)) {
@@ -114,6 +115,7 @@ class AntiUninstallBlocker : BaseBlocker() {
     }
 
     private fun bounce() {
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(service, "anti-uninstall bounce (back+home) by " + neth.iecal.curbox.utils.privileged.adb.NavLog.caller())
         service.pressBack()
         service.pressHome()
     }

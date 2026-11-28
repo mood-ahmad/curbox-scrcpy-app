@@ -25,7 +25,7 @@
                     android:id="@+id/ascii_art"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:alpha="0.5"
+                    android:alpha="0.3"
                     android:breakStrategy="simple"
                     android:ellipsize="none"
                     android:fontFamily="monospace"
@@ -48,7 +48,7 @@
                 <RelativeLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="100dp">
+                    android:layout_marginTop="132dp">
 
                     <Button
                         android:id="@+id/open_menu"
@@ -85,11 +85,27 @@
                     </LinearLayout>
                 </RelativeLayout>
 
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="20dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainer"
+                    app:cardCornerRadius="28dp"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="12dp">
+
                 <neth.iecal.curbox.ui.views.WeeklyBarGraphView
                     android:id="@+id/weekly_bar_graph"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="4dp"
                     android:contentDescription="@string/usage_daily_chart_description"
                     android:padding="0dp" />
 
@@ -97,7 +113,7 @@
                     android:id="@+id/week_navigation_layout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="0dp"
                     android:gravity="center">
 
                     <ImageButton
@@ -130,19 +146,19 @@
                         app:tint="?attr/colorOnSurfaceVariant" />
                 </LinearLayout>
 
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/app_usage_recycler_view"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="32dp"
+                    android:layout_marginTop="20dp"
                     android:clipToPadding="false"
                     android:nestedScrollingEnabled="false"
                     android:paddingBottom="16dp"
                     app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
 
-                <Space
-                    android:layout_width="1dp"
-                    android:layout_height="300dp" />
             </LinearLayout>
         </FrameLayout>
     </androidx.core.widget.NestedScrollView>

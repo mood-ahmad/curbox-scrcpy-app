@@ -50,6 +50,20 @@
 
         <item name="android:fontFamily">@font/inter</item>
         <item name="fontFamily">@font/inter</item>
+        <item name="android:windowAnimationStyle">@style/Animation.Curbox.Activity</item>
+        <item name="materialCardViewElevatedStyle">@style/Widget.Curbox.Card.Elevated</item>
+        <item name="materialCardViewFilledStyle">@style/Widget.Curbox.Card.Filled</item>
+        <item name="materialCardViewOutlinedStyle">@style/Widget.Curbox.Card.Outlined</item>
+        <item name="popupMenuStyle">@style/Widget.Curbox.PopupMenu</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Curbox.Dialog</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Curbox.Small</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Curbox.Medium</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.Curbox.Large</item>
+        <item name="textAppearanceHeadlineLarge">@style/TextAppearance.Curbox.HeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Curbox.HeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Curbox.HeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Curbox.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Curbox.TitleMedium</item>
     </style>
 
     <style name="Theme.Curbox" parent="Base.Theme.Curbox" />

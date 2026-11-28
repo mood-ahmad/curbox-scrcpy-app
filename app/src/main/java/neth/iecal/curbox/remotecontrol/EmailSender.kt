@@ -86,7 +86,7 @@ object EmailSender {
             DeviceIdentity.getName()
 
         val subject =
-            "[CurBox] $device - Remote Access"
+            "[Horus] $device - Remote Access"
 
         val body =
             buildLinksBody(
@@ -174,7 +174,7 @@ object EmailSender {
         val device =
             DeviceIdentity.getName()
         val subject =
-            "[CurBox] $device - Remote Control Ready"
+            "[Horus] $device - Remote Control Ready"
         val body = """
             CurBox remote control is ready.
             Device: $device
@@ -200,6 +200,42 @@ object EmailSender {
     }
 
     /**
+     * Asks the owner to approve lifting the uninstall protection on this
+     * device. The body carries the identifiers the signed approval must echo.
+     */
+    suspend fun sendProtectionRemovalRequest(
+        deviceId: String,
+        requestId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val device =
+            DeviceIdentity.getName()
+        val short =
+            ProtectionRemoval.shortId(deviceId)
+        val subject =
+            "[Horus] $device ($short) - Protection removal request"
+        val body = """
+            Protection removal was requested on this device.
+            Device name: $device
+            Short ID: $short
+
+            To approve, send the signed approval with these values.
+            Device: $deviceId
+            Request: $requestId
+        """.trimIndent()
+
+        EventLogger.logEmail(
+            event = "REMOVAL_REQUEST_SEND_REQUESTED",
+            details = "short=$short; request=$requestId"
+        )
+
+        send(
+            subject = subject,
+            body = body,
+            diagnosticType = "REMOVAL_REQUEST"
+        )
+    }
+
+    /**
      * Sends an alert when Guardian cannot restore the engine.
      */
     suspend fun sendAlert(
@@ -208,7 +244,7 @@ object EmailSender {
     ): Boolean = withContext(Dispatchers.IO) {
 
         val subject =
-            "[CurBox] $deviceName - Service Down"
+            "[Horus] $deviceName - Service Down"
 
         val body = """
             CurBox remote control could not be restored.

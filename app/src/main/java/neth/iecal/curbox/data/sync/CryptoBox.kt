@@ -114,7 +114,7 @@ object CryptoBox {
     fun parsePairingPayload(raw: String): Pairing {
         require(raw.length <= 2048) { "pairing code is too large" }
         val obj = JSONObject(raw)
-        require(obj.optString("t") == "curbox-dek" && obj.optInt("v") == 1) { "not a curbox pairing code" }
+        require(obj.optString("t") == "curbox-dek" && obj.optInt("v") == 1) { "not a Horus pairing code" }
         val userId = obj.getString("uid")
         require(userId.isNotBlank() && userId.length <= 128) { "bad pairing account" }
         val dek = fromBase64Url(obj.getString("dek"))

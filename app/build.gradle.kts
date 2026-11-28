@@ -103,15 +103,19 @@ android {
         minSdk = 26
         targetSdk = 35
 
-        versionCode = 10102
-        versionName = "1.1.2-curbox"
+        // Horus versioning: versionName is 1.2.<build> and versionCode is 100000 + <build>,
+        // where <build> is the CI run number (GITHUB_RUN_NUMBER), so every CI build is higher
+        // than the last. Local builds use build 0. Bump the 1.2 / 100000 base for a new release line.
+        val horusBuild = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0
+        versionCode = 100000 + horusBuild
+        versionName = "1.2.$horusBuild"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         resValue(
             "string",
             "app_name",
-            "Curbox"
+            "Horus"
         )
 
         buildConfigField(
@@ -325,7 +329,7 @@ android {
             resValue(
                 "string",
                 "app_name",
-                "Curbox"
+                "Horus"
             )
         }
     }
@@ -371,6 +375,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation("com.github.Dimezis:BlurView:version-4.0.0")
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
 

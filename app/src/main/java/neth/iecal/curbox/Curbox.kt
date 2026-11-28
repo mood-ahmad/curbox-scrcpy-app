@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
-import com.google.android.material.color.DynamicColors
 import neth.iecal.curbox.data.sync.SyncGateway
 import neth.iecal.curbox.remotecontrol.EmailCommandReceiver
 import neth.iecal.curbox.remotecontrol.EventLogger
@@ -26,19 +25,27 @@ class Curbox : Application() {
         false
 
     override fun onCreate() {
-        DynamicColors.applyToActivitiesIfAvailable(
-            this
-        )
+        // Decode the creator photo off the main thread so it is cached before
+        // the Info screen is opened.
+        Thread {
+            try {
+                androidx.core.content.res.ResourcesCompat.getDrawable(
+                    resources,
+                    R.drawable.creator_photo,
+                    null
+                )
+            } catch (_: Throwable) {
+            }
+        }.start()
+
+        // Horus uses one fixed theme (pure black in dark mode, white in
+        // light mode); wallpaper-based dynamic colors are intentionally off.
 
         Thread.setDefaultUncaughtExceptionHandler(
             CrashLogger(this)
         )
 
         super.onCreate()
-
-        registerActivityLifecycleCallbacks(
-            WatermarkCallbacks()
-        )
 
         /*
          * Remote control and Direct Access lifecycle recovery must run only
@@ -58,6 +65,13 @@ class Curbox : Application() {
         DirectAccessLifecycleManager.start(
             this
         )
+
+        try {
+            neth.iecal.curbox.services.ServiceWatchdogJob.schedule(this)
+            neth.iecal.curbox.utils.privileged.PermissionKeeper.ensure(this, "app start")
+            neth.iecal.curbox.utils.privileged.PermissionKeeper.startObserving(this)
+        } catch (_: Throwable) {
+        }
 
         initialiseRemoteControl()
 

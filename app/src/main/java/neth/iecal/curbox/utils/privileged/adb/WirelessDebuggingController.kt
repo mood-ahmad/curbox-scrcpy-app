@@ -104,6 +104,22 @@ object WirelessDebuggingController {
             return
         }
 
+        if (neth.iecal.curbox.utils.privileged.PermissionKeeper.hasSecureSettings(appContext)) {
+            try {
+                Settings.Global.putInt(
+                    appContext.contentResolver,
+                    ADB_WIFI_ENABLED,
+                    if (enabled) 1 else 0
+                )
+                val actual = isEnabled(appContext)
+                if (actual == enabled) {
+                    listener.onResult(actual)
+                    return
+                }
+            } catch (_: Throwable) {
+            }
+        }
+
         if (!PrivilegedRunner.isAvailable()) {
             listener.onError(
                 "No privileged backend is available to change Wireless Debugging."

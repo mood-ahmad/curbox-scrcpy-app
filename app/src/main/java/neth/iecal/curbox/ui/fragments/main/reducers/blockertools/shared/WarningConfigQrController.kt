@@ -130,7 +130,7 @@ internal class WarningConfigQrController(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 put(
                     MediaStore.Images.Media.RELATIVE_PATH,
-                    Environment.DIRECTORY_PICTURES + "/Curbox"
+                    Environment.DIRECTORY_PICTURES + "/Horus"
                 )
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }

@@ -60,7 +60,7 @@
                 android:inputType="none" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/timing_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -102,7 +102,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/proceed_delay_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -151,7 +151,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/qr_setup_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -213,7 +213,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/nfc_setup_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -273,7 +273,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/typing_setup_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -320,7 +320,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/intent_setup_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -376,7 +376,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             android:id="@+id/math_setup_container"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
@@ -465,7 +465,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="28dp"
             style="@style/Widget.Material3.CardView.Outlined"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -495,8 +495,8 @@
 
                     <ImageView
                         android:id="@+id/advanced_settings_arrow"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
                         android:contentDescription="@null"
                         android:src="@drawable/baseline_arrow_forward_ios_24"
                         app:tint="?attr/colorOnSurfaceVariant" />
@@ -701,8 +701,5 @@
             android:layout_height="60dp"
             android:text="@string/save" />
 
-        <Space
-            android:layout_width="wrap_content"
-            android:layout_height="200dp"/>
     </LinearLayout>
 </ScrollView>

@@ -1,5 +1,6 @@
 package neth.iecal.curbox.services
 
+import neth.iecal.curbox.utils.privileged.adb.WirelessDebuggingNodeMatcher
 import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.provider.Settings
@@ -211,6 +212,364 @@ class AppBlockerService : BaseBlockingService() {
         }
     }
 
+    private val navigatorHandler =
+        android.os.Handler(
+            android.os.Looper.getMainLooper()
+        )
+
+    private val navigatorTick =
+        object : Runnable {
+            override fun run() {
+                if (
+                    !AdbWirelessDebuggingAccessibilityNavigator
+                        .isArmed()
+                ) {
+                    return
+                }
+
+                if (AdbWirelessDebuggingAccessibilityNavigator.enableOnly &&
+                    !neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest
+                        .pending(this@AppBlockerService)
+                ) {
+                    AdbWirelessDebuggingAccessibilityNavigator.disarm()
+                    return
+                }
+
+                try {
+                    val root =
+                        rootInActiveWindow
+
+                    AdbWirelessDebuggingAccessibilityNavigator
+                        .navigate(
+                            root?.packageName,
+                            root
+                        )
+                } catch (t: Throwable) {
+                    Log.e(
+                        "DirectADB",
+                        "Navigator tick failed",
+                        t
+                    )
+                }
+
+                navigatorHandler.postDelayed(
+                    this,
+                    700L
+                )
+            }
+        }
+
+    private val batteryTick =
+        object : Runnable {
+            override fun run() {
+                try {
+                    val ctx = this@AppBlockerService
+                    if (!neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.pending(ctx)
+                    ) {
+                        return
+                    }
+                    val root = rootInActiveWindow
+                    val pkg = root?.packageName?.toString()
+                    if (pkg == "com.android.settings" || pkg == "com.samsung.android.settings") {
+                        val node = neth.iecal.curbox.utils.privileged.adb
+                            .AdbWirelessDebuggingAccessibilityNavigator
+                            .AccessibilityUiNode(root!!)
+                        val done = neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.step(node, navigatorHost)
+                        if (done) {
+                            neth.iecal.curbox.utils.privileged.adb
+                                .BatteryUnrestrictedNavigator.finish(ctx)
+                            scheduleReturnToCurbox(800L)
+                            return
+                        }
+                    }
+                    if (neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.exhausted()
+                    ) {
+                        navigatorHost.log("battery: gave up after too many passes")
+                        neth.iecal.curbox.utils.privileged.adb
+                            .BatteryUnrestrictedNavigator.finish(ctx)
+                        scheduleReturnToCurbox(800L)
+                        return
+                    }
+                } catch (t: Throwable) {
+                    Log.e("DirectADB", "Battery tick failed", t)
+                }
+                navigatorHandler.postDelayed(this, 800L)
+            }
+        }
+
+    /** Starts enable-only navigation when the app asked for Wireless debugging. */
+    private fun maybeStartWirelessEnable() {
+        if (AdbWirelessDebuggingAccessibilityNavigator.isArmed()) return
+        if (neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest.pending(this)) {
+            AdbWirelessDebuggingAccessibilityNavigator.host = navigatorHost
+            AdbWirelessDebuggingAccessibilityNavigator.armEnableOnly()
+            startNavigatorTicker()
+        }
+    }
+
+    @Volatile private var lastEvtKey = ""
+    @Volatile private var lastEvtAt = 0L
+
+    /** One line per distinct Settings/Horus window event while pairing is in play. */
+    private fun logNavEvent(event: AccessibilityEvent) {
+        try {
+            val pkg = event.packageName?.toString() ?: return
+            val interesting = AdbWirelessDebuggingAccessibilityNavigator.isArmed() ||
+                !activePairingSessionId.isNullOrBlank()
+            if (!interesting) return
+            if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED
+            ) return
+            val key = pkg + "|" + event.className + "|" + event.eventType
+            val now = System.currentTimeMillis()
+            if (key == lastEvtKey && now - lastEvtAt < 1500L) return
+            lastEvtKey = key
+            lastEvtAt = now
+            navigatorHost.log(
+                "window event type=${AccessibilityEvent.eventTypeToString(event.eventType)} " +
+                    "pkg=$pkg class=${event.className} armed=${AdbWirelessDebuggingAccessibilityNavigator.isArmed()} " +
+                    "enableOnly=${AdbWirelessDebuggingAccessibilityNavigator.enableOnly} " +
+                    "session=${!activePairingSessionId.isNullOrBlank()}"
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun maybeStartBatteryTick() {
+        if (neth.iecal.curbox.utils.privileged.adb
+                .BatteryUnrestrictedNavigator.pending(this)
+        ) {
+            navigatorHandler.removeCallbacks(batteryTick)
+            navigatorHandler.postDelayed(batteryTick, 800L)
+        }
+    }
+
+    private fun startNavigatorTicker() {
+        navigatorHandler.removeCallbacks(
+            navigatorTick
+        )
+
+        navigatorHandler.postDelayed(
+            navigatorTick,
+            700L
+        )
+    }
+
+    private val navigatorHost:
+        AdbWirelessDebuggingAccessibilityNavigator.Host =
+        object :
+            AdbWirelessDebuggingAccessibilityNavigator.Host {
+
+            override fun log(
+                message: String
+            ) {
+                try {
+                    neth.iecal.curbox.remotecontrol.EventLogger
+                        .log(
+                            "DIRECT_ADB_NAV",
+                            message
+                        )
+                } catch (_: Throwable) {
+                }
+            }
+
+            override fun openDeveloperOptions(): Boolean =
+                neth.iecal.curbox.utils.privileged.adb.SettingsLauncher
+                    .openDeveloperOptions(this@AppBlockerService)
+
+            override fun openWirelessDebugging(): Boolean =
+                neth.iecal.curbox.utils.privileged.adb.SettingsLauncher
+                    .openWirelessDebugging(this@AppBlockerService)
+
+            override fun wirelessEnabled() {
+                try {
+                    neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest.markEnabled(
+                        this@AppBlockerService
+                    )
+                    log("wirelessEnabled(): enable-only finished, returning to Horus")
+                    AdbWirelessDebuggingAccessibilityNavigator.disarm()
+                    scheduleReturnToCurbox(700L, force = true)
+                } catch (_: Throwable) {
+                }
+            }
+
+            override fun toast(
+                message: String
+            ) {
+                navigatorHandler.post {
+                    android.widget.Toast
+                        .makeText(
+                            this@AppBlockerService,
+                            message,
+                            android.widget.Toast.LENGTH_LONG
+                        )
+                        .show()
+                }
+            }
+
+            override fun tap(
+                x: Int,
+                y: Int
+            ): Boolean {
+                val path =
+                    android.graphics.Path().apply {
+                        moveTo(
+                            x.toFloat(),
+                            y.toFloat()
+                        )
+                    }
+
+                return dispatchGesture(
+                    android.accessibilityservice.GestureDescription
+                        .Builder()
+                        .addStroke(
+                            android.accessibilityservice
+                                .GestureDescription
+                                .StrokeDescription(
+                                    path,
+                                    0L,
+                                    80L
+                                )
+                        )
+                        .build(),
+                    null,
+                    null
+                )
+            }
+
+            override fun swipeUp(): Boolean {
+                val m =
+                    resources.displayMetrics
+
+                val x =
+                    m.widthPixels / 2f
+
+                val path =
+                    android.graphics.Path().apply {
+                        moveTo(
+                            x,
+                            m.heightPixels * 0.75f
+                        )
+
+                        lineTo(
+                            x,
+                            m.heightPixels * 0.35f
+                        )
+                    }
+
+                return dispatchGesture(
+                    android.accessibilityservice.GestureDescription
+                        .Builder()
+                        .addStroke(
+                            android.accessibilityservice
+                                .GestureDescription
+                                .StrokeDescription(
+                                    path,
+                                    0L,
+                                    350L
+                                )
+                        )
+                        .build(),
+                    null,
+                    null
+                )
+            }
+
+            override fun highlight(
+                left: Int,
+                top: Int,
+                right: Int,
+                bottom: Int
+            ) {
+                navigatorHandler.post {
+                    try {
+                        val wm =
+                            getSystemService(
+                                WINDOW_SERVICE
+                            ) as android.view.WindowManager
+
+                        val box =
+                            android.view.View(
+                                this@AppBlockerService
+                            ).apply {
+                                background =
+                                    android.graphics.drawable
+                                        .GradientDrawable()
+                                        .apply {
+                                            setColor(
+                                                0x22FF0000
+                                            )
+
+                                            setStroke(
+                                                6,
+                                                0xFFFF3B30.toInt()
+                                            )
+
+                                            cornerRadius =
+                                                24f
+                                        }
+                            }
+
+                        val lp =
+                            android.view.WindowManager.LayoutParams(
+                                (right - left).coerceAtLeast(1),
+                                (bottom - top).coerceAtLeast(1),
+                                android.view.WindowManager
+                                    .LayoutParams
+                                    .TYPE_ACCESSIBILITY_OVERLAY,
+                                android.view.WindowManager
+                                    .LayoutParams
+                                    .FLAG_NOT_FOCUSABLE or
+                                    android.view.WindowManager
+                                        .LayoutParams
+                                        .FLAG_NOT_TOUCHABLE or
+                                    android.view.WindowManager
+                                        .LayoutParams
+                                        .FLAG_LAYOUT_IN_SCREEN,
+                                android.graphics.PixelFormat
+                                    .TRANSLUCENT
+                            ).apply {
+                                gravity =
+                                    android.view.Gravity.TOP or
+                                        android.view.Gravity.START
+
+                                x =
+                                    left
+
+                                y =
+                                    top
+                            }
+
+                        wm.addView(
+                            box,
+                            lp
+                        )
+
+                        navigatorHandler.postDelayed(
+                            {
+                                try {
+                                    wm.removeView(
+                                        box
+                                    )
+                                } catch (_: Throwable) {
+                                }
+                            },
+                            6000L
+                        )
+                    } catch (t: Throwable) {
+                        Log.e(
+                            "DirectADB",
+                            "Highlight failed",
+                            t
+                        )
+                    }
+                }
+            }
+        }
+
     /**
      * Activates exactly one explicit automatic-pairing session.
      *
@@ -223,8 +582,12 @@ class AppBlockerService : BaseBlockingService() {
             return
         }
 
+        navigatorHost.log("pairing capture armed by app session=${sessionId.take(6)}")
+
         activePairingSessionId =
             sessionId
+
+        cancelReturnToCurbox("new pairing session armed")
 
         AdbPairingAccessibilityExtractor
             .reset()
@@ -232,8 +595,23 @@ class AppBlockerService : BaseBlockingService() {
         AdbPairingAccessibilityExtractor
             .arm()
 
+        try {
+            neth.iecal.curbox.remotecontrol.EventLogger.init(this)
+        } catch (_: Throwable) {
+        }
+
+        AdbWirelessDebuggingAccessibilityNavigator.host =
+            navigatorHost
+
+        AdbPairingAccessibilityExtractor.onCodeDelivered = {
+            navigatorHost.log("pairing code delivered")
+            AdbWirelessDebuggingAccessibilityNavigator.disarm()
+        }
+
         AdbWirelessDebuggingAccessibilityNavigator
             .arm()
+
+        startNavigatorTicker()
 
         try {
             AdbPairingCaptureBridge
@@ -283,6 +661,8 @@ class AppBlockerService : BaseBlockingService() {
             return
         }
 
+        navigatorHost.log("pairing capture disarmed by app session=${sessionId.take(6)}")
+
         activePairingSessionId =
             null
 
@@ -291,12 +671,216 @@ class AppBlockerService : BaseBlockingService() {
 
         AdbWirelessDebuggingAccessibilityNavigator
             .disarm()
+
+        scheduleReturnToCurbox()
+    }
+
+    /**
+     * After the pairing code has been read (or the attempt ended) the user is
+     * still inside Settings. Give pairing a few seconds, then bring CurBox
+     * back from the Accessibility service, which may start activities from the
+     * background. Falls back to Back presses while Settings is on screen.
+     */
+    /** Last resort: a high-priority notification that opens Horus in one tap. */
+    private fun postReturnNotification() {
+        try {
+            val launch = packageManager.getLaunchIntentForPackage(packageName) ?: return
+            launch.addFlags(
+                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            )
+            val pi = android.app.PendingIntent.getActivity(
+                this, 7421, launch,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or
+                    android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            val nm = getSystemService(android.app.NotificationManager::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(
+                    android.app.NotificationChannel(
+                        "horus_return",
+                        "Return to Horus",
+                        android.app.NotificationManager.IMPORTANCE_HIGH
+                    )
+                )
+            }
+            val n = androidx.core.app.NotificationCompat.Builder(this, "horus_return")
+                .setSmallIcon(neth.iecal.curbox.R.drawable.icon)
+                .setContentTitle("Horus is ready")
+                .setContentText("Tap to return to Horus")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pi)
+                .build()
+            nm.notify(7421, n)
+            navigatorHost.log("return: posted fallback notification")
+        } catch (t: Throwable) {
+            Log.e("DirectADB", "Return notification failed", t)
+        }
+    }
+
+    private val returnReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            navigatorHost.log("return requested by app (RETURN_TO_APP broadcast)")
+            scheduleReturnToCurbox(200L, force = true)
+        }
+    }
+
+    @Volatile private var pendingReturnTask: Runnable? = null
+
+    private fun cancelReturnToCurbox(reason: String) {
+        val t = pendingReturnTask ?: return
+        navigatorHandler.removeCallbacks(t)
+        pendingReturnTask = null
+        navigatorHost.log("return cancelled: $reason")
+    }
+
+    private fun scheduleReturnToCurbox(
+        initialDelayMs: Long = 3500L,
+        force: Boolean = false
+    ) {
+        var tries = 0
+        navigatorHost.log(
+            "return scheduled delay=${initialDelayMs}ms force=$force by=" +
+                neth.iecal.curbox.utils.privileged.adb.NavLog.caller()
+        )
+        // Only one return task may exist; a newer one replaces the old one.
+        pendingReturnTask?.let { navigatorHandler.removeCallbacks(it) }
+
+        val returnTask =
+            object : Runnable {
+                override fun run() {
+                    // Never pull the user out of Settings while the pairing
+                    // navigation is running: that is what made Developer
+                    // options flash open and snap back to Horus.
+                    if (AdbWirelessDebuggingAccessibilityNavigator.isArmed() ||
+                        (!force && !activePairingSessionId.isNullOrBlank())
+                    ) {
+                        navigatorHost.log("return skipped: pairing navigation in progress")
+                        pendingReturnTask = null
+                        return
+                    }
+                    try {
+                        val activePackage =
+                            rootInActiveWindow
+                                ?.packageName
+                                ?.toString()
+
+                        if (activePackage == packageName) {
+                            navigatorHost.log(
+                                "returned to Horus after $tries tries"
+                            )
+                            return
+                        }
+
+                        val launch =
+                            packageManager
+                                .getLaunchIntentForPackage(
+                                    packageName
+                                )
+
+                        if (launch != null) {
+                            launch.addFlags(
+                                android.content.Intent
+                                    .FLAG_ACTIVITY_NEW_TASK or
+                                    android.content.Intent
+                                        .FLAG_ACTIVITY_REORDER_TO_FRONT
+                            )
+
+                            startActivity(
+                                launch
+                            )
+                        }
+
+                        if (
+                            tries % 2 == 1 &&
+                            activePackage == "com.android.settings"
+                        ) {
+                            performGlobalAction(
+                                GLOBAL_ACTION_BACK
+                            )
+                        }
+
+                        navigatorHost.log(
+                            "return attempt ${tries + 1} active=$activePackage"
+                        )
+                    } catch (t: Throwable) {
+                        Log.e(
+                            "DirectADB",
+                            "Return to Horus failed",
+                            t
+                        )
+                    }
+
+                    tries += 1
+
+                    if (tries < 10) {
+                        navigatorHandler.postDelayed(
+                            this,
+                            1500L
+                        )
+                    } else {
+                        postReturnNotification()
+                    }
+                }
+            }
+
+        pendingReturnTask = returnTask
+        navigatorHandler.postDelayed(
+            returnTask,
+            initialDelayMs
+        )
     }
 
     override fun onAccessibilityEvent(
         event: AccessibilityEvent?
     ) {
         event ?: return
+
+        logNavEvent(event)
+
+        if (event.packageName?.toString() == "com.android.settings") {
+            maybeStartBatteryTick()
+            maybeStartWirelessEnable()
+        }
+
+        try {
+            if (neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.pending(this) &&
+                event.className?.toString()?.contains("DeviceAdminAdd") == true
+            ) {
+                val r = rootInActiveWindow
+                if (r != null) {
+                    val node = neth.iecal.curbox.utils.privileged.adb.AdbWirelessDebuggingAccessibilityNavigator
+                        .AccessibilityUiNode(r)
+                    val target = WirelessDebuggingNodeMatcher.findByLabels(
+                        node,
+                        neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.activateLabels
+                    )
+                    if (target != null && (target.click() ||
+                            WirelessDebuggingNodeMatcher.clickableAncestor(target)?.click() == true)
+                    ) {
+                        neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.finish(this)
+                        navigatorHost.log("tamper: tapped Activate on device admin screen")
+                        navigatorHandler.postDelayed({
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                if (neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(this@AppBlockerService)) {
+                                    dataStoreManager.updateAntiUninstallConfig {
+                                        it.copy(
+                                            isEnabled = true,
+                                            mode = neth.iecal.curbox.data.models.AntiUninstallMode.REMOTE,
+                                            unlockRequestedAtMs = 0L
+                                        )
+                                    }
+                                    navigatorHost.log("tamper: protection enabled after Activate")
+                                }
+                            }
+                            scheduleReturnToCurbox(500L)
+                        }, 1500L)
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+        }
 
         super.onAccessibilityEvent(
             event
@@ -563,7 +1147,37 @@ class AppBlockerService : BaseBlockingService() {
         "UnspecifiedRegisterReceiverFlag"
     )
     override fun onServiceConnected() {
+        try {
+            val filter = android.content.IntentFilter("neth.iecal.curbox.action.RETURN_TO_APP")
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(returnReceiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(returnReceiver, filter)
+            }
+        } catch (_: Throwable) {
+        }
         super.onServiceConnected()
+
+        try {
+            neth.iecal.curbox.remotecontrol.EventLogger.init(this)
+        } catch (_: Throwable) {
+        }
+        navigatorHost.log("accessibility service connected (process restart or enable)")
+
+        if (
+            neth.iecal.curbox.utils.privileged.adb
+                .AccessibilityReturnRequest.consume(this)
+        ) {
+            try {
+                neth.iecal.curbox.remotecontrol.EventLogger.init(this)
+            } catch (_: Throwable) {
+            }
+            navigatorHost.log(
+                "accessibility enabled for pairing, returning to Horus"
+            )
+            scheduleReturnToCurbox(500L)
+        }
 
         appBlocker
             .setupAppBlocker(
@@ -707,6 +1321,10 @@ class AppBlockerService : BaseBlockingService() {
     }
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(returnReceiver)
+        } catch (_: Throwable) {
+        }
         activePairingSessionId =
             null
 

@@ -149,6 +149,23 @@ class DirectAccessOrchestrator(
         val operationId =
             beginNewOperation()
 
+        // Step 1 of the single pairing path: Accessibility must be granted
+        // before anything else (Developer options, Wireless debugging, pairing).
+        if (
+            !AccessibilityServiceStatus
+                .isAppBlockerServiceEnabled(
+                    appContext
+                )
+        ) {
+            listener.onError(
+                IllegalStateException(
+                    "Horus Accessibility service must be enabled before automatic pairing."
+                )
+            )
+
+            return
+        }
+
         publishState(
             operationId,
             listener,
@@ -209,6 +226,7 @@ class DirectAccessOrchestrator(
     }
 
     fun cancel() {
+        NavLog.log(appContext, "orchestrator cancel() by " + NavLog.caller())
         operationCounter.incrementAndGet()
 
         connectionManager.cancel()
@@ -616,6 +634,16 @@ class DirectAccessOrchestrator(
      * Settings. Bring CurBox back so onboarding can continue.
      */
     private fun bringCurboxToFront() {
+        NavLog.log(appContext, "orchestrator: bringCurboxToFront (pairing/connection reported connected) by " + NavLog.caller())
+        // The accessibility service may start activities from the background
+        // and presses Back until Horus is foreground; ask it to do so first.
+        try {
+            appContext.sendBroadcast(
+                android.content.Intent("neth.iecal.curbox.action.RETURN_TO_APP")
+                    .setPackage(appContext.packageName)
+            )
+        } catch (_: Throwable) {
+        }
         try {
             val launch =
                 appContext
@@ -670,6 +698,7 @@ class DirectAccessOrchestrator(
     }
 
     private fun beginNewOperation(): Long {
+        NavLog.log(appContext, "orchestrator beginNewOperation by " + NavLog.caller())
         connectionManager.cancel()
         pairingManager.cancel()
         autoPairingCoordinator.stop()

@@ -1,5 +1,7 @@
 package neth.iecal.curbox.ui.fragments.main.reducers
 
+import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import android.os.Bundle
 import android.transition.AutoTransition
 import android.transition.TransitionManager
@@ -32,7 +34,7 @@ class ReducersFragment : Fragment() {
         val autoDndCard = view.findViewById<MaterialCardView>(R.id.card_autodnd)
         
         view.findViewById<MaterialButton>(R.id.btn_help).setOnClickListener {
-            ViewUtils.showHelpPopup(it, "Blocker tools and stimulation reducers help you regain focus.", "https://curbox.app/docs/reducers/overview/")
+            ViewUtils.showHelpPopup(it, "Blocker tools and stimulation reducers help you regain focus.", "https://github.com/mood-ahmad/curbox-scrcpy-app#readme")
         }
 
         appBlockerCard.setOnClickListener {
@@ -129,12 +131,25 @@ class ReducersFragment : Fragment() {
             startActivity(intent)
         }
 
-        val serviceProtectionCard = view.findViewById<MaterialCardView>(R.id.card_service_protection)
-        serviceProtectionCard.setOnClickListener {
-            val intent = Intent(requireContext(), FragmentActivity::class.java).apply {
-                putExtra("fragment", neth.iecal.curbox.ui.fragments.main.reducers.advanced.ServiceProtectionFragment.FRAGMENT_ID)
+        val removalRequestCard = view.findViewById<MaterialCardView>(R.id.card_removal_request)
+        removalRequestCard.isVisible = neth.iecal.curbox.BuildConfig.SUPPORTS_ANTI_UNINSTALL
+        removalRequestCard.setOnClickListener {
+            val appContext = requireContext().applicationContext
+            val deviceId = neth.iecal.curbox.remotecontrol.ProtectionRemoval.deviceId(appContext)
+            val requestId = neth.iecal.curbox.remotecontrol.ProtectionRemoval.newRequest(appContext)
+            viewLifecycleOwner.lifecycleScope.launch {
+                val sent = try {
+                    neth.iecal.curbox.remotecontrol.EmailSender
+                        .sendProtectionRemovalRequest(deviceId, requestId)
+                } catch (_: Throwable) {
+                    false
+                }
+                android.widget.Toast.makeText(
+                    appContext,
+                    if (sent) R.string.removal_request_sent else R.string.removal_request_failed,
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
             }
-            startActivity(intent)
         }
 
         val advancedHeader = view.findViewById<View>(R.id.advanced_header)
@@ -147,6 +162,7 @@ class ReducersFragment : Fragment() {
             advancedArrow.animate().rotation(if (isVisible) 0f else 90f).start()
         }
 
+        neth.iecal.curbox.ui.utils.LargeHeader.install(view, getString(R.string.reducers))
         return view
     }
 }

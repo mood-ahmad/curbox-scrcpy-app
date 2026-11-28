@@ -321,7 +321,7 @@ class AllAppsUsageFragment : Fragment() {
                             ViewUtils.showHelpPopup(
                                 binding.openMenu,
                                 "Track your application usage statistics to understand your digital habits better.",
-                                "https://curbox.app/docs/usage/usage-stats/"
+                                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                             )
                             true
                         }
@@ -353,16 +353,14 @@ class AllAppsUsageFragment : Fragment() {
             binding.welcomeState.visibility = View.VISIBLE
             binding.welcomeAscii.text = getString(R.string.ascii_hello)
             binding.btnReadDocs.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://curbox.app/docs")))
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mood-ahmad/curbox-scrcpy-app#readme")))
             }
 
             binding.btnStarRepo.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/nethical6/curbox")))
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/mood-ahmad/curbox-scrcpy-app")))
             }
 
-            binding.btnJoinDiscord.setOnClickListener {
-                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://discord.com/invite/Vs9mwUtuCN")))
-            }
+            binding.btnJoinDiscord.visibility = View.GONE
         }
 
         private fun observeViewModel(adapter: AppUsageAdapter) {
@@ -716,14 +714,14 @@ class AllAppsUsageFragment : Fragment() {
                             if (i == top5.size - 1 && browserWebsites.size <= 5 && reelUsage == null) "└" else "├"
                         val tv = TextView(binding.root.context).apply {
                             text = "$prefix  $domain • ${TimeTools.formatDuration(time)}"
-                            textSize = 12f
+                            textSize = 13f
                             setTextColor(
                                 MaterialColors.getColor(
                                     binding.root,
                                     com.google.android.material.R.attr.colorOnSurfaceVariant
                                 )
                             )
-                            setPadding(0, 4, 0, 4)
+                            setPadding(0, (6 * resources.displayMetrics.density).toInt(), 0, (6 * resources.displayMetrics.density).toInt())
                             maxLines = 1
                             ellipsize = TextUtils.TruncateAt.END
                         }
@@ -737,14 +735,14 @@ class AllAppsUsageFragment : Fragment() {
                             } else {
                                 "├  See more websites..."
                             }
-                            textSize = 12f
+                            textSize = 13f
                             setTextColor(
                                 MaterialColors.getColor(
                                     binding.root,
                                     com.google.android.material.R.attr.colorPrimary
                                 )
                             )
-                            setPadding(0, 4, 0, 12)
+                            setPadding(0, (6 * resources.displayMetrics.density).toInt(), 0, (12 * resources.displayMetrics.density).toInt())
                             setOnClickListener {
                                 activity?.supportFragmentManager?.beginTransaction()
                                     ?.setCustomAnimations(R.anim.fade_in, R.anim.fade_out)
@@ -783,14 +781,14 @@ class AllAppsUsageFragment : Fragment() {
                         val prefix = if (index == shortFormVideoRows.lastIndex) "└" else "├"
                         val reelText = TextView(binding.root.context).apply {
                             text = "$prefix  $row"
-                            textSize = 12f
+                            textSize = 13f
                             setTextColor(
                                 MaterialColors.getColor(
                                     binding.root,
                                     com.google.android.material.R.attr.colorOnSurfaceVariant
                                 )
                             )
-                            setPadding(0, 4, 0, 4)
+                            setPadding(0, (6 * resources.displayMetrics.density).toInt(), 0, (6 * resources.displayMetrics.density).toInt())
                             maxLines = 1
                             ellipsize = TextUtils.TruncateAt.END
                         }

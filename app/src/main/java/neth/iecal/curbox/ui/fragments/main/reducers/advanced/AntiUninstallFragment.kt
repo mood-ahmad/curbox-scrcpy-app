@@ -131,7 +131,7 @@ class AntiUninstallFragment : Fragment() {
             ViewUtils.showHelpPopup(
                 it,
                 getString(R.string.anti_uninstall_help_popup),
-                "https://curbox.app/docs/reducers/tamper-protection/"
+                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
             )
         }
 
@@ -222,6 +222,7 @@ class AntiUninstallFragment : Fragment() {
             R.plurals.anti_uninstall_summary_timed, config.timedUnlockDays, config.timedUnlockDays
         )
         AntiUninstallMode.COOLDOWN -> getString(R.string.anti_uninstall_summary_cooldown)
+        AntiUninstallMode.REMOTE -> getString(R.string.anti_uninstall_summary_remote)
     }
 
     private fun onEnableClicked() {
@@ -246,6 +247,7 @@ class AntiUninstallFragment : Fragment() {
                 pendingMode = AntiUninstallMode.COOLDOWN
                 requestAdminThenEnable()
             }
+            AntiUninstallMode.REMOTE -> Unit
         }
     }
 
@@ -307,6 +309,9 @@ class AntiUninstallFragment : Fragment() {
                 .setNegativeButton(R.string.anti_uninstall_cancel, null)
                 .setPositiveButton(R.string.anti_uninstall_start) { _, _ -> startUnlockRequest() }
                 .show()
+            AntiUninstallMode.REMOTE -> Toast.makeText(
+                requireContext(), R.string.anti_uninstall_remote_hint, Toast.LENGTH_LONG
+            ).show()
         }
     }
 

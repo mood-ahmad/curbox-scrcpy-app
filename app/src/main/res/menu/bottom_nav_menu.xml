@@ -3,27 +3,27 @@
 
     <item
         android:id="@+id/nav_usage"
-        android:icon="@drawable/ic_usage"
+        android:icon="@drawable/ic_nav_usage"
         android:title="@string/usage" />
 
     <item
         android:id="@+id/nav_focus"
-        android:icon="@drawable/ic_focus"
+        android:icon="@drawable/ic_nav_focus"
         android:title="@string/focus" />
 
     <item
         android:id="@+id/nav_direct_access"
-        android:icon="@drawable/ic_direct_access"
+        android:icon="@drawable/ic_nav_direct"
         android:title="@string/direct_access_tab" />
 
     <item
         android:id="@+id/nav_reducers"
-        android:icon="@drawable/ic_reducers"
+        android:icon="@drawable/ic_nav_reducers"
         android:title="@string/reducers" />
 
     <item
         android:id="@+id/nav_info"
-        android:icon="@drawable/ic_info"
+        android:icon="@drawable/ic_nav_info"
         android:title="@string/info" />
 
 </menu>

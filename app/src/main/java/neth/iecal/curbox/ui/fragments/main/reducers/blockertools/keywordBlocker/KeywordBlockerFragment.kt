@@ -81,7 +81,7 @@ class KeywordBlockerFragment : Fragment() {
                     true
                 }
                 R.id.menu_help -> {
-                    val url = "https://curbox.app/docs/reducers/keyword-blocker/"
+                    val url = "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                     try {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                         startActivity(intent)

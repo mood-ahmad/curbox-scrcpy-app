@@ -71,6 +71,7 @@ class InfoFragment : Fragment() {
             savedInstanceState
         )
 
+        setupCreatorHeader()
         setupAccountSection()
         setupUsageTrackingSettings()
         setupClickListeners()
@@ -88,6 +89,71 @@ class InfoFragment : Fragment() {
         if (_binding != null) {
             updateDirectAccessStatus()
         }
+    }
+
+    /**
+     * Collapsing creator card. The card is pinned over the scroll view and its
+     * size is a pure function of the scroll offset, so it moves exactly with
+     * the content in both directions. The scroll content starts with a spacer
+     * as tall as the expanded card, which keeps the card's bottom edge and the
+     * list moving at the same speed.
+     */
+    private fun setupCreatorHeader() {
+        val density = resources.displayMetrics.density
+        val maxCard = 176f * density
+        val minCard = 72f * density
+        val maxPhoto = 120f * density
+        val minPhoto = 48f * density
+        val range = maxCard - minCard
+
+        val card = binding.cardCredit
+        val photo = binding.imageCreator
+
+        var radius = maxPhoto * 0.2f
+        photo.clipToOutline = true
+        photo.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: android.graphics.Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+        }
+
+        var lastCard = -1
+        var lastPhoto = -1
+
+        fun apply(scrollY: Int) {
+            val t = (scrollY / range).coerceIn(0f, 1f)
+            val cardPx = (maxCard - range * t).toInt()
+            val photoPx = (maxPhoto + (minPhoto - maxPhoto) * t).toInt()
+            radius = (maxPhoto * 0.2f) + (photoPx / 2f - maxPhoto * 0.2f) * t
+
+            if (cardPx != lastCard) {
+                lastCard = cardPx
+                val lp = card.layoutParams
+                lp.height = cardPx
+                card.layoutParams = lp
+            }
+            if (photoPx != lastPhoto) {
+                lastPhoto = photoPx
+                val lp = photo.layoutParams
+                lp.width = photoPx
+                lp.height = photoPx
+                photo.layoutParams = lp
+            }
+            photo.invalidateOutline()
+
+            // The email line fades out before the bar gets too short for it,
+            // so the name line always fits whole and centred.
+            val fade = (1f - t * 2.2f).coerceIn(0f, 1f)
+            binding.textCreditEmail.alpha = fade
+            binding.textCreditEmail.visibility = if (fade <= 0f) View.GONE else View.VISIBLE
+        }
+
+        binding.scrollInfo.setOnScrollChangeListener(
+            androidx.core.widget.NestedScrollView.OnScrollChangeListener {
+                _, _, y, _, _ -> apply(y)
+            }
+        )
+        apply(binding.scrollInfo.scrollY)
     }
 
     private fun setupUsageTrackingSettings() {
@@ -299,56 +365,18 @@ class InfoFragment : Fragment() {
             }
 
         binding
+            .textCreditEmail
+            .setOnClickListener {
+                openUrl(
+                    "mailto:mhmdahmdofficial@gmail.com"
+                )
+            }
+
+        binding
             .btnDocs
             .setOnClickListener {
                 openUrl(
-                    "https://curbox.app/docs/"
-                )
-            }
-
-        binding
-            .btnSupport
-            .setOnClickListener {
-                openUrl(
-                    "https://github.com/nethical6"
-                )
-            }
-
-        binding
-            .btnDonate
-            .setOnClickListener {
-                openUrl(
-                    "https://curbox.app/donate"
-                )
-            }
-
-        binding
-            .btnShare
-            .setOnClickListener {
-                shareProject()
-            }
-
-        binding
-            .cardDiscord
-            .setOnClickListener {
-                openUrl(
-                    "https://discord.com/invite/Vs9mwUtuCN"
-                )
-            }
-
-        binding
-            .cardInstagram
-            .setOnClickListener {
-                openUrl(
-                    "https://instagram.com/curbox.app"
-                )
-            }
-
-        binding
-            .cardGithub
-            .setOnClickListener {
-                openUrl(
-                    "https://github.com/curbox-app/curbox-android"
+                    "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
                 )
             }
 
@@ -568,7 +596,7 @@ class InfoFragment : Fragment() {
 
                     putExtra(
                         Intent.EXTRA_SUBJECT,
-                        "Curbox Crash Logs"
+                        "Horus Crash Logs"
                     )
 
                     putExtra(
@@ -579,7 +607,7 @@ class InfoFragment : Fragment() {
                     clipData =
                         ClipData.newUri(
                             context.contentResolver,
-                            "Curbox Crash Logs",
+                            "Horus Crash Logs",
                             logUri
                         )
 

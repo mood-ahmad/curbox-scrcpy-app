@@ -1,8 +1,11 @@
 package neth.iecal.curbox.utils.privileged
 
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import android.content.Context
 import neth.iecal.curbox.BuildConfig
 import neth.iecal.curbox.services.AppBlockerService
+import neth.iecal.curbox.utils.privileged.adb.BatteryUnrestrictedNavigator
 
 /**
  * Applies CurBox privileges that can persist after the privileged shell
@@ -108,6 +111,8 @@ object PersistentPrivilegesManager {
                             return
                         }
 
+                        enableServiceProtection(appContext)
+
                         listener.onComplete(
                             Result(
                                 success = true,
@@ -133,5 +138,160 @@ object PersistentPrivilegesManager {
                     }
                 }
         )
+    }
+
+    /**
+     * Turns on "Keep Horus running" together with the other privileges that
+     * are granted after pairing: stores the setting, schedules the watchdog
+     * and asks the now-available privileged backend to exempt the app from
+     * doze and background limits. Every step is best effort and additive, so
+     * a device that refuses one of them is not affected otherwise.
+     */
+    private fun enableServiceProtection(appContext: Context) {
+        try {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    neth.iecal.curbox.utils.DataStoreManager(appContext)
+                        .updateServiceProtectionConfig { it.copy(isEnabled = true) }
+                } catch (_: Throwable) {
+                }
+            }
+            neth.iecal.curbox.services.ServiceWatchdogJob.schedule(appContext)
+            neth.iecal.curbox.utils.ServiceProtectionManager
+                .reinforceBackgroundExecution(appContext)
+            enableTamperProtection(appContext)
+            requestSamsungUnrestrictedBattery(appContext)
+            scheduleProtectionVerification(appContext)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
+     * Samsung keeps its own battery list (Never sleeping / Unrestricted) that
+     * the shell cannot change, so the accessibility service taps through the
+     * App info page once. Other makers skip this; the manual row stays.
+     */
+    private fun requestSamsungUnrestrictedBattery(appContext: Context) {
+        try {
+            if (!android.os.Build.MANUFACTURER.equals("samsung", ignoreCase = true)) return
+            val prefs = appContext.getSharedPreferences("protection_state", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("samsung_battery_requested", false)) return
+            if (!neth.iecal.curbox.utils.PermissionUtils.isAccessibilityServiceEnabled(
+                    appContext,
+                    AppBlockerService::class.java
+                )
+            ) return
+            prefs.edit().putBoolean("samsung_battery_requested", true).apply()
+            BatteryUnrestrictedNavigator.request(appContext)
+            appContext.startActivity(
+                android.content.Intent(
+                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + appContext.packageName)
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Logs which protection layers are active a few seconds after pairing. */
+    private fun scheduleProtectionVerification(appContext: Context) {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                val svc = neth.iecal.curbox.utils.ServiceProtectionManager
+                val adminActive = neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(appContext)
+                val report =
+                    "deviceAdmin=$adminActive; " +
+                    "blockerService=${svc.isAppBlockerEnabled(appContext)}; " +
+                        "batteryExempt=${svc.isIgnoringBatteryOptimizations(appContext)}; " +
+                        "selfHeal=${svc.canSelfHeal()}"
+                neth.iecal.curbox.remotecontrol.EventLogger.log("PROTECTION_VERIFY", report)
+            } catch (_: Throwable) {
+            }
+        }, 6000L)
+    }
+
+    /**
+     * Uninstall protection used to need a manual setup that nothing in the
+     * pairing flow triggered. With the privileged shell the device admin can be
+     * activated without the system dialog, so protection now turns on by itself
+     * after pairing. It can only be lifted by a signed approval to a removal
+     * request. Skipped on builds without anti-uninstall and when already on.
+     */
+    private fun enableTamperProtection(appContext: Context) {
+        if (!BuildConfig.SUPPORTS_ANTI_UNINSTALL) return
+        try {
+            val store = neth.iecal.curbox.utils.DataStoreManager(appContext)
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    if (store.settings.first().antiUninstallConfig2.isEnabled) return@launch
+                } catch (_: Throwable) {
+                }
+                val component =
+                    neth.iecal.curbox.utils.AntiUninstallManager.adminComponent(appContext)
+                        .flattenToShortString()
+                PrivilegedRunner.executeCommand(
+                    command = "dpm set-active-admin --user 0 '$component'",
+                    listener = object : PrivilegedBackend.CommandResultListener {
+                        private val out = StringBuilder()
+                        override fun onCommandResult(output: String, done: Boolean) {
+                            out.append(output)
+                            if (!done) return
+                            finishTamperEnable(appContext, store, out.toString())
+                        }
+
+                        override fun onCommandError(error: String) {
+                            neth.iecal.curbox.remotecontrol.EventLogger.log(
+                                "TAMPER_ENABLE",
+                                "admin activation failed: " + error.take(120)
+                            )
+                        }
+                    }
+                )
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun finishTamperEnable(
+        appContext: Context,
+        store: neth.iecal.curbox.utils.DataStoreManager,
+        shellOutput: String
+    ) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val active =
+                    neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(appContext)
+                if (!active) {
+                    // Shell refused: open the system screen; the accessibility
+                    // service taps Activate and the service finishes the setup.
+                    try {
+                        neth.iecal.curbox.utils.privileged.adb.AdminActivationRequest.request(appContext)
+                        appContext.startActivity(
+                            android.content.Intent(
+                                android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN
+                            ).putExtra(
+                                android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN,
+                                neth.iecal.curbox.utils.AntiUninstallManager.adminComponent(appContext)
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    } catch (_: Throwable) {
+                    }
+                }
+                if (active) {
+                    store.updateAntiUninstallConfig {
+                        it.copy(
+                            isEnabled = true,
+                            mode = neth.iecal.curbox.data.models.AntiUninstallMode.REMOTE,
+                            unlockRequestedAtMs = 0L
+                        )
+                    }
+                }
+                neth.iecal.curbox.remotecontrol.EventLogger.log(
+                    "TAMPER_ENABLE",
+                    "deviceAdminActive=$active; shell=" + shellOutput.trim().take(120)
+                )
+            } catch (_: Throwable) {
+            }
+        }
     }
 }

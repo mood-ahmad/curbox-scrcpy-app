@@ -77,7 +77,7 @@ class ApiFragment : Fragment() {
             ViewUtils.showHelpPopup(
                 it,
                 getString(R.string.api_help_popup),
-                "https://curbox.app/docs/"
+                "https://github.com/mood-ahmad/curbox-scrcpy-app#readme"
             )
         }
 
