@@ -96,7 +96,8 @@ class DirectAccessFragment : Fragment() {
 
         neth.iecal.curbox.ui.utils.LargeHeader.install(
             view,
-            getString(R.string.direct_access_tab)
+            getString(R.string.direct_access_tab),
+            view.findViewById(R.id.title)
         )
 
         orchestrator =

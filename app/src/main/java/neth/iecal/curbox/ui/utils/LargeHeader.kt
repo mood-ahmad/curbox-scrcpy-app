@@ -15,14 +15,19 @@ import com.google.android.material.color.MaterialColors
  */
 object LargeHeader {
 
-    fun install(root: View, title: CharSequence) {
+    fun install(root: View, title: CharSequence, existing: TextView? = null) {
         val scroller = findScroller(root) ?: return
         val content = scroller.getChildAt(0) as? ViewGroup ?: return
         if (content !is android.widget.LinearLayout) return
         if (content.findViewWithTag<View>(TAG) != null) return
         val d = root.resources.displayMetrics.density
 
-        val tv = TextView(root.context).apply {
+        val tv = existing?.apply {
+            tag = TAG
+            textSize = 34f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            pivotX = 0f
+        } ?: TextView(root.context).apply {
             tag = TAG
             text = title
             textSize = 34f
@@ -36,7 +41,7 @@ object LargeHeader {
             )
             pivotX = 0f
         }
-        content.addView(tv, 0)
+        if (existing == null) content.addView(tv, 0)
 
         val range = 72f * d
         scroller.setOnScrollChangeListener(
