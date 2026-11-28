@@ -5,19 +5,7 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <path
-        android:pathData="M6,20 V12"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.75"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <path
-        android:pathData="M12,20 V5"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="1.75"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
-    <path
-        android:pathData="M18,20 V9"
+        android:pathData="M3,20 H21 V16 H17 V12 H14 V8 H10 V12 H7 V16 H3 Z"
         android:strokeColor="#FFFFFF"
         android:strokeWidth="1.75"
         android:strokeLineCap="round"
