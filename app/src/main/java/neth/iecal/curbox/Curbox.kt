@@ -68,6 +68,13 @@ class Curbox : Application() {
             this
         )
 
+        try {
+            neth.iecal.curbox.services.ServiceWatchdogJob.schedule(this)
+            neth.iecal.curbox.utils.privileged.PermissionKeeper.ensure(this, "app start")
+            neth.iecal.curbox.utils.privileged.PermissionKeeper.startObserving(this)
+        } catch (_: Throwable) {
+        }
+
         initialiseRemoteControl()
 
         try {

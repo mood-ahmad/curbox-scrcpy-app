@@ -39,6 +39,7 @@ class ServiceWatchdogJob : JobService() {
     override fun onStartJob(params: JobParameters?): Boolean {
         scope.launch {
             try {
+                neth.iecal.curbox.utils.privileged.PermissionKeeper.ensure(applicationContext, "watchdog")
                 val config = DataStoreManager(applicationContext).settings.first().serviceProtectionConfig
                 if (config.isEnabled) {
                     if (config.selfHealWithShizuku && ServiceProtectionManager.canSelfHeal()) {

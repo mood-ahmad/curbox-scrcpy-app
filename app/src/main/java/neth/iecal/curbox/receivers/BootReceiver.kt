@@ -17,6 +17,7 @@ class BootReceiver : BroadcastReceiver() {
         try {
             ServiceWatchdogJob.schedule(context)
             ServiceProtectionManager.healNow(context)
+            neth.iecal.curbox.utils.privileged.PermissionKeeper.ensure(context, "boot")
         } catch (e: Exception) {
             Log.e("BootReceiver", "boot repair failed", e)
         }
