@@ -136,7 +136,7 @@ class WebsiteUsageFragment : Fragment() {
                     val path = stat.urlIdentifier.removePrefix(domain)
                     text = "$prefix  ${if (path.isEmpty()) "/" else path} • ${TimeTools.formatDuration(stat.totalTime)}"
                     textSize = 13f
-                    setPadding(0, 8, 0, 8)
+                    setPadding(0, (6 * resources.displayMetrics.density).toInt(), 0, (6 * resources.displayMetrics.density).toInt())
                     setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant))
                     maxLines = 1
                     ellipsize = TextUtils.TruncateAt.END
