@@ -25,7 +25,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Manage CurBox Direct ADB, automatic pairing, connection recovery, and repair."
+            android:text="Manage Horus Direct ADB, automatic pairing, connection recovery, and repair."
             android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
             android:textColor="?attr/colorOnSurfaceVariant" />
 
@@ -105,7 +105,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="CurBox can watch Android's Wireless Debugging pairing window, capture the temporary pairing code, discover the pairing service, and complete pairing automatically."
+                    android:text="Horus can watch Android's Wireless Debugging pairing window, capture the temporary pairing code, discover the pairing service, and complete pairing automatically."
                     android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant" />
 

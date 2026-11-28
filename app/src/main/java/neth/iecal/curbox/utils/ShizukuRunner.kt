@@ -156,8 +156,8 @@ class ShizukuRunner {
                         PackageManager.PERMISSION_GRANTED
                     ) {
                         throw SecurityException(
-                            "CurBox does not have Shizuku permission. " +
-                                "Open Shizuku and authorize CurBox, " +
+                            "Horus does not have Shizuku permission. " +
+                                "Open Shizuku and authorize Horus, " +
                                 "then try again."
                         )
                     }

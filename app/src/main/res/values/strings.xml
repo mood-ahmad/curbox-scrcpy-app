@@ -9,12 +9,12 @@
     <string name="app_icon">app_icon</string>
     <string name="accessibility_permission_app_blocker">
         This feature needs the Display over other apps permission to work. Please turn that on first, then turn this on. If something stops working, restart the app.\n\n
-        Turning this on lets Curbox do these things for you:\n1. Block apps\n2. Block short form content\n3. Block websites and keywords\n4. Focus Mode\n5. Hide parts of an app\'s screen that distract you\n6. See how long you spend in each app\n7. Count how much short form content you scroll, and show the count in a floating overlay\n8. See which websites you visit and for how long\n\n
-        Curbox needs accessibility access to see which app, website, or screen you are on, so it can block it the way you set and keep your usage stats. Without this, none of it can work.\n\n
-        Curbox never shares anything without your permission.
+        Turning this on lets Horus do these things for you:\n1. Block apps\n2. Block short form content\n3. Block websites and keywords\n4. Focus Mode\n5. Hide parts of an app\'s screen that distract you\n6. See how long you spend in each app\n7. Count how much short form content you scroll, and show the count in a floating overlay\n8. See which websites you visit and for how long\n\n
+        Horus needs accessibility access to see which app, website, or screen you are on, so it can block it the way you set and keep your usage stats. Without this, none of it can work.\n\n
+        Horus never shares anything without your permission.
         \n\n
     </string>
-    <string name="admin_permission_desc">Curbox Tamper Protection</string>
+    <string name="admin_permission_desc">Horus Tamper Protection</string>
     <string name="close">Close</string>
     <string name="proceed">Proceed</string>
     <string name="cancel">Cancel</string>
@@ -52,11 +52,11 @@
         <item quantity="other">• %1$s (%2$d sessions)</item>
     </plurals>
     <string name="quick_setup_guide">Quick Setup Guide</string>
-    <string name="curbox_needs_accessibility_permissions_to_help">Curbox needs Accessibility permissions to help you track your screen time. The setup process varies based on how you installed the app.</string>
+    <string name="curbox_needs_accessibility_permissions_to_help">Horus needs Accessibility permissions to help you track your screen time. The setup process varies based on how you installed the app.</string>
     <string name="fdroid_installation">F-Droid Installation</string>
     <string name="installed_via_fdroid_appnyoure_all_set">✅ Installed via F-Droid app?\nYou\'re all set! Just follow the accessibility setup in the next step.\n\n⚠️ Downloaded from F-Droid website?\nPlease install through the F-Droid app instead to avoid permission issues.</string>
     <string name="apk_installation">APK Installation</string>
-    <string name="if_you_installed_from_an_apk">If you installed from an APK, follow these steps:\n\n1️⃣ Open Settings → Apps → Curbox\n\n2️⃣ Tap Permissions → Special App Access → Accessibility → Enable Curbox\n\n3️⃣ Return to Curbox App Info → Scroll down → Tap Restricted Settings → Allow\n\n💡 Pro tip: Install via F-Droid app for a smoother setup! 🚀</string>
+    <string name="if_you_installed_from_an_apk">If you installed from an APK, follow these steps:\n\n1️⃣ Open Settings → Apps → Horus\n\n2️⃣ Tap Permissions → Special App Access → Accessibility → Enable Horus\n\n3️⃣ Return to Horus App Info → Scroll down → Tap Restricted Settings → Allow\n\n💡 Pro tip: Install via F-Droid app for a smoother setup! 🚀</string>
     <string name="usage_timeline">Usage Timeline</string>
     <string name="screentime">Screentime</string>
     <string name="app_opens">App Opens</string>
@@ -88,34 +88,34 @@
     <string name="grayscale_filter">Grayscale Filter</string>
     <string name="reduce_visual_stimulation">Reduce visual stimulation</string>
     <string name="fuel_the_developer">About the Developer ☕</string>
-    <string name="hello_this_is_nethical_the_creator">Hey, I\'m Nethical, the person behind Curbox. I\'m 18, fresh out of high school, and a little obsessed with tech, art, and building cool things from scratch. A while back I went looking for a free app blocker that actually did what I wanted. Nothing came close, so I built my own. Curbox is that app, and I\'ve been pouring into it almost every day for over two years now. So happy you\'re here. I hope it helps you take your time back.</string>
+    <string name="hello_this_is_nethical_the_creator">Hey, I\'m Nethical, the person behind Horus. I\'m 18, fresh out of high school, and a little obsessed with tech, art, and building cool things from scratch. A while back I went looking for a free app blocker that actually did what I wanted. Nothing came close, so I built my own. Horus is that app, and I\'ve been pouring into it almost every day for over two years now. So happy you\'re here. I hope it helps you take your time back.</string>
     <string name="support_the_project">Support the Project ↗</string>
     <string name="join_the_focus_pack">Join the Focus Pack</string>
     <string name="dont_fix_your_screen_time_alone">Don\'t fix your screen time alone. Join our Discord of like-minded people holding each other accountable and sharing focus strategies to improve themselves.</string>
     <string name="join_the_discord">Join the Discord</string>
     <string name="curboxapp">\@curb.me</string>
-    <string name="follow_curbox">Follow Curbox</string>
+    <string name="follow_curbox">Follow Horus</string>
     <string name="label_instagram">Instagram</string>
     <string name="label_github">GitHub</string>
     <string name="curbox_github_repo">curbox-android</string>
-    <string name="curbox_also_on">Curbox Also On</string>
+    <string name="curbox_also_on">Horus Also On</string>
     <string name="label_browser_extension">Browser Extension</string>
-    <string name="curbox_extension_repo">curbox-extension</string>
+    <string name="curbox_extension_repo">horus-extension</string>
     <string name="about_the_developer">About the Developer</string>
     <string name="view_on_github">View on GitHub ↗</string>
     <string name="donate_title">Donate</string>
-    <string name="donate_pitch">I\'ve put 1500+ hours into Curbox, building it alongside school, exams and study, to save millions of minutes worldwide. Donate to help me keep it free and growing for everyone.</string>
+    <string name="donate_pitch">I\'ve put 1500+ hours into Horus, building it alongside school, exams and study, to save millions of minutes worldwide. Donate to help me keep it free and growing for everyone.</string>
     <string name="btn_donate">Donate ❤</string>
     <string name="cannot_donate_share">Cannot donate? Sharing the project is helpful too!</string>
     <string name="donate_prompt_title">Can I ask you a favor?</string>
-    <string name="donate_prompt_value">You\'ve been with Curbox for a while now, and that means a lot to me.</string>
-    <string name="donate_prompt_footer">No pressure at all. Curbox stays free for you either way.</string>
+    <string name="donate_prompt_value">You\'ve been with Horus for a while now, and that means a lot to me.</string>
+    <string name="donate_prompt_footer">No pressure at all. Horus stays free for you either way.</string>
     <string name="donate_prompt_give">I\'ll chip in ❤</string>
     <string name="donate_prompt_share">I\'ll share it instead</string>
     <string name="donate_prompt_later">Maybe later</string>
-    <string name="share_curbox_message">I\'ve been using Curbox to take back control of my screen time. It\'s free, give it a try: https://curbox.app</string>
+    <string name="share_curbox_message">I\'ve been using Horus to take back control of my screen time. It\'s free, give it a try: https://curbox.app</string>
     <string name="system_diagnostics">System Diagnostics</string>
-    <string name="view_and_share_application_crash_logs">View and share application crash logs to help improve Curbox.</string>
+    <string name="view_and_share_application_crash_logs">View and share application crash logs to help improve Horus.</string>
     <string name="view_crash_logs">View Crash Logs</string>
     <string name="group_name">Name</string>
     <string name="group_name_required">Please enter a group name</string>
@@ -215,7 +215,7 @@
     <string name="search_recursively_for_blocked_keywords_on">Search recursively for blocked keywords on every text field on screen</string>
     <string name="block_all_browsers_except_supported_ones">Block unsupported browser</string>
     <string name="select_ignored_apps">Select Ignored Apps</string>
-    <string name="activity_powered_by">POWERED BY CURBOX</string>
+    <string name="activity_powered_by">POWERED BY Horus</string>
     <string name="your_digital_wellbeing">Your Digital Well-being</string>
     <string name="total_today">TOTAL TODAY</string>
     <string name="total_this_week">TOTAL THIS WEEK</string>
@@ -226,7 +226,7 @@
     <string name="most_used">MOST USED</string>
     <string name="crunching_numbers">Crunching numbers...</string>
     <string name="usage_welcome_title">Hello dear user</string>
-    <string name="usage_welcome_message">Your app stats will show up right here. I started keeping track the moment you installed me. Please read the docs so you can use Curbox to its fullest.</string>
+    <string name="usage_welcome_message">Your app stats will show up right here. I started keeping track the moment you installed me. Please read the docs so you can use Horus to its fullest.</string>
     <string name="usage_welcome_read_docs">Read documentation</string>
     <string name="usage_welcome_star_repo">Star our repository</string>
     <string name="whats_new_title">What\'s new</string>
@@ -397,7 +397,7 @@
     <string name="dialog_question_mark">?</string>
     <string name="blocking_service_channel_name">Blocking Service</string>
     <string name="blocking_service_channel_description">Running in the background to protect you</string>
-    <string name="blocking_service_notification_title">Curbox %1$s is active</string>
+    <string name="blocking_service_notification_title">Horus %1$s is active</string>
     <string name="blocking_service_notification_text">Protecting your digital wellbeing</string>
     <string name="picker_no_element_found">No element found at that point</string>
     <string name="picker_no_element_selected">No element selected</string>
@@ -413,10 +413,10 @@
     <string name="nfc_focus_stopped">Focus stopped</string>
     <string name="nfc_focus_no_group">No focus group found to start</string>
     <string name="nfc_focus_not_exitable">This focus session can\'t be ended early</string>
-    <string name="nfc_tag_unrecognized">Unrecognized Curbox NFC tag</string>
+    <string name="nfc_tag_unrecognized">Unrecognized Horus NFC tag</string>
 
     <string name="onboarding_non_session_title">Non-session based installation detected</string>
-    <string name="onboarding_restricted_settings_desc">Android 13+ restricts Accessibility services for apps installed outside of official app stores. To enable permissions, you\'ll need to manually allow \'Restricted settings\' for Curbox.</string>
+    <string name="onboarding_restricted_settings_desc">Android 13+ restricts Accessibility services for apps installed outside of official app stores. To enable permissions, you\'ll need to manually allow \'Restricted settings\' for Horus.</string>
     <string name="onboarding_show_tutorial">Show tutorial to enable permissions</string>
     <string name="onboarding_shizuku_grant">Grant all permissions with Shizuku</string>
     <string name="sync_paywall_title">Finish setting up sync</string>
@@ -438,7 +438,7 @@
     <string name="pairing_code_warning_message">This code holds the secret key that unlocks all your synced data. Anyone who snaps a photo of it can read your data. Please do not screenshot or share it. The code hides itself after one minute.</string>
     <string name="pairing_code_show">Show code</string>
     <string name="dnd_access_dialog_title">Do Not Disturb</string>
-    <string name="dnd_access_dialog_message">Curbox needs this to turn on Do Not Disturb for you, so it can mute calls and alerts while you focus. Without it, Curbox cannot silence distractions on its own.\n\n🔒 Curbox does not collect, send, or store any of your data on a server without your permission.\n\n🛡️ Curbox respects your peace: It uses this only to mute distractions when you ask it to.</string>
+    <string name="dnd_access_dialog_message">Horus needs this to turn on Do Not Disturb for you, so it can mute calls and alerts while you focus. Without it, Horus cannot silence distractions on its own.\n\n🔒 Horus does not collect, send, or store any of your data on a server without your permission.\n\n🛡️ Horus respects your peace: It uses this only to mute distractions when you ask it to.</string>
     <string name="picker_dialog_block_element">Block This Element</string>
     <string name="picker_dialog_generated_rule">Generated Rule:</string>
     <string name="picker_dialog_rule_desc">Auto-generated from your selection. Toggle chips below to customize.</string>
@@ -463,7 +463,7 @@
     <string name="empty_intents_desc">Try adjusting your filters or unlocking an app.</string>
     <string name="grayscale_shizuku_title">Shizuku Permission Required</string>
     <string name="grayscale_shizuku_desc">This feature needs Shizuku permission to apply the grayscale filter correctly.</string>
-    <string name="grayscale_secure_settings_desc">Curbox needs a one time permission to change your screen colors. Grant it once with Shizuku. After that grayscale works on its own, even after you restart your phone.</string>
+    <string name="grayscale_secure_settings_desc">Horus needs a one time permission to change your screen colors. Grant it once with Shizuku. After that grayscale works on its own, even after you restart your phone.</string>
     <string name="btn_grant_permission">Grant Permission</string>
     <string name="picker_control_tap_to_select">Tap an element to select it</string>
     <string name="btn_deeper">Deeper</string>
@@ -517,7 +517,7 @@
     <string name="label_app_pause">App Pause</string>
     <string name="label_rather_spend_time">I would rather spend this time ...</string>
     <string name="label_recommended">Recommended</string>
-    <string name="crash_title">Oops! Curbox has crashed</string>
+    <string name="crash_title">Oops! Horus has crashed</string>
     <string name="crash_desc">Something went wrong. Please share these logs with the developer to help fix the issue.</string>
     <string name="btn_clear">Clear</string>
     <string name="btn_restart">Restart</string>
@@ -1281,73 +1281,73 @@
 
     <!-- Curbox API -->
     <string name="label_automation">AUTOMATION</string>
-    <string name="api_screen_title">Curbox API</string>
-    <string name="api_card_subtitle">Let other apps control Curbox</string>
+    <string name="api_screen_title">Horus API</string>
+    <string name="api_card_subtitle">Let other apps control Horus</string>
     <string name="api_screen_subtitle">Other apps can ask to start focus mode, flip blockers, and read your stats. You decide who gets in.</string>
     <string name="api_enable_title">Allow other apps</string>
-    <string name="api_enable_subtitle">When this is off, no app can control Curbox, even ones you allowed before.</string>
+    <string name="api_enable_subtitle">When this is off, no app can control Horus, even ones you allowed before.</string>
     <string name="api_connected_title">Connected apps</string>
-    <string name="api_no_apps">No apps are connected. Curbox will ask for your approval when an app requests access, then list approved apps here.</string>
+    <string name="api_no_apps">No apps are connected. Horus will ask for your approval when an app requests access, then list approved apps here.</string>
     <string name="api_revoke">Remove</string>
     <string name="api_how_title">How it works</string>
-    <string name="api_how_body">When another app requests access, Curbox shows its name and asks for your approval. An approved app can run commands until you remove it. Removing an app ends its access immediately.</string>
-    <string name="api_help_popup">Other apps can ask to control Curbox. You allow or deny each one, and you can remove access any time.</string>
+    <string name="api_how_body">When another app requests access, Horus shows its name and asks for your approval. An approved app can run commands until you remove it. Removing an app ends its access immediately.</string>
+    <string name="api_help_popup">Other apps can ask to control Horus. You allow or deny each one, and you can remove access any time.</string>
 
     <!-- Service protection (keep alive) -->
-    <string name="service_protection_title">Keep Curbox running</string>
-    <string name="service_protection_card_subtitle">Help Curbox blockers keep working</string>
-    <string name="service_protection_subtitle">Some phones stop Curbox in the background to save battery. These options help keep its blockers running and restart them if they stop. No option can guarantee that Curbox will always run.</string>
+    <string name="service_protection_title">Keep Horus running</string>
+    <string name="service_protection_card_subtitle">Help Horus blockers keep working</string>
+    <string name="service_protection_subtitle">Some phones stop Horus in the background to save battery. These options help keep its blockers running and restart them if they stop. No option can guarantee that Horus will always run.</string>
     <string name="service_protection_master_title">Protection</string>
     <string name="service_protection_master_desc">Turn on all the layers below</string>
     <string name="service_protection_status_header">What is working now</string>
-    <string name="service_protection_row_services_title">Curbox blockers</string>
+    <string name="service_protection_row_services_title">Horus blockers</string>
     <string name="service_protection_services_on">Blockers are running</string>
     <string name="service_protection_services_off">Blockers are not running</string>
     <string name="service_protection_row_battery_title">Battery freedom</string>
-    <string name="service_protection_battery_ok">Battery settings allow Curbox to stay active</string>
-    <string name="service_protection_battery_bad">Battery settings may stop Curbox to save power</string>
+    <string name="service_protection_battery_ok">Battery settings allow Horus to stay active</string>
+    <string name="service_protection_battery_bad">Battery settings may stop Horus to save power</string>
     <string name="service_protection_row_autostart_title">Auto start</string>
-    <string name="service_protection_row_autostart_desc">Some phones require a separate setting to let Curbox start automatically. Please allow auto start.</string>
+    <string name="service_protection_row_autostart_desc">Some phones require a separate setting to let Horus start automatically. Please allow auto start.</string>
     <string name="service_protection_row_shizuku_title">Auto repair</string>
-    <string name="service_protection_shizuku_on">Curbox can restart its blockers automatically</string>
-    <string name="service_protection_shizuku_off">Set up Shizuku so Curbox can restart its blockers</string>
+    <string name="service_protection_shizuku_on">Horus can restart its blockers automatically</string>
+    <string name="service_protection_shizuku_off">Set up Shizuku so Horus can restart its blockers</string>
     <string name="service_protection_fix">Fix</string>
     <string name="service_protection_open">Open</string>
     <string name="service_protection_setup">Set up</string>
     <string name="service_protection_shizuku_not_installed">Shizuku is not running. Opening its website.</string>
     <string name="service_protection_repair_now">Repair now</string>
-    <string name="service_protection_repair_started">Trying to restart Curbox blockers</string>
+    <string name="service_protection_repair_started">Trying to restart Horus blockers</string>
     <string name="service_protection_no_screen">This settings screen is not available on this phone</string>
-    <string name="service_protection_autostart_manual">Please open your phone settings and allow Curbox to auto start.</string>
+    <string name="service_protection_autostart_manual">Please open your phone settings and allow Horus to auto start.</string>
     <string name="service_protection_advanced_header">Advanced</string>
-    <string name="service_protection_device_owner">Make Curbox a device owner</string>
+    <string name="service_protection_device_owner">Make Horus a device owner</string>
     <string name="service_protection_device_owner_warning">This is the strongest option. It stays on even after a force stop and blocks uninstall fully. It only works on a phone with no accounts added, and it is hard to undo later. Only do this if you are sure.</string>
     <string name="service_protection_remove_device_admin">Turn off device admin</string>
-    <string name="service_protection_remove_device_admin_warning">Curbox will no longer be a device owner or device admin. Your phone may be able to stop or remove Curbox more easily.</string>
+    <string name="service_protection_remove_device_admin_warning">Horus will no longer be a device owner or device admin. Your phone may be able to stop or remove Horus more easily.</string>
     <string name="service_protection_remove">Turn off</string>
     <string name="service_protection_admin_locked">Turn off tamper protection first.</string>
     <string name="service_protection_admin_removal_started">Turning off device admin</string>
     <string name="service_protection_admin_removal_failed">Could not turn off device admin. Please try again.</string>
     <string name="service_protection_cancel">Cancel</string>
     <string name="service_protection_continue">Continue</string>
-    <string name="service_protection_help_popup">Phones often stop background apps to save battery. This screen helps Curbox stay active with battery access, auto start, regular checks, and optional recovery through Shizuku. These options make Curbox harder to stop, but cannot guarantee that it will always run.</string>
+    <string name="service_protection_help_popup">Phones often stop background apps to save battery. This screen helps Horus stay active with battery access, auto start, regular checks, and optional recovery through Shizuku. These options make Horus harder to stop, but cannot guarantee that it will always run.</string>
     <string name="service_protection_channel_name">Service protection</string>
-    <string name="service_protection_down_title">Curbox blockers stopped</string>
+    <string name="service_protection_down_title">Horus blockers stopped</string>
     <string name="service_protection_down_text">Tap to turn them back on so your blocks keep working.</string>
 
     <!-- Tamper protection -->
     <string name="anti_uninstall_title">Tamper protection</string>
-    <string name="anti_uninstall_card_subtitle">Make it harder to remove Curbox</string>
-    <string name="anti_uninstall_subtitle">When this is on, Curbox cannot be uninstalled until you turn it off the way you chose. Think of it like a seatbelt for your willpower.</string>
-    <string name="anti_uninstall_limits_warning">This does not make it impossible to uninstall Curbox. It only makes uninstalling more difficult.</string>
-    <string name="anti_uninstall_disable_warning">Curbox keeps itself installed to protect your focus. Turn off tamper protection inside the app first.</string>
+    <string name="anti_uninstall_card_subtitle">Make it harder to remove Horus</string>
+    <string name="anti_uninstall_subtitle">When this is on, Horus cannot be uninstalled until you turn it off the way you chose. Think of it like a seatbelt for your willpower.</string>
+    <string name="anti_uninstall_limits_warning">This does not make it impossible to uninstall Horus. It only makes uninstalling more difficult.</string>
+    <string name="anti_uninstall_disable_warning">Horus keeps itself installed to protect your focus. Turn off tamper protection inside the app first.</string>
     <string name="anti_uninstall_setup_again">Something went wrong. Please choose your unlock method again.</string>
-    <string name="anti_uninstall_admin_explanation">Curbox uses this to stop itself from being uninstalled while protection is on.</string>
-    <string name="anti_uninstall_admin_needed">This permission is required to keep Curbox installed.</string>
-    <string name="anti_uninstall_help_popup">When this is on, Curbox cannot be uninstalled and its services cannot be switched off until you turn it off using the method you picked: a password, a wait of a few days, or a one day cooldown you can stop anytime.</string>
+    <string name="anti_uninstall_admin_explanation">Horus uses this to stop itself from being uninstalled while protection is on.</string>
+    <string name="anti_uninstall_admin_needed">This permission is required to keep Horus installed.</string>
+    <string name="anti_uninstall_help_popup">When this is on, Horus cannot be uninstalled and its services cannot be switched off until you turn it off using the method you picked: a password, a wait of a few days, or a one day cooldown you can stop anytime.</string>
 
     <string name="anti_uninstall_status_off_title">Protection is off</string>
-    <string name="anti_uninstall_status_off_body">Curbox can be uninstalled right now.</string>
+    <string name="anti_uninstall_status_off_body">Horus can be uninstalled right now.</string>
     <string name="anti_uninstall_status_on_title">Protection is on</string>
     <string name="anti_uninstall_status_unlocking_title">Turning off soon</string>
     <string name="anti_uninstall_status_unlocking_body">Protection turns off in %1$s.</string>
@@ -1450,7 +1450,7 @@
 
     <!-- Curbox API permission screen -->
     <string name="api_permission_title">Allow access?</string>
-    <string name="api_permission_message">%1$s wants to control Curbox. It can start focus sessions, turn blockers on or off, and read your screen time. You can remove this any time.</string>
+    <string name="api_permission_message">%1$s wants to control Horus. It can start focus sessions, turn blockers on or off, and read your screen time. You can remove this any time.</string>
     <string name="api_permission_allow">Allow</string>
     <string name="api_permission_deny">Deny</string>
 
@@ -1564,16 +1564,16 @@
     <!-- Onboarding permissions -->
     <string name="onboarding_app_limit_group_name">%1$s Limits</string>
     <string name="onboarding_perm_overlay_title">Screen Overlay</string>
-    <string name="onboarding_perm_overlay_rationale">Curbox needs this to show a calm pause screen on top of distracting apps when you open them. Without it, Curbox cannot place anything over those apps to help you stop and think.</string>
-    <string name="onboarding_perm_overlay_opensource">🛡️ Open Source: Think of Curbox like a restaurant with an open kitchen. The whole codebase is public, so anyone can check that Curbox is not doing anything sneaky. There are no closed doors here.</string>
+    <string name="onboarding_perm_overlay_rationale">Horus needs this to show a calm pause screen on top of distracting apps when you open them. Without it, Horus cannot place anything over those apps to help you stop and think.</string>
+    <string name="onboarding_perm_overlay_opensource">🛡️ Open Source: Think of Horus like a restaurant with an open kitchen. The whole codebase is public, so anyone can check that Horus is not doing anything sneaky. There are no closed doors here.</string>
     <string name="onboarding_perm_notif_title">Notifications</string>
-    <string name="onboarding_perm_notif_rationale">Curbox needs this to stay running in the background so your blocks keep working, and to gently remind you of your goals. Without it, Android can stop Curbox and your blocks may fail.</string>
-    <string name="onboarding_perm_notif_opensource">🛡️ Not a Data Broker: Many apps hide their code because they make money by harvesting your data. Curbox keeps all its code public, so you can check yourself that nothing is quietly sending your information away.</string>
+    <string name="onboarding_perm_notif_rationale">Horus needs this to stay running in the background so your blocks keep working, and to gently remind you of your goals. Without it, Android can stop Horus and your blocks may fail.</string>
+    <string name="onboarding_perm_notif_opensource">🛡️ Not a Data Broker: Many apps hide their code because they make money by harvesting your data. Horus keeps all its code public, so you can check yourself that nothing is quietly sending your information away.</string>
     <string name="onboarding_perm_accessibility_title">App Blocker (Accessibility API)</string>
-    <string name="onboarding_perm_accessibility_rationale">Curbox needs this to notice when you open a blocked app and show the blocker screen. It also uses it to count your screen time and how many reels you scroll. Without it, Curbox cannot work at all.</string>
-    <string name="onboarding_perm_accessibility_opensource">🛡️ Transparency for Deep Access: This is a powerful permission, which is why being open source matters so much. You do not have to take Curbox at its word. The global community has reviewed its public code and confirmed it only blocks apps and tracks usage.</string>
+    <string name="onboarding_perm_accessibility_rationale">Horus needs this to notice when you open a blocked app and show the blocker screen. It also uses it to count your screen time and how many reels you scroll. Without it, Horus cannot work at all.</string>
+    <string name="onboarding_perm_accessibility_opensource">🛡️ Transparency for Deep Access: This is a powerful permission, which is why being open source matters so much. You do not have to take Horus at its word. The global community has reviewed its public code and confirmed it only blocks apps and tracks usage.</string>
     <string name="onboarding_read_documentation">Read Documentation</string>
-    <string name="onboarding_privacy_note">"\n\n🔒 Curbox does not collect, send, or store any of your data on a server without your permission. Everything stays on your phone.\n\n"</string>
+    <string name="onboarding_privacy_note">"\n\n🔒 Horus does not collect, send, or store any of your data on a server without your permission. Everything stays on your phone.\n\n"</string>
     <string name="onboarding_granting_permissions">Granting Permissions…</string>
     <string name="onboarding_permissions_granted">Permissions Granted!</string>
     <string name="onboarding_error_tap_retry">Error, Tap to Retry</string>
@@ -1701,7 +1701,7 @@
     <string name="focus_nfc_load_button">Load from tag</string>
     <string name="focus_nfc_load_title">Tap a tag to load</string>
     <string name="focus_nfc_loaded">Loaded values from tag</string>
-    <string name="focus_nfc_load_invalid">That tag is not a Curbox focus tag</string>
+    <string name="focus_nfc_load_invalid">That tag is not a Horus focus tag</string>
 
     <!-- Group edit titles -->
     <string name="app_group_edit_title">Edit App Group</string>

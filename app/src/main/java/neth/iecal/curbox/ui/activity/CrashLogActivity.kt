@@ -37,7 +37,7 @@ class CrashLogActivity : AppCompatActivity() {
         binding.btnShare.setOnClickListener {
             val intent = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "Curbox Crash Logs")
+                putExtra(Intent.EXTRA_SUBJECT, "Horus Crash Logs")
                 putExtra(Intent.EXTRA_TEXT, content)
             }
             startActivity(Intent.createChooser(intent, "Share Crash Logs"))

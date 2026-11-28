@@ -6,4 +6,4 @@
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_permission_app_blocker"
-    android:label="Curbox App Blocker" />
+    android:label="Horus App Blocker" />

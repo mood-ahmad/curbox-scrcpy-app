@@ -140,7 +140,7 @@ object PersistentPrivilegesManager {
     }
 
     /**
-     * Turns on "Keep Curbox running" together with the other privileges that
+     * Turns on "Keep Horus running" together with the other privileges that
      * are granted after pairing: stores the setting, schedules the watchdog
      * and asks the now-available privileged backend to exempt the app from
      * doze and background limits. Every step is best effort and additive, so

@@ -269,7 +269,7 @@ class DirectAccessFragment : Fragment() {
                     binding
                         .operationStatus
                         .text =
-                        "Wireless Debugging must be enabled. Enable it in Developer Options, then return to CurBox and start automatic pairing again."
+                        "Wireless Debugging must be enabled. Enable it in Developer Options, then return to Horus and start automatic pairing again."
 
                     renderStatus()
 
@@ -326,7 +326,7 @@ class DirectAccessFragment : Fragment() {
         binding
             .operationStatus
             .text =
-            "CurBox is already paired. Retrying the Direct ADB connection…"
+            "Horus is already paired. Retrying the Direct ADB connection…"
 
         currentOrchestrator.ensureConnected(
             createListener(
@@ -539,7 +539,7 @@ class DirectAccessFragment : Fragment() {
         binding
             .operationStatus
             .text =
-            "Direct ADB connected. Applying CurBox privileges…"
+            "Direct ADB connected. Applying Horus privileges…"
 
         PersistentPrivilegesManager.apply(
             context =
@@ -579,7 +579,7 @@ class DirectAccessFragment : Fragment() {
                                     .text =
                                     buildString {
                                         append(
-                                            "Direct ADB connected, but CurBox could not apply persistent privileges."
+                                            "Direct ADB connected, but Horus could not apply persistent privileges."
                                         )
 
                                         result.error
@@ -808,7 +808,7 @@ class DirectAccessFragment : Fragment() {
             .text =
             buildString {
                 append(
-                    "CurBox paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again."
+                    "Horus paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again."
                 )
 
                 cause
@@ -864,7 +864,7 @@ class DirectAccessFragment : Fragment() {
             binding
                 .operationStatus
                 .text =
-                "Enable CurBox Accessibility. When you return to CurBox, automatic pairing will continue."
+                "Enable Horus Accessibility. When you return to Horus, automatic pairing will continue."
 
             openAccessibilitySettings()
 
@@ -966,16 +966,16 @@ class DirectAccessFragment : Fragment() {
                     "Pairing information captured. Waiting for the pairing service…"
 
                 DirectAccessOrchestrator.State.PAIRING ->
-                    "Pairing CurBox automatically…"
+                    "Pairing Horus automatically…"
 
                 DirectAccessOrchestrator.State.PAIRED ->
-                    "CurBox is paired. Preparing the Direct ADB connection…"
+                    "Horus is paired. Preparing the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.DISCOVERING_CONNECTION ->
-                    "CurBox is paired. Looking for the Direct ADB connection…"
+                    "Horus is paired. Looking for the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.CONNECTING ->
-                    "CurBox is paired. Connecting to Direct ADB…"
+                    "Horus is paired. Connecting to Direct ADB…"
 
                 DirectAccessOrchestrator.State.CONNECTED ->
                     "Direct ADB connected."

@@ -312,7 +312,7 @@ class DirectAccessSetupFragment : Fragment() {
             binding
                 .statusText
                 .text =
-                "Enable CurBox in Accessibility settings, then return here."
+                "Enable Horus in Accessibility settings, then return here."
 
             return
         }
@@ -461,7 +461,7 @@ class DirectAccessSetupFragment : Fragment() {
                     binding
                         .statusText
                         .text =
-                        "Enable Wireless Debugging, then return to CurBox and start automatic pairing again."
+                        "Enable Wireless Debugging, then return to Horus and start automatic pairing again."
 
                     updateWirelessDebuggingStatus()
 
@@ -521,7 +521,7 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "CurBox is already paired. Retrying the Direct ADB connection…"
+            "Horus is already paired. Retrying the Direct ADB connection…"
 
         currentOrchestrator.ensureConnected(
             createListener(
@@ -683,7 +683,7 @@ class DirectAccessSetupFragment : Fragment() {
                 .text =
                 buildErrorMessage(
                     prefix =
-                        "CurBox could not request Shizuku permission.",
+                        "Horus could not request Shizuku permission.",
                     cause =
                         error.message
                 )
@@ -706,7 +706,7 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "Shizuku connected. Applying CurBox privileges…"
+            "Shizuku connected. Applying Horus privileges…"
 
         PersistentPrivilegesManager.apply(
             context =
@@ -745,7 +745,7 @@ class DirectAccessSetupFragment : Fragment() {
                                     .text =
                                     buildErrorMessage(
                                         prefix =
-                                            "Shizuku is available, but CurBox could not apply persistent privileges.",
+                                            "Shizuku is available, but Horus could not apply persistent privileges.",
                                         cause =
                                             result.error
                                     )
@@ -774,7 +774,7 @@ class DirectAccessSetupFragment : Fragment() {
         binding
             .statusText
             .text =
-            "Direct ADB connected. Applying CurBox privileges…"
+            "Direct ADB connected. Applying Horus privileges…"
 
         PersistentPrivilegesManager.apply(
             context =
@@ -808,7 +808,7 @@ class DirectAccessSetupFragment : Fragment() {
                                     .text =
                                     buildErrorMessage(
                                         prefix =
-                                            "Direct ADB connected, but CurBox could not apply persistent privileges.",
+                                            "Direct ADB connected, but Horus could not apply persistent privileges.",
                                         cause =
                                             result.error
                                     )
@@ -1022,7 +1022,7 @@ class DirectAccessSetupFragment : Fragment() {
             .text =
             buildErrorMessage(
                 prefix =
-                    "CurBox paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again.",
+                    "Horus paired successfully, but the Direct ADB connection is not ready yet. Retry the connection without pairing again.",
                 cause =
                     cause?.message
             )
@@ -1086,7 +1086,7 @@ class DirectAccessSetupFragment : Fragment() {
             binding
                 .statusText
                 .text =
-                "Enable CurBox in Accessibility settings. Automatic pairing will continue when you return."
+                "Enable Horus in Accessibility settings. Automatic pairing will continue when you return."
 
             openAccessibilitySettings()
 
@@ -1109,7 +1109,7 @@ class DirectAccessSetupFragment : Fragment() {
             binding
                 .statusText
                 .text =
-                "CurBox Accessibility is enabled, but the service did not become ready. Tap Start automatic pairing to retry."
+                "Horus Accessibility is enabled, but the service did not become ready. Tap Start automatic pairing to retry."
 
             return
         }
@@ -1180,16 +1180,16 @@ class DirectAccessSetupFragment : Fragment() {
                     "Pairing code captured. Waiting for the pairing service…"
 
                 DirectAccessOrchestrator.State.PAIRING ->
-                    "Pairing CurBox automatically…"
+                    "Pairing Horus automatically…"
 
                 DirectAccessOrchestrator.State.PAIRED ->
-                    "CurBox is paired. Preparing the Direct ADB connection…"
+                    "Horus is paired. Preparing the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.DISCOVERING_CONNECTION ->
-                    "CurBox is paired. Looking for the Direct ADB connection…"
+                    "Horus is paired. Looking for the Direct ADB connection…"
 
                 DirectAccessOrchestrator.State.CONNECTING ->
-                    "CurBox is paired. Connecting to Direct ADB…"
+                    "Horus is paired. Connecting to Direct ADB…"
 
                 DirectAccessOrchestrator.State.CONNECTED ->
                     "Direct ADB connected."
@@ -1485,9 +1485,9 @@ class DirectAccessSetupFragment : Fragment() {
             .shizukuStatus
             .text =
             if (permissionGranted) {
-                "Shizuku is available and CurBox has permission."
+                "Shizuku is available and Horus has permission."
             } else {
-                "Shizuku is available. CurBox permission is required."
+                "Shizuku is available. Horus permission is required."
             }
 
         currentBinding

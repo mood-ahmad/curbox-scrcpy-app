@@ -139,7 +139,7 @@ class AdbAutoPairingCoordinator(
         ) {
             listener.onError(
                 IllegalStateException(
-                    "CurBox Accessibility service must be enabled before automatic pairing."
+                    "Horus Accessibility service must be enabled before automatic pairing."
                 )
             )
 
@@ -463,7 +463,7 @@ class AdbAutoPairingCoordinator(
 
                 fail(
                     IllegalStateException(
-                        "CurBox Accessibility service did not become ready for automatic pairing."
+                        "Horus Accessibility service did not become ready for automatic pairing."
                     )
                 )
             }

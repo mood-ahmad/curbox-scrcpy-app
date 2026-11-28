@@ -85,8 +85,10 @@ class AntiUninstallBlocker : BaseBlocker() {
         }
 
         //Accessibility Service Block
-        val matches = service.rootInActiveWindow.findAccessibilityNodeInfosByText("Curbox App Blocker shortcut")
-        if(!matches.isNullOrEmpty()){
+        val root = service.rootInActiveWindow
+        val matches = root.findAccessibilityNodeInfosByText("Horus App Blocker shortcut").orEmpty() +
+            root.findAccessibilityNodeInfosByText("Curbox App Blocker shortcut").orEmpty()
+        if(matches.isNotEmpty()){
             bounce()
             return
         }

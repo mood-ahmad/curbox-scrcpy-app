@@ -9,12 +9,12 @@
     <string name="app_icon">app_logo</string>
     <string name="accessibility_permission_app_blocker">
         Dieses Feature benötigt die Berechtigung, über anderen Apps dargestellt werden zu können, um zu funktionieren. Bitte aktiviere das zuerst, bevor du dieses aktivierst. Sollte etwas aufhören zu funktionieren, starte die App neu.\n\n
-        Durch Aktivierung kann Curbox folgendes für dich tun:\n1. Apps blockieren\n2. Kurzforminhalte blockieren\n3. Webseiten und Stichpunkte blockieren\n4. Fokusmodus\n5. Teile einer App verstecken, die dich ablenken\n6. Sehen, wie viel Zeit du in welcher App verbringst\n7. Zählen, wie viele Kurzformvideos du scrollst und die Zahl schwebend in App anzeigen\n8. Sehen welche Webseiten du besuchst und für wie lang\n\n
-        Curbox benötigt barrierefreien Zugang umd zu sehen, auf welcher App, Webseite oder Bildschirm du bist, sodass es nach deinen Wünschen blockiert werden kann und deine Nutzungsdaten behalten werden können. Ohne das wird nichts davon funktionieren.\n\n
-        Curbox teilt niemald irgendetwas ohne deine Zustimmung.
+        Durch Aktivierung kann Horus folgendes für dich tun:\n1. Apps blockieren\n2. Kurzforminhalte blockieren\n3. Webseiten und Stichpunkte blockieren\n4. Fokusmodus\n5. Teile einer App verstecken, die dich ablenken\n6. Sehen, wie viel Zeit du in welcher App verbringst\n7. Zählen, wie viele Kurzformvideos du scrollst und die Zahl schwebend in App anzeigen\n8. Sehen welche Webseiten du besuchst und für wie lang\n\n
+        Horus benötigt barrierefreien Zugang umd zu sehen, auf welcher App, Webseite oder Bildschirm du bist, sodass es nach deinen Wünschen blockiert werden kann und deine Nutzungsdaten behalten werden können. Ohne das wird nichts davon funktionieren.\n\n
+        Horus teilt niemald irgendetwas ohne deine Zustimmung.
         \n\n
     </string>
-    <string name="admin_permission_desc">Curbox Manipulationsschutz</string>
+    <string name="admin_permission_desc">Horus Manipulationsschutz</string>
     <string name="close">Schließen</string>
     <string name="proceed">Fortfahren</string>
     <string name="cancel">Abbruch</string>
@@ -45,11 +45,11 @@
         <item quantity="other">• %1$s (%2$d Sitzungen)</item>
     </plurals>
     <string name="quick_setup_guide">Schnelleinrichtung</string>
-    <string name="curbox_needs_accessibility_permissions_to_help">Curbox benötigt Berechtigung für Bedieungshilfen um dir beim verfolgen deiner Bilschirmzeit zu helfen. Der Einrichtungsprozess hängt davon ab, wie du die App installiert hast.</string>
+    <string name="curbox_needs_accessibility_permissions_to_help">Horus benötigt Berechtigung für Bedieungshilfen um dir beim verfolgen deiner Bilschirmzeit zu helfen. Der Einrichtungsprozess hängt davon ab, wie du die App installiert hast.</string>
     <string name="fdroid_installation">F-Droid Installation</string>
-    <string name="installed_via_fdroid_appnyoure_all_set">✅ Über F-Droid installiert?\nAlles klar! Folge einfach den Anweisungen im nächsten Schritt.\n\n⚠️ Von der F-Droid Website installiert?\nBitte intalliere Curbox durch die F-Droid App um Berechtigungsprobleme zu vermeiden.</string>
+    <string name="installed_via_fdroid_appnyoure_all_set">✅ Über F-Droid installiert?\nAlles klar! Folge einfach den Anweisungen im nächsten Schritt.\n\n⚠️ Von der F-Droid Website installiert?\nBitte intalliere Horus durch die F-Droid App um Berechtigungsprobleme zu vermeiden.</string>
     <string name="apk_installation">APK Installation</string>
-    <string name="if_you_installed_from_an_apk">Wenn du aus eine APK installiert hast, folge den Schritten:\n\n1️⃣ Einstellungen öffnen → Apps → Curbox\n\n2️⃣ Klicke auf Berechtigungen → Spezieller App Zugriff → Barrierefreiheit → Curbox aktivieren\n\n3️⃣ Zurückkehren zur Curbox App Info → Scrolle nach unten → Klicke eingeschränkte Einstellungen → Erlauben\n\n💡 Pro Tipp: Installiere via F-Droid App für eine einfachere Einrichtung! 🚀</string>
+    <string name="if_you_installed_from_an_apk">Wenn du aus eine APK installiert hast, folge den Schritten:\n\n1️⃣ Einstellungen öffnen → Apps → Horus\n\n2️⃣ Klicke auf Berechtigungen → Spezieller App Zugriff → Barrierefreiheit → Horus aktivieren\n\n3️⃣ Zurückkehren zur Horus App Info → Scrolle nach unten → Klicke eingeschränkte Einstellungen → Erlauben\n\n💡 Pro Tipp: Installiere via F-Droid App für eine einfachere Einrichtung! 🚀</string>
     <string name="usage_timeline">Nutzungszeitstrahl</string>
     <string name="screentime">Bildschirmzeit</string>
     <string name="app_opens">Appöffnungen</string>
@@ -81,34 +81,34 @@
     <string name="grayscale_filter">Grautonfilter</string>
     <string name="reduce_visual_stimulation">Visuelle Stimulation reduzieren</string>
     <string name="fuel_the_developer">Über den Entwickler ☕</string>
-    <string name="hello_this_is_nethical_the_creator">Hey, I\'m Nethical, the person behind Curbox. I\'m 18, fresh out of high school, and a little obsessed with tech, art, and building cool things from scratch. A while back I went looking for a free app blocker that actually did what I wanted. Nothing came close, so I built my own. Curbox is that app, and I\'ve been pouring into it almost every day for over two years now. So happy you\'re here. I hope it helps you take your time back.</string>
+    <string name="hello_this_is_nethical_the_creator">Hey, I\'m Nethical, the person behind Horus. I\'m 18, fresh out of high school, and a little obsessed with tech, art, and building cool things from scratch. A while back I went looking for a free app blocker that actually did what I wanted. Nothing came close, so I built my own. Horus is that app, and I\'ve been pouring into it almost every day for over two years now. So happy you\'re here. I hope it helps you take your time back.</string>
     <string name="support_the_project">Das Projekt unterstützen ↗</string>
     <string name="join_the_focus_pack">Werde Teil der Fokus Gemeinschaft</string>
     <string name="dont_fix_your_screen_time_alone">Repariere deine Bilschirmzeit nicht alleine. Tritt unserem Discord bei um Gleichgesinnte zu treffen, die sich gegenseitig unterstützen und Strategien teilen, um sich selbst zu verbessern.</string>
     <string name="join_the_discord">Tritt dem Discord bei</string>
     <string name="curboxapp">\@curb.me</string>
-    <string name="follow_curbox">Folge Curbox</string>
+    <string name="follow_curbox">Folge Horus</string>
     <string name="label_instagram">Instagram</string>
     <string name="label_github">GitHub</string>
     <string name="curbox_github_repo">curbox-android</string>
-    <string name="curbox_also_on">Curbox auch hier</string>
+    <string name="curbox_also_on">Horus auch hier</string>
     <string name="label_browser_extension">Browsererweiterung</string>
-    <string name="curbox_extension_repo">curbox-extension</string>
+    <string name="curbox_extension_repo">horus-extension</string>
     <string name="about_the_developer">Über den Entwickler</string>
     <string name="view_on_github">Auf GitHub ansehen ↗</string>
     <string name="donate_title">Spenden</string>
-    <string name="donate_pitch">Ich habe 1500+ Stunden in Curbox investiert, es neben der Schule, Prüfungen und Lernen gebaut um Millionen von Minuten weltweit zu retten. Spenden hilft mir, es kostenlos zu halten und für alle weiterzuentwickeln.</string>
+    <string name="donate_pitch">Ich habe 1500+ Stunden in Horus investiert, es neben der Schule, Prüfungen und Lernen gebaut um Millionen von Minuten weltweit zu retten. Spenden hilft mir, es kostenlos zu halten und für alle weiterzuentwickeln.</string>
     <string name="btn_donate">Spenden ❤</string>
     <string name="cannot_donate_share">Du kannst nichts spenden? Das Projekt zu teilen hilft bereits!</string>
     <string name="donate_prompt_title">Darf ich dich um einen Gefallen bitten?</string>
-    <string name="donate_prompt_value">Du bist jetzt schon eine Weile bei Curbox und das bedeutet mir die Welt.</string>
-    <string name="donate_prompt_footer">Absolut kein Druck. Curbox bleibt kostenlos</string>
+    <string name="donate_prompt_value">Du bist jetzt schon eine Weile bei Horus und das bedeutet mir die Welt.</string>
+    <string name="donate_prompt_footer">Absolut kein Druck. Horus bleibt kostenlos</string>
     <string name="donate_prompt_give">Ich steuere etwas bei ❤</string>
     <string name="donate_prompt_share">Ich teile es stattdessen</string>
     <string name="donate_prompt_later">Vielleicht später</string>
-    <string name="share_curbox_message">Ich benutze Curbox, um die Kontrolle über meine Bildschirmzeit zurückzugewinnen. Es ist kostenlos, prober es aus: https://curbox.app</string>
+    <string name="share_curbox_message">Ich benutze Horus, um die Kontrolle über meine Bildschirmzeit zurückzugewinnen. Es ist kostenlos, prober es aus: https://curbox.app</string>
     <string name="system_diagnostics">Systemdiagnosen</string>
-    <string name="view_and_share_application_crash_logs">Betrachte und teile Absturzberichte, um zu helfen, Curbox zu verbessern</string>
+    <string name="view_and_share_application_crash_logs">Betrachte und teile Absturzberichte, um zu helfen, Horus zu verbessern</string>
     <string name="view_crash_logs">Absturzberichte ansehen</string>
     <string name="group_name">Name</string>
     <string name="group_name_required">Bitte gib einen Gruppennamen ein</string>
@@ -207,13 +207,13 @@
     <string name="search_recursively_for_blocked_keywords_on">Rekursiv nach gesperrten Stichwörtern in allen Texten auf dem Bildschirm suchen</string>
     <string name="block_all_browsers_except_supported_ones">Nicht unterstützte Browser blockieren</string>
     <string name="select_ignored_apps">Ignorierte Apps auswählen</string>
-    <string name="activity_powered_by">BETRIEBEN VON CURBOX</string>
+    <string name="activity_powered_by">BETRIEBEN VON Horus</string>
     <string name="your_digital_wellbeing">Dein digitales Wohlbefinden</string>
     <string name="total_today">SUMME HEUTE</string>
     <string name="most_used">AM MEISTEN VERWENDET</string>
     <string name="crunching_numbers">Zahlen werden ausgewertet...</string>
     <string name="usage_welcome_title">Hallo lieber Nutzer</string>
-    <string name="usage_welcome_message">Deine Appstatistiken werden genau hier erscheinen. Ich habe angefangen mitzustoppen, als du mich installiert hast. Bitte lies die Dokumentation, sodass du Curbox\' volles Potenzial ausschöpfen kannst.</string>
+    <string name="usage_welcome_message">Deine Appstatistiken werden genau hier erscheinen. Ich habe angefangen mitzustoppen, als du mich installiert hast. Bitte lies die Dokumentation, sodass du Horus\' volles Potenzial ausschöpfen kannst.</string>
     <string name="usage_welcome_read_docs">Dokumentation lesen</string>
     <string name="usage_welcome_star_repo">Gib uns einen Stern</string>
     <string name="whats_new_title">Was ist neu?</string>
@@ -356,7 +356,7 @@
     <string name="dialog_question_mark">\?</string>
     <string name="blocking_service_channel_name">Sperrservice</string>
     <string name="blocking_service_channel_description">Läuft im Hintergrund um dich zu schützen</string>
-    <string name="blocking_service_notification_title">Curbox %1$s ist aktiv</string>
+    <string name="blocking_service_notification_title">Horus %1$s ist aktiv</string>
     <string name="blocking_service_notification_text">Beschütze dein digitales Wohlbefinden</string>
     <string name="picker_no_element_found">Kein Element gefunden an diesem Punkt</string>
     <string name="picker_no_element_selected">Kein Element ausgewählt</string>
@@ -371,10 +371,10 @@
     <string name="nfc_focus_stopped">Fokus stoppte</string>
     <string name="nfc_focus_no_group">Keine Fokusgruppe zum Starten gefunden</string>
     <string name="nfc_focus_not_exitable">Diese Fokussitzung kann nicht früher beendet werden</string>
-    <string name="nfc_tag_unrecognized">Unbekannter Curbox NFC-Tag</string>
+    <string name="nfc_tag_unrecognized">Unbekannter Horus NFC-Tag</string>
 
     <string name="onboarding_non_session_title">Nicht sitzungsbasierte Installation erkannt</string>
-    <string name="onboarding_restricted_settings_desc">Android 13+ schränkt Zugriffsdienste für Apps, die nicht aus App Stores (wie F-Droid oder Play Store) kommen ein. Um Berechtigungen zu aktivieren musst du \'Eingeschränkte Einstellungen\' manuell für Curbox aktivieren. Alternativ installire via F-Droid App (nicht Webseite), um dies zu vermeiden.</string>
+    <string name="onboarding_restricted_settings_desc">Android 13+ schränkt Zugriffsdienste für Apps, die nicht aus App Stores (wie F-Droid oder Play Store) kommen ein. Um Berechtigungen zu aktivieren musst du \'Eingeschränkte Einstellungen\' manuell für Horus aktivieren. Alternativ installire via F-Droid App (nicht Webseite), um dies zu vermeiden.</string>
     <string name="onboarding_show_tutorial">Anleitung um Berechtigungen zu aktivieren anzeigen</string>
     <string name="onboarding_shizuku_grant">Gewähre alle Berechtigungen mit Shizuku</string>
     <string name="sync_paywall_title">Stelle die Einrichtung der Synchronisation fertig.</string>
@@ -396,7 +396,7 @@
     <string name="pairing_code_warning_message">Dieser Code beinhaltet den geheimen Schlüssel, der all deine synchronisierten Daten freischaltet. Jeder, der ein Foto davon macht, kann deine Daten lesen. Bitte mach keine Screenshots und teile ihn auf keinen Fall. Der Code versteckt sich selbst nach einer Minute.</string>
     <string name="pairing_code_show">Code anzeigen</string>
     <string name="dnd_access_dialog_title">Bitte nicht stören</string>
-    <string name="dnd_access_dialog_message">Curbox benötigt dies, um Bitte nicht stören für dich zu aktivieren, sodass du Anrufe und Wecker stummschalten kannst während du dich fokussierst. Ohne kann Curbox Ablenkungen nicht stummschalten.\n\n🔒 Curbox sammelt, sendet oder speichert niemals deine Daten auf einem Server ohne deine Zustimmung.\n\n🛡️ Curbox respektiert deinen Frieden: Es benutzt dies nur um Ablenkungen stummzuschalten wenn du danach fragst.</string>
+    <string name="dnd_access_dialog_message">Horus benötigt dies, um Bitte nicht stören für dich zu aktivieren, sodass du Anrufe und Wecker stummschalten kannst während du dich fokussierst. Ohne kann Horus Ablenkungen nicht stummschalten.\n\n🔒 Horus sammelt, sendet oder speichert niemals deine Daten auf einem Server ohne deine Zustimmung.\n\n🛡️ Horus respektiert deinen Frieden: Es benutzt dies nur um Ablenkungen stummzuschalten wenn du danach fragst.</string>
     <string name="picker_dialog_block_element">Dieses Element blockieren</string>
     <string name="picker_dialog_generated_rule">Generierte Regel:</string>
     <string name="picker_dialog_rule_desc">Auto-generiert aus deiner Auswahl. Wechsle zwischen Chips unten um anzupassen.</string>
@@ -420,7 +420,7 @@
     <string name="empty_intents_desc">Versuche filter anzupassen oder eine App zu entsperren</string>
     <string name="grayscale_shizuku_title">Shizuku Erlaubnis benötigt</string>
     <string name="grayscale_shizuku_desc">Diese Funktion benötigt Shizuku Berechtiungen um den Graustufenfilter korrekt anzuwenden.</string>
-    <string name="grayscale_secure_settings_desc">Curbox benötigt eine einmalige Berechtigung, deine Bilschirmfarben zu verändern. Erteile diese mit Shizuku. Danach funktionieren die Graustufen von selbst, auch wenn du dein Handy neu startest.</string>
+    <string name="grayscale_secure_settings_desc">Horus benötigt eine einmalige Berechtigung, deine Bilschirmfarben zu verändern. Erteile diese mit Shizuku. Danach funktionieren die Graustufen von selbst, auch wenn du dein Handy neu startest.</string>
     <string name="btn_grant_permission">Berechtigungen erteilen</string>
     <string name="picker_control_tap_to_select">Klicke auf ein Element um es auszuwählen</string>
     <string name="btn_deeper">Tiefer</string>
@@ -474,7 +474,7 @@
     <string name="label_app_pause">App-Pause</string>
     <string name="label_rather_spend_time">Ich würde in dieser Zeit lieber...</string>
     <string name="label_recommended">Empfohlen</string>
-    <string name="crash_title">Oops! Curbox ist abgestürzt</string>
+    <string name="crash_title">Oops! Horus ist abgestürzt</string>
     <string name="crash_desc">Etwas ist schief gelaufen. Bitte teile die Absturzberichte mit dem Entwickler, damit das Problem behoben werden kann.</string>
     <string name="btn_clear">Löschen</string>
     <string name="btn_restart">Neustarten</string>
@@ -1236,67 +1236,67 @@
 
     <!-- Curbox API -->
     <string name="label_automation">AUTOMATISIERUNG</string>
-    <string name="api_screen_title">Curbox API</string>
-    <string name="api_card_subtitle">Lass andere Apps Curbox steuern</string>
+    <string name="api_screen_title">Horus API</string>
+    <string name="api_card_subtitle">Lass andere Apps Horus steuern</string>
     <string name="api_screen_subtitle">Andere Apps können dich auffordern, Fokusmodus zu starten, Sperren zu aktivieren und deine Daten auszulesen. Du entscheidest, wer Zugriff bekommt.</string>
     <string name="api_enable_title">Andere Apps zulassen</string>
-    <string name="api_enable_subtitle">Wenn das hier aus ist, kann keine App Curbox steuern, auch wenn du das vorher erlaubt hast.</string>
+    <string name="api_enable_subtitle">Wenn das hier aus ist, kann keine App Horus steuern, auch wenn du das vorher erlaubt hast.</string>
     <string name="api_connected_title">Verbundene Apps</string>
-    <string name="api_no_apps">Keine Apps verbunden. Curbox wird nach deiner Zustimmung fragen wenn eine App Zugriff fordert, dann die zugelassenen Apps hier anzeigen.</string>
+    <string name="api_no_apps">Keine Apps verbunden. Horus wird nach deiner Zustimmung fragen wenn eine App Zugriff fordert, dann die zugelassenen Apps hier anzeigen.</string>
     <string name="api_revoke">Löschen</string>
     <string name="api_how_title">Wie es funktioniert</string>
-    <string name="api_how_body">Wenn eine andere App Zugriff anfordert, zeigt Curbox dir den Namen und fragt nach deiner Zustimmung. Eine zugelassene App kann Befehle ausführen bis du sie entfernst. Eine App zu entfernen beendet ihren Zugriff direkt.</string>
-    <string name="api_help_popup">Andere Apps können danach fragen, Curbox zu kontrollieren. Du kannst jede einzelne zulassen oder ablehnen und du kannst den Zugriff jederzeit sperren.</string>
+    <string name="api_how_body">Wenn eine andere App Zugriff anfordert, zeigt Horus dir den Namen und fragt nach deiner Zustimmung. Eine zugelassene App kann Befehle ausführen bis du sie entfernst. Eine App zu entfernen beendet ihren Zugriff direkt.</string>
+    <string name="api_help_popup">Andere Apps können danach fragen, Horus zu kontrollieren. Du kannst jede einzelne zulassen oder ablehnen und du kannst den Zugriff jederzeit sperren.</string>
 
     <!-- Service protection (keep alive) -->
-    <string name="service_protection_title">Lass Curbox weiterlaufen</string>
-    <string name="service_protection_card_subtitle">Hilf, Curbox\' Sperren weiterlaufen zu lassen</string>
-    <string name="service_protection_subtitle">Manche Handys stoppen Curbox im Hintergrund um Akku zu sparen. Diese Optionen helfen dir, die Sperren laufenzulassen und neu zu starten, wenn sie stoppen. Keine Option kann garantieren, dass Curbox immer laufen wird.</string>
+    <string name="service_protection_title">Lass Horus weiterlaufen</string>
+    <string name="service_protection_card_subtitle">Hilf, Horus\' Sperren weiterlaufen zu lassen</string>
+    <string name="service_protection_subtitle">Manche Handys stoppen Horus im Hintergrund um Akku zu sparen. Diese Optionen helfen dir, die Sperren laufenzulassen und neu zu starten, wenn sie stoppen. Keine Option kann garantieren, dass Horus immer laufen wird.</string>
     <string name="service_protection_master_title">Schutz</string>
     <string name="service_protection_master_desc">Alle unten aufgeführten Schichten aktivieren</string>
     <string name="service_protection_status_header">Was arbeitet gerade</string>
-    <string name="service_protection_row_services_title">Curbox\' Sperren</string>
+    <string name="service_protection_row_services_title">Horus\' Sperren</string>
     <string name="service_protection_services_on">Sperren laufen</string>
     <string name="service_protection_services_off">Sperren laufen nicht</string>
     <string name="service_protection_row_battery_title">Akkunutzung</string>
-    <string name="service_protection_battery_ok">Akkueistellungen helfen Curbox, aktiv zu bleiben</string>
-    <string name="service_protection_battery_bad">Akkueinstellungen könnte Curbox stoppen, um Akku zu sparen.</string>
+    <string name="service_protection_battery_ok">Akkueistellungen helfen Horus, aktiv zu bleiben</string>
+    <string name="service_protection_battery_bad">Akkueinstellungen könnte Horus stoppen, um Akku zu sparen.</string>
     <string name="service_protection_row_autostart_title">Autostart</string>
-    <string name="service_protection_row_autostart_desc">Manche Handys benötigen separate Einstellungen um Curbox automatisch starten zu können. Bitte erlaube Autostart</string>
+    <string name="service_protection_row_autostart_desc">Manche Handys benötigen separate Einstellungen um Horus automatisch starten zu können. Bitte erlaube Autostart</string>
     <string name="service_protection_row_shizuku_title">Autoreparatur</string>
-    <string name="service_protection_shizuku_on">Curbox kann seine Sperren automatisch neu starten</string>
-    <string name="service_protection_shizuku_off">Richte Shizuku ein, damit Curbox seine Sperren neustarten kann</string>
+    <string name="service_protection_shizuku_on">Horus kann seine Sperren automatisch neu starten</string>
+    <string name="service_protection_shizuku_off">Richte Shizuku ein, damit Horus seine Sperren neustarten kann</string>
     <string name="service_protection_fix">Reparieren</string>
     <string name="service_protection_open">Öffnen</string>
     <string name="service_protection_setup">Einrichten</string>
     <string name="service_protection_shizuku_not_installed">Shizuku läuft nicht. Öffen die Webseite.</string>
     <string name="service_protection_repair_now">Jetzt reparieren</string>
-    <string name="service_protection_repair_started">Versuche Curbox\' Sperren neuzustarten</string>
+    <string name="service_protection_repair_started">Versuche Horus\' Sperren neuzustarten</string>
     <string name="service_protection_no_screen">Diese Einstellungen sind auf diesem Handy nicht verfügbar.</string>
-    <string name="service_protection_autostart_manual">Bitte öffne deine Einstellungen und erlaube Curbox, automatisch zu starten</string>
+    <string name="service_protection_autostart_manual">Bitte öffne deine Einstellungen und erlaube Horus, automatisch zu starten</string>
     <string name="service_protection_advanced_header">Fortgeschritten</string>
-    <string name="service_protection_device_owner">Mach Curbox zum Besitzer des Geräts</string>
+    <string name="service_protection_device_owner">Mach Horus zum Besitzer des Geräts</string>
     <string name="service_protection_device_owner_warning">Das ist die stärkste Option. Es bleibt sogar nach einem zwanghaften beenden an und blockiert eine Desinstallation komplett. Es funktioniert nur auf einem Handy ohne Accounts und ist kompliziert, später wieder zu entfernen. Tu dies nur wenn du dir sicher bist.</string>
     <string name="service_protection_cancel">Abbrechen</string>
     <string name="service_protection_continue">Fortfahren</string>
-    <string name="service_protection_help_popup">Handy beenden oft Hintergrundapps um Akku zu sparen. Dieser Bildschirm hiflt Curbox, mit Akkuzugriff, Autostart, normalen Checks und optionaler Wiederherstellung durch Shizuku weiterzulaufen. Diese Optionen machen es schwerer, Curbox zu stoppen, aber es kann nicht garantiert werden, dass es immer laufen wird.</string>
+    <string name="service_protection_help_popup">Handy beenden oft Hintergrundapps um Akku zu sparen. Dieser Bildschirm hiflt Horus, mit Akkuzugriff, Autostart, normalen Checks und optionaler Wiederherstellung durch Shizuku weiterzulaufen. Diese Optionen machen es schwerer, Horus zu stoppen, aber es kann nicht garantiert werden, dass es immer laufen wird.</string>
     <string name="service_protection_channel_name">Service-Schutz</string>
-    <string name="service_protection_down_title">Curbox\' Sperren gestoppt</string>
+    <string name="service_protection_down_title">Horus\' Sperren gestoppt</string>
     <string name="service_protection_down_text">Tippe um sie wieder einzuschalten sodass deine Sperren weiterlaufen</string>
 
     <!-- Tamper protection -->
     <string name="anti_uninstall_title">Manipulationsschutz</string>
-    <string name="anti_uninstall_card_subtitle">Mach es schwerer, Curbox zu deinstallieren</string>
-    <string name="anti_uninstall_subtitle">Wenn das hier an ist, kann Curbox nicht deinstalliert werden bis du es manuell ausschaltest. Stell es dir vor wie einen Sicherheitsgurt für deine Willenskraft.</string>
-    <string name="anti_uninstall_limits_warning">Dies macht es nicht unmöglich, Curbox zu installieren. Es macht die Deinstallation nur schwerer.</string>
-    <string name="anti_uninstall_disable_warning">Curbox hälst sich selbst installiert um deinen Fokus zu schützen. Deaktiviere zuerst Manipulationsschutz in der App.</string>
+    <string name="anti_uninstall_card_subtitle">Mach es schwerer, Horus zu deinstallieren</string>
+    <string name="anti_uninstall_subtitle">Wenn das hier an ist, kann Horus nicht deinstalliert werden bis du es manuell ausschaltest. Stell es dir vor wie einen Sicherheitsgurt für deine Willenskraft.</string>
+    <string name="anti_uninstall_limits_warning">Dies macht es nicht unmöglich, Horus zu installieren. Es macht die Deinstallation nur schwerer.</string>
+    <string name="anti_uninstall_disable_warning">Horus hälst sich selbst installiert um deinen Fokus zu schützen. Deaktiviere zuerst Manipulationsschutz in der App.</string>
     <string name="anti_uninstall_setup_again">Etwas ist schiefgelaufen. Bitte wähle deine Authentifizierungsoption nochmal.</string>
-    <string name="anti_uninstall_admin_explanation">Curbox benutzt dies um sich selbst installiert zu halten während der Schutz an ist.</string>
-    <string name="anti_uninstall_admin_needed">Diese Berechtigung ist benötigt um Curbox installiert zu halten.</string>
-    <string name="anti_uninstall_help_popup">Wenn dies an ist, kann Curbox nicht deinstalliert werden und seine Services können nicht deaktiviert werden bis du es deaktivierst mit der von dir gewählten Methode: ein Passwort, ein paar Tage warten oder ein eintägiger Countdown, den du jederzeit stoppen kannst.</string>
+    <string name="anti_uninstall_admin_explanation">Horus benutzt dies um sich selbst installiert zu halten während der Schutz an ist.</string>
+    <string name="anti_uninstall_admin_needed">Diese Berechtigung ist benötigt um Horus installiert zu halten.</string>
+    <string name="anti_uninstall_help_popup">Wenn dies an ist, kann Horus nicht deinstalliert werden und seine Services können nicht deaktiviert werden bis du es deaktivierst mit der von dir gewählten Methode: ein Passwort, ein paar Tage warten oder ein eintägiger Countdown, den du jederzeit stoppen kannst.</string>
 
     <string name="anti_uninstall_status_off_title">Schutz ist aus</string>
-    <string name="anti_uninstall_status_off_body">Curbox kann grade deinstalliert werden</string>
+    <string name="anti_uninstall_status_off_body">Horus kann grade deinstalliert werden</string>
     <string name="anti_uninstall_status_on_title">Schutz ist an</string>
     <string name="anti_uninstall_status_unlocking_title">Wird bald ausgeschaltet</string>
     <string name="anti_uninstall_status_unlocking_body">Schutz wird in %1$s deaktiviert.</string>
@@ -1399,7 +1399,7 @@
 
     <!-- Curbox API permission screen -->
     <string name="api_permission_title">Zugriff erlauben?</string>
-    <string name="api_permission_message">%1$s will Curbox steuern. Es kann Fokussitzungen starten, Sperren an und ausschalten und deine Bilschirmzeit lesen. Du kannst es jederzeit entfernen.</string>
+    <string name="api_permission_message">%1$s will Horus steuern. Es kann Fokussitzungen starten, Sperren an und ausschalten und deine Bilschirmzeit lesen. Du kannst es jederzeit entfernen.</string>
     <string name="api_permission_allow">Erlauben</string>
     <string name="api_permission_deny">Ablehnen</string>
 
@@ -1512,16 +1512,16 @@
     <!-- Onboarding permissions -->
     <string name="onboarding_app_limit_group_name">%1$s Grenzen</string>
     <string name="onboarding_perm_overlay_title">Bildschirmüberlagerung</string>
-    <string name="onboarding_perm_overlay_rationale">Curbox benötigt dies um einen beruhigenden Pause-Bilschirm über ablenkenden Apps anzuzeigen wenn du diese öffnest. Ohne das kann Curbox nichts über jene Apps legen und dir nicht helfen, zu pausieren und reflektieren.</string>
-    <string name="onboarding_perm_overlay_opensource">🛡️ Open Source: Stell dir Curbox wie ein Restaurant mit offener Küche vor. Der gesamte Code ist frei verfügbar, jeder kann prüfen, ob Curbox nichts verdächtiges tut. Es gibt hier keine geschlossenen Türen.</string>
+    <string name="onboarding_perm_overlay_rationale">Horus benötigt dies um einen beruhigenden Pause-Bilschirm über ablenkenden Apps anzuzeigen wenn du diese öffnest. Ohne das kann Horus nichts über jene Apps legen und dir nicht helfen, zu pausieren und reflektieren.</string>
+    <string name="onboarding_perm_overlay_opensource">🛡️ Open Source: Stell dir Horus wie ein Restaurant mit offener Küche vor. Der gesamte Code ist frei verfügbar, jeder kann prüfen, ob Horus nichts verdächtiges tut. Es gibt hier keine geschlossenen Türen.</string>
     <string name="onboarding_perm_notif_title">Benachrichtigungen</string>
-    <string name="onboarding_perm_notif_rationale">Curbox benötigt dies um im Hintergrund weiter laufen zu könne um die App-Sperren starten zu können und dich freundlich an deine Ziele zu erinnern. Android kann Curbox ohne einfach stoppen und deine Sperren können aufhören zu funktionieren.</string>
-    <string name="onboarding_perm_notif_opensource">🛡️ Kein Datenhändler: Viele Apps verstecken ihren Code weil sie Geld damit verdienen, deine Daten zu verkaufen. Curbox hält seinen gesamten Code öffentlich, du kannst also selber nachschauen, dass nichts im Hintergrund leise deine Informationen wegsendet.</string>
+    <string name="onboarding_perm_notif_rationale">Horus benötigt dies um im Hintergrund weiter laufen zu könne um die App-Sperren starten zu können und dich freundlich an deine Ziele zu erinnern. Android kann Horus ohne einfach stoppen und deine Sperren können aufhören zu funktionieren.</string>
+    <string name="onboarding_perm_notif_opensource">🛡️ Kein Datenhändler: Viele Apps verstecken ihren Code weil sie Geld damit verdienen, deine Daten zu verkaufen. Horus hält seinen gesamten Code öffentlich, du kannst also selber nachschauen, dass nichts im Hintergrund leise deine Informationen wegsendet.</string>
     <string name="onboarding_perm_accessibility_title">Appsperren (Zugriffs API)</string>
-    <string name="onboarding_perm_accessibility_rationale">Curbox benötigt dies um zu bemerken wenn du eine gesperrte App öffnest und um den Sperrbildschim anzuzeigen. Es würd außerdem dafür verwendet, dein Bilschirmzeit aufzunehmen und zu messen, wie viele Reels du anschaust. Ohne kann Curbox überhaupt nicht funktionieren.</string>
-    <string name="onboarding_perm_accessibility_opensource">🛡️ Transparenz für tiefe Eingriffe: Diese Berechtigung ist sehr mächtig, weshalb es so wichtig ist, dass Curbox Open Source ist. Du musst Curbox nicht vertrauen. Die globale Gemeinschaft hat den öffentlichen Code bereits geprüft und bestätigt, dass Curbox nur Apps sperrt und Nutzung aufzeichnet.</string>
+    <string name="onboarding_perm_accessibility_rationale">Horus benötigt dies um zu bemerken wenn du eine gesperrte App öffnest und um den Sperrbildschim anzuzeigen. Es würd außerdem dafür verwendet, dein Bilschirmzeit aufzunehmen und zu messen, wie viele Reels du anschaust. Ohne kann Horus überhaupt nicht funktionieren.</string>
+    <string name="onboarding_perm_accessibility_opensource">🛡️ Transparenz für tiefe Eingriffe: Diese Berechtigung ist sehr mächtig, weshalb es so wichtig ist, dass Horus Open Source ist. Du musst Horus nicht vertrauen. Die globale Gemeinschaft hat den öffentlichen Code bereits geprüft und bestätigt, dass Horus nur Apps sperrt und Nutzung aufzeichnet.</string>
     <string name="onboarding_read_documentation">Dokumentation lesen</string>
-    <string name="onboarding_privacy_note">"\n\n🔒 Curbox sammelt, sendet und speichert deine Daten nicht ohne deine Erlaubnis. Alles bleibt auf deinem Handy.\n\n"</string>
+    <string name="onboarding_privacy_note">"\n\n🔒 Horus sammelt, sendet und speichert deine Daten nicht ohne deine Erlaubnis. Alles bleibt auf deinem Handy.\n\n"</string>
     <string name="onboarding_granting_permissions">Berechtigungen erteilen...</string>
     <string name="onboarding_permissions_granted">Berechtigungen erteilt!</string>
     <string name="onboarding_error_tap_retry">Fehler. Tippe um erneut zu versuchen.</string>
@@ -1645,7 +1645,7 @@
     <string name="focus_nfc_load_button">Von Tag laden</string>
     <string name="focus_nfc_load_title">Berühre einen Tag um ihn zu laden</string>
     <string name="focus_nfc_loaded">Werte von Tag geladen</string>
-    <string name="focus_nfc_load_invalid">Dieser Tag ist kein Curbox Fokustag</string>
+    <string name="focus_nfc_load_invalid">Dieser Tag ist kein Horus Fokustag</string>
 
     <!-- Group edit titles -->
     <string name="app_group_edit_title">Appgruppe bearbeiten</string>

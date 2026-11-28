@@ -590,7 +590,7 @@ class InfoFragment : Fragment() {
 
                     putExtra(
                         Intent.EXTRA_SUBJECT,
-                        "Curbox Crash Logs"
+                        "Horus Crash Logs"
                     )
 
                     putExtra(
@@ -601,7 +601,7 @@ class InfoFragment : Fragment() {
                     clipData =
                         ClipData.newUri(
                             context.contentResolver,
-                            "Curbox Crash Logs",
+                            "Horus Crash Logs",
                             logUri
                         )
 

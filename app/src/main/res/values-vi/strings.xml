@@ -14,7 +14,7 @@
         Curbox never shares anything without your permission.
         \n\n
     </string>
-    <string name="admin_permission_desc">Bảo vệ chống giả mạo Curbox</string>
+    <string name="admin_permission_desc">Bảo vệ chống giả mạo Horus</string>
     <string name="close">Đóng</string>
     <string name="proceed">Tiếp tục</string>
     <string name="cancel">Hủy bỏ</string>
@@ -38,11 +38,11 @@
     <string name="focus_completion_rate">Hoàn thành</string>
     <string name="focus_top_tags">Thẻ hàng đầu</string>
     <string name="quick_setup_guide">Hướng dẫn thiết lập nhanh</string>
-    <string name="curbox_needs_accessibility_permissions_to_help">Curbox cần có quyền Trợ năng để giúp bạn theo dõi thời gian sử dụng thiết bị của mình. Quá trình thiết lập khác nhau tùy theo cách bạn cài đặt ứng dụng.</string>
+    <string name="curbox_needs_accessibility_permissions_to_help">Horus cần có quyền Trợ năng để giúp bạn theo dõi thời gian sử dụng thiết bị của mình. Quá trình thiết lập khác nhau tùy theo cách bạn cài đặt ứng dụng.</string>
     <string name="fdroid_installation">Cài đặt F-Droid</string>
     <string name="installed_via_fdroid_appnyoure_all_set">✅ Đã cài đặt qua ứng dụng F-Droid?\nBạn đã hoàn tất! Chỉ cần làm theo thiết lập trợ năng ở bước tiếp theo.\n\n⚠️ Bạn đã tải xuống từ trang web F-Droid?\nHãy cài đặt thông qua ứng dụng F-Droid để tránh các vấn đề về quyền.</string>
     <string name="apk_installation">Cài đặt APK</string>
-    <string name="if_you_installed_from_an_apk">Nếu bạn đã cài đặt từ APK, hãy làm theo các bước sau:\n\n1️⃣ Mở Cài đặt → Ứng dụng → Curbox\n\n2️⃣ Nhấn vào Quyền → Truy cập ứng dụng đặc biệt → Trợ năng → Bật Curbox\n\n3️⃣ Quay lại Thông tin ứng dụng Curbox → Cuộn xuống → Nhấn vào Cài đặt hạn chế → Cho phép\n\n💡 Mẹo chuyên nghiệp: Cài đặt qua ứng dụng F-Droid để thiết lập mượt mà hơn! 🚀</string>
+    <string name="if_you_installed_from_an_apk">Nếu bạn đã cài đặt từ APK, hãy làm theo các bước sau:\n\n1️⃣ Mở Cài đặt → Ứng dụng → Horus\n\n2️⃣ Nhấn vào Quyền → Truy cập ứng dụng đặc biệt → Trợ năng → Bật Horus\n\n3️⃣ Quay lại Thông tin ứng dụng Horus → Cuộn xuống → Nhấn vào Cài đặt hạn chế → Cho phép\n\n💡 Mẹo chuyên nghiệp: Cài đặt qua ứng dụng F-Droid để thiết lập mượt mà hơn! 🚀</string>
     <string name="usage_timeline">Dòng thời gian sử dụng</string>
     <string name="screentime">Thời gian chiếu phim</string>
     <string name="app_opens">Mở ứng dụng</string>
@@ -73,34 +73,34 @@
     <string name="grayscale_filter">Bộ lọc thang độ xám</string>
     <string name="reduce_visual_stimulation">Giảm kích thích thị giác</string>
     <string name="fuel_the_developer">Giới thiệu về Nhà phát triển ☕</string>
-    <string name="hello_this_is_nethical_the_creator">Này, tôi là Nethical, người đứng sau Curbox. Tôi 18 tuổi, mới ra trường trung học và hơi bị ám ảnh bởi công nghệ, nghệ thuật và việc xây dựng những thứ hay ho từ đầu. Cách đây một thời gian, tôi đã tìm kiếm một trình chặn ứng dụng miễn phí thực sự làm được những gì tôi muốn. Không có gì đến gần, vì vậy tôi đã tự xây dựng. Curbox là ứng dụng đó và tôi đã sử dụng nó hầu như hàng ngày trong hơn hai năm nay. Rất vui vì bạn ở đây. Tôi hy vọng nó sẽ giúp bạn lấy lại thời gian.</string>
+    <string name="hello_this_is_nethical_the_creator">Này, tôi là Nethical, người đứng sau Horus. Tôi 18 tuổi, mới ra trường trung học và hơi bị ám ảnh bởi công nghệ, nghệ thuật và việc xây dựng những thứ hay ho từ đầu. Cách đây một thời gian, tôi đã tìm kiếm một trình chặn ứng dụng miễn phí thực sự làm được những gì tôi muốn. Không có gì đến gần, vì vậy tôi đã tự xây dựng. Horus là ứng dụng đó và tôi đã sử dụng nó hầu như hàng ngày trong hơn hai năm nay. Rất vui vì bạn ở đây. Tôi hy vọng nó sẽ giúp bạn lấy lại thời gian.</string>
     <string name="support_the_project">Hỗ trợ dự án ↗</string>
     <string name="join_the_focus_pack">Tham gia gói tập trung</string>
     <string name="dont_fix_your_screen_time_alone">Đừng cố định thời gian sử dụng thiết bị của bạn một mình. Tham gia Discord của chúng tôi với những người cùng chí hướng, giúp nhau có trách nhiệm và chia sẻ các chiến lược tập trung để cải thiện bản thân.</string>
     <string name="join_the_discord">Tham gia vào sự bất hòa</string>
     <string name="curboxapp">\@curb.me</string>
-    <string name="follow_curbox">Theo dõi Curbox</string>
+    <string name="follow_curbox">Theo dõi Horus</string>
     <string name="label_instagram">Instagram</string>
     <string name="label_github">GitHub</string>
     <string name="curbox_github_repo">lề đường-android</string>
-    <string name="curbox_also_on">Curbox cũng bật</string>
+    <string name="curbox_also_on">Horus cũng bật</string>
     <string name="label_browser_extension">Tiện ích mở rộng trình duyệt</string>
     <string name="curbox_extension_repo">phần mở rộng lề đường</string>
     <string name="about_the_developer">Giới thiệu về nhà phát triển</string>
     <string name="view_on_github">Xem trên GitHub ↗</string>
     <string name="donate_title">Quyên tặng</string>
-    <string name="donate_pitch">Tôi đã dành hơn 1500 giờ vào Curbox, xây dựng nó cùng với việc học tập, thi cử và học tập để tiết kiệm hàng triệu phút trên toàn thế giới. Hãy quyên góp để giúp tôi giữ nó miễn phí và phát triển cho mọi người.</string>
+    <string name="donate_pitch">Tôi đã dành hơn 1500 giờ vào Horus, xây dựng nó cùng với việc học tập, thi cử và học tập để tiết kiệm hàng triệu phút trên toàn thế giới. Hãy quyên góp để giúp tôi giữ nó miễn phí và phát triển cho mọi người.</string>
     <string name="btn_donate">Đóng góp ❤</string>
     <string name="cannot_donate_share">Không thể quyên góp? Chia sẻ dự án cũng hữu ích!</string>
     <string name="donate_prompt_title">Tôi có thể nhờ bạn một việc được không?</string>
-    <string name="donate_prompt_value">Bạn đã làm việc với Curbox được một thời gian và điều đó có ý nghĩa rất lớn đối với tôi.</string>
-    <string name="donate_prompt_footer">Không có áp lực nào cả. Curbox vẫn miễn phí cho bạn dù thế nào đi nữa.</string>
+    <string name="donate_prompt_value">Bạn đã làm việc với Horus được một thời gian và điều đó có ý nghĩa rất lớn đối với tôi.</string>
+    <string name="donate_prompt_footer">Không có áp lực nào cả. Horus vẫn miễn phí cho bạn dù thế nào đi nữa.</string>
     <string name="donate_prompt_give">Tôi sẽ góp sức ❤</string>
     <string name="donate_prompt_share">Thay vào đó tôi sẽ chia sẻ nó</string>
     <string name="donate_prompt_later">Có lẽ sau này</string>
-    <string name="share_curbox_message">Tôi đang sử dụng Curbox để lấy lại quyền kiểm soát thời gian sử dụng thiết bị của mình. Nó miễn phí, hãy dùng thử: https://curbox.app</string>
+    <string name="share_curbox_message">Tôi đang sử dụng Horus để lấy lại quyền kiểm soát thời gian sử dụng thiết bị của mình. Nó miễn phí, hãy dùng thử: https://curbox.app</string>
     <string name="system_diagnostics">Chẩn đoán hệ thống</string>
-    <string name="view_and_share_application_crash_logs">Xem và chia sẻ nhật ký sự cố của ứng dụng để giúp cải thiện Curbox.</string>
+    <string name="view_and_share_application_crash_logs">Xem và chia sẻ nhật ký sự cố của ứng dụng để giúp cải thiện Horus.</string>
     <string name="view_crash_logs">Xem nhật ký sự cố</string>
     <string name="group_name">Tên</string>
     <string name="group_name_required">Vui lòng nhập tên nhóm</string>
@@ -200,13 +200,13 @@
     <string name="search_recursively_for_blocked_keywords_on">Tìm kiếm đệ quy các từ khóa bị chặn trên mọi trường văn bản trên màn hình</string>
     <string name="block_all_browsers_except_supported_ones">Chặn trình duyệt không được hỗ trợ</string>
     <string name="select_ignored_apps">Chọn ứng dụng bị bỏ qua</string>
-    <string name="activity_powered_by">ĐƯỢC CUNG CẤP BỞI CURBOX</string>
+    <string name="activity_powered_by">ĐƯỢC CUNG CẤP BỞI Horus</string>
     <string name="your_digital_wellbeing">Sức khỏe kỹ thuật số của bạn</string>
     <string name="total_today">TỔNG HÔM NAY</string>
     <string name="most_used">ĐƯỢC SỬ DỤNG NHIỀU NHẤT</string>
     <string name="crunching_numbers">Những con số khủng khiếp...</string>
     <string name="usage_welcome_title">Xin chào người dùng thân yêu</string>
-    <string name="usage_welcome_message">Số liệu thống kê ứng dụng của bạn sẽ hiển thị ngay tại đây. Tôi bắt đầu theo dõi thời điểm bạn cài đặt tôi. Vui lòng đọc tài liệu để bạn có thể sử dụng Curbox một cách đầy đủ nhất.</string>
+    <string name="usage_welcome_message">Số liệu thống kê ứng dụng của bạn sẽ hiển thị ngay tại đây. Tôi bắt đầu theo dõi thời điểm bạn cài đặt tôi. Vui lòng đọc tài liệu để bạn có thể sử dụng Horus một cách đầy đủ nhất.</string>
     <string name="usage_welcome_read_docs">Đọc tài liệu</string>
     <string name="usage_welcome_star_repo">Gắn dấu sao kho lưu trữ của chúng tôi</string>
     <string name="whats_new_title">Có gì mới</string>
@@ -373,14 +373,14 @@
     <string name="nfc_focus_stopped">Đã dừng lấy nét</string>
     <string name="nfc_focus_no_group">Không tìm thấy nhóm tập trung nào để bắt đầu</string>
     <string name="nfc_focus_not_exitable">Phiên tập trung này không thể kết thúc sớm</string>
-    <string name="nfc_tag_unrecognized">Thẻ NFC Curbox không được nhận dạng</string>
+    <string name="nfc_tag_unrecognized">Thẻ NFC Horus không được nhận dạng</string>
 
     <string name="onboarding_non_session_title">Đã phát hiện cài đặt không dựa trên phiên</string>
-    <string name="onboarding_restricted_settings_desc">Android 13+ hạn chế các dịch vụ Hỗ trợ tiếp cận đối với các ứng dụng được cài đặt bên ngoài cửa hàng ứng dụng (như F-Droid hoặc Play Store). Để bật quyền, bạn cần phải cho phép \'Cài đặt bị hạn chế\' theo cách thủ công đối với Curbox. Ngoài ra, hãy cài đặt qua ứng dụng F-Droid (không phải trang web) để tránh điều này.</string>
+    <string name="onboarding_restricted_settings_desc">Android 13+ hạn chế các dịch vụ Hỗ trợ tiếp cận đối với các ứng dụng được cài đặt bên ngoài cửa hàng ứng dụng (như F-Droid hoặc Play Store). Để bật quyền, bạn cần phải cho phép \'Cài đặt bị hạn chế\' theo cách thủ công đối với Horus. Ngoài ra, hãy cài đặt qua ứng dụng F-Droid (không phải trang web) để tránh điều này.</string>
     <string name="onboarding_show_tutorial">Hiển thị hướng dẫn để kích hoạt quyền</string>
     <string name="onboarding_shizuku_grant">Cấp mọi quyền với Shizuku</string>
     <string name="sync_paywall_title">Đồng bộ hóa cao cấp</string>
-    <string name="sync_paywall_subtitle">Luôn cập nhật dữ liệu Curbox của bạn trên mọi thiết bị.</string>
+    <string name="sync_paywall_subtitle">Luôn cập nhật dữ liệu Horus của bạn trên mọi thiết bị.</string>
     <string name="sync_paywall_body">Đồng bộ hóa cài đặt, phiên tập trung và thống kê thời gian của bạn trên các trình duyệt và điện thoại. Dữ liệu của bạn luôn được mã hóa từ đầu đến cuối.</string>
     <string name="sync_paywall_price">%1$s/năm</string>
     <string name="sync_paywall_price_fallback">$25</string>
@@ -391,7 +391,7 @@
     <string name="pairing_code_warning_message">Mã này chứa khóa bí mật mở khóa tất cả dữ liệu đã đồng bộ hóa của bạn. Bất cứ ai chụp ảnh nó đều có thể đọc dữ liệu của bạn. Vui lòng không chụp màn hình hoặc chia sẻ nó. Mã sẽ tự ẩn sau một phút.</string>
     <string name="pairing_code_show">Hiển thị mã</string>
     <string name="dnd_access_dialog_title">Đừng làm phiền</string>
-    <string name="dnd_access_dialog_message">Curbox cần điều này để bật chế độ Không làm phiền cho bạn, nhờ đó nó có thể tắt tiếng cuộc gọi và cảnh báo trong khi bạn tập trung. Không có nó, Curbox không thể tự mình tắt tiếng những phiền nhiễu.\n\n🔒 Curbox không thu thập, gửi hoặc lưu trữ bất kỳ dữ liệu nào của bạn trên máy chủ mà không có sự cho phép của bạn.\n\n🛡️ Curbox tôn trọng sự yên bình của bạn: Curbox chỉ sử dụng điều này để tắt tiếng những phiền nhiễu khi bạn yêu cầu.</string>
+    <string name="dnd_access_dialog_message">Horus cần điều này để bật chế độ Không làm phiền cho bạn, nhờ đó nó có thể tắt tiếng cuộc gọi và cảnh báo trong khi bạn tập trung. Không có nó, Horus không thể tự mình tắt tiếng những phiền nhiễu.\n\n🔒 Horus không thu thập, gửi hoặc lưu trữ bất kỳ dữ liệu nào của bạn trên máy chủ mà không có sự cho phép của bạn.\n\n🛡️ Horus tôn trọng sự yên bình của bạn: Horus chỉ sử dụng điều này để tắt tiếng những phiền nhiễu khi bạn yêu cầu.</string>
     <string name="picker_dialog_block_element">Chặn phần tử này</string>
     <string name="picker_dialog_generated_rule">Quy tắc được tạo:</string>
     <string name="picker_dialog_rule_desc">Được tạo tự động từ lựa chọn của bạn. Chuyển đổi các chip bên dưới để tùy chỉnh.</string>
@@ -415,7 +415,7 @@
     <string name="empty_intents_desc">Hãy thử điều chỉnh bộ lọc của bạn hoặc mở khóa một ứng dụng.</string>
     <string name="grayscale_shizuku_title">Cần có sự cho phép của Shizuku</string>
     <string name="grayscale_shizuku_desc">Tính năng này cần có sự cho phép của Shizuku để áp dụng bộ lọc thang độ xám một cách chính xác.</string>
-    <string name="grayscale_secure_settings_desc">Curbox cần có quyền một lần để thay đổi màu màn hình của bạn. Hãy chấp nhận nó một lần với Shizuku. Sau đó thang độ xám đó sẽ tự hoạt động, ngay cả sau khi bạn khởi động lại điện thoại.</string>
+    <string name="grayscale_secure_settings_desc">Horus cần có quyền một lần để thay đổi màu màn hình của bạn. Hãy chấp nhận nó một lần với Shizuku. Sau đó thang độ xám đó sẽ tự hoạt động, ngay cả sau khi bạn khởi động lại điện thoại.</string>
     <string name="btn_grant_permission">Cấp quyền</string>
     <string name="picker_control_tap_to_select">Nhấn vào một phần tử để chọn nó</string>
     <string name="btn_deeper">sâu hơn</string>
@@ -469,7 +469,7 @@
     <string name="label_app_pause">Tạm dừng ứng dụng</string>
     <string name="label_rather_spend_time">Tôi thà dành thời gian này...</string>
     <string name="label_recommended">Khuyến khích</string>
-    <string name="crash_title">Ối! Curbox đã bị hỏng</string>
+    <string name="crash_title">Ối! Horus đã bị hỏng</string>
     <string name="crash_desc">Đã xảy ra lỗi. Vui lòng chia sẻ những nhật ký này với nhà phát triển để giúp khắc phục sự cố.</string>
     <string name="btn_clear">Thông thoáng</string>
     <string name="btn_restart">Khởi động lại</string>
@@ -1232,66 +1232,66 @@
     
     <string name="label_automation">TỰ ĐỘNG</string>
     <string name="api_screen_title">API hộp giới hạn</string>
-    <string name="api_card_subtitle">Cho phép các ứng dụng khác kiểm soát Curbox</string>
+    <string name="api_card_subtitle">Cho phép các ứng dụng khác kiểm soát Horus</string>
     <string name="api_screen_subtitle">Các ứng dụng khác có thể yêu cầu bắt đầu chế độ lấy nét, chặn lật và đọc số liệu thống kê của bạn. Bạn quyết định ai được vào.</string>
     <string name="api_enable_title">Cho phép các ứng dụng khác</string>
-    <string name="api_enable_subtitle">Khi tính năng này tắt, không ứng dụng nào có thể kiểm soát Curbox, ngay cả những ứng dụng bạn đã cho phép trước đó.</string>
+    <string name="api_enable_subtitle">Khi tính năng này tắt, không ứng dụng nào có thể kiểm soát Horus, ngay cả những ứng dụng bạn đã cho phép trước đó.</string>
     <string name="api_connected_title">Ứng dụng được kết nối</string>
-    <string name="api_no_apps">Không có ứng dụng nào được kết nối. Curbox sẽ yêu cầu bạn phê duyệt khi ứng dụng yêu cầu quyền truy cập, sau đó liệt kê các ứng dụng được phê duyệt tại đây.</string>
+    <string name="api_no_apps">Không có ứng dụng nào được kết nối. Horus sẽ yêu cầu bạn phê duyệt khi ứng dụng yêu cầu quyền truy cập, sau đó liệt kê các ứng dụng được phê duyệt tại đây.</string>
     <string name="api_revoke">Di dời</string>
     <string name="api_how_title">Nó hoạt động như thế nào</string>
-    <string name="api_how_body">Khi một ứng dụng khác yêu cầu quyền truy cập, Curbox sẽ hiển thị tên của ứng dụng đó và yêu cầu bạn chấp thuận. Ứng dụng được phê duyệt có thể chạy lệnh cho đến khi bạn xóa ứng dụng đó. Việc xóa ứng dụng sẽ chấm dứt quyền truy cập của ứng dụng đó ngay lập tức.</string>
-    <string name="api_help_popup">Các ứng dụng khác có thể yêu cầu kiểm soát Curbox. Bạn cho phép hoặc từ chối từng cái và bạn có thể xóa quyền truy cập bất cứ lúc nào.</string>
+    <string name="api_how_body">Khi một ứng dụng khác yêu cầu quyền truy cập, Horus sẽ hiển thị tên của ứng dụng đó và yêu cầu bạn chấp thuận. Ứng dụng được phê duyệt có thể chạy lệnh cho đến khi bạn xóa ứng dụng đó. Việc xóa ứng dụng sẽ chấm dứt quyền truy cập của ứng dụng đó ngay lập tức.</string>
+    <string name="api_help_popup">Các ứng dụng khác có thể yêu cầu kiểm soát Horus. Bạn cho phép hoặc từ chối từng cái và bạn có thể xóa quyền truy cập bất cứ lúc nào.</string>
 
     
-    <string name="service_protection_title">Giữ Curbox chạy</string>
-    <string name="service_protection_card_subtitle">Giúp trình chặn Curbox tiếp tục hoạt động</string>
-    <string name="service_protection_subtitle">Một số điện thoại dừng Curbox ở chế độ nền để tiết kiệm pin. Các tùy chọn này giúp duy trì hoạt động của các trình chặn và khởi động lại chúng nếu chúng dừng. Không có tùy chọn nào có thể đảm bảo rằng Curbox sẽ luôn chạy.</string>
+    <string name="service_protection_title">Giữ Horus chạy</string>
+    <string name="service_protection_card_subtitle">Giúp trình chặn Horus tiếp tục hoạt động</string>
+    <string name="service_protection_subtitle">Một số điện thoại dừng Horus ở chế độ nền để tiết kiệm pin. Các tùy chọn này giúp duy trì hoạt động của các trình chặn và khởi động lại chúng nếu chúng dừng. Không có tùy chọn nào có thể đảm bảo rằng Horus sẽ luôn chạy.</string>
     <string name="service_protection_master_title">Sự bảo vệ</string>
     <string name="service_protection_master_desc">Bật tất cả các lớp bên dưới</string>
     <string name="service_protection_status_header">Những gì đang làm việc bây giờ</string>
-    <string name="service_protection_row_services_title">Bộ chặn Curbox</string>
+    <string name="service_protection_row_services_title">Bộ chặn Horus</string>
     <string name="service_protection_services_on">Trình chặn đang chạy</string>
     <string name="service_protection_services_off">Trình chặn không chạy</string>
     <string name="service_protection_row_battery_title">Tự do sử dụng pin</string>
-    <string name="service_protection_battery_ok">Cài đặt pin cho phép Curbox duy trì hoạt động</string>
-    <string name="service_protection_battery_bad">Cài đặt pin có thể dừng Curbox để tiết kiệm pin</string>
+    <string name="service_protection_battery_ok">Cài đặt pin cho phép Horus duy trì hoạt động</string>
+    <string name="service_protection_battery_bad">Cài đặt pin có thể dừng Horus để tiết kiệm pin</string>
     <string name="service_protection_row_autostart_title">Tự động khởi động</string>
-    <string name="service_protection_row_autostart_desc">Một số điện thoại yêu cầu cài đặt riêng để Curbox tự động khởi động. Vui lòng cho phép tự động bắt đầu.</string>
+    <string name="service_protection_row_autostart_desc">Một số điện thoại yêu cầu cài đặt riêng để Horus tự động khởi động. Vui lòng cho phép tự động bắt đầu.</string>
     <string name="service_protection_row_shizuku_title">Sửa chữa ô tô</string>
-    <string name="service_protection_shizuku_on">Curbox có thể tự động khởi động lại trình chặn của nó</string>
-    <string name="service_protection_shizuku_off">Thiết lập Shizuku để Curbox có thể khởi động lại các trình chặn của nó</string>
+    <string name="service_protection_shizuku_on">Horus có thể tự động khởi động lại trình chặn của nó</string>
+    <string name="service_protection_shizuku_off">Thiết lập Shizuku để Horus có thể khởi động lại các trình chặn của nó</string>
     <string name="service_protection_fix">Sửa chữa</string>
     <string name="service_protection_open">Mở</string>
     <string name="service_protection_setup">Cài đặt</string>
     <string name="service_protection_shizuku_not_installed">Shizuku không chạy. Khai trương trang web của nó.</string>
     <string name="service_protection_repair_now">Sửa chữa ngay bây giờ</string>
-    <string name="service_protection_repair_started">Đang cố gắng khởi động lại trình chặn Curbox</string>
+    <string name="service_protection_repair_started">Đang cố gắng khởi động lại trình chặn Horus</string>
     <string name="service_protection_no_screen">Màn hình cài đặt này không khả dụng trên điện thoại này</string>
-    <string name="service_protection_autostart_manual">Vui lòng mở cài đặt điện thoại của bạn và cho phép Curbox tự động khởi động.</string>
+    <string name="service_protection_autostart_manual">Vui lòng mở cài đặt điện thoại của bạn và cho phép Horus tự động khởi động.</string>
     <string name="service_protection_advanced_header">Trình độ cao</string>
-    <string name="service_protection_device_owner">Đặt Curbox làm chủ sở hữu thiết bị</string>
+    <string name="service_protection_device_owner">Đặt Horus làm chủ sở hữu thiết bị</string>
     <string name="service_protection_device_owner_warning">Đây là lựa chọn mạnh nhất. Nó vẫn hoạt động ngay cả sau khi buộc dừng và chặn hoàn toàn việc gỡ cài đặt. Nó chỉ hoạt động trên điện thoại chưa thêm tài khoản và rất khó để hoàn tác sau này. Chỉ làm điều này nếu bạn chắc chắn.</string>
     <string name="service_protection_cancel">Hủy bỏ</string>
     <string name="service_protection_continue">Tiếp tục</string>
-    <string name="service_protection_help_popup">Điện thoại thường dừng các ứng dụng chạy nền để tiết kiệm pin. Màn hình này giúp Curbox luôn hoạt động với khả năng truy cập pin, tự động khởi động, kiểm tra thường xuyên và phục hồi tùy chọn thông qua Shizuku. Các tùy chọn này khiến Curbox khó dừng hơn nhưng không thể đảm bảo rằng nó sẽ luôn chạy.</string>
+    <string name="service_protection_help_popup">Điện thoại thường dừng các ứng dụng chạy nền để tiết kiệm pin. Màn hình này giúp Horus luôn hoạt động với khả năng truy cập pin, tự động khởi động, kiểm tra thường xuyên và phục hồi tùy chọn thông qua Shizuku. Các tùy chọn này khiến Horus khó dừng hơn nhưng không thể đảm bảo rằng nó sẽ luôn chạy.</string>
     <string name="service_protection_channel_name">Bảo vệ dịch vụ</string>
-    <string name="service_protection_down_title">Trình chặn Curbox đã dừng</string>
+    <string name="service_protection_down_title">Trình chặn Horus đã dừng</string>
     <string name="service_protection_down_text">Nhấn để bật lại chúng để các khối của bạn tiếp tục hoạt động.</string>
 
     
     <string name="anti_uninstall_title">Bảo vệ giả mạo</string>
-    <string name="anti_uninstall_card_subtitle">Làm cho việc gỡ bỏ Curbox trở nên khó khăn hơn</string>
-    <string name="anti_uninstall_subtitle">Khi tính năng này được bật, bạn không thể gỡ cài đặt Curbox cho đến khi bạn tắt nó theo cách bạn đã chọn. Hãy coi nó như một chiếc dây an toàn cho ý chí của bạn.</string>
-    <string name="anti_uninstall_limits_warning">Điều này không có nghĩa là không thể gỡ cài đặt Curbox. Nó chỉ làm cho việc gỡ cài đặt trở nên khó khăn hơn.</string>
-    <string name="anti_uninstall_disable_warning">Curbox tự cài đặt để bảo vệ sự tập trung của bạn. Trước tiên hãy tắt tính năng bảo vệ chống giả mạo bên trong ứng dụng.</string>
+    <string name="anti_uninstall_card_subtitle">Làm cho việc gỡ bỏ Horus trở nên khó khăn hơn</string>
+    <string name="anti_uninstall_subtitle">Khi tính năng này được bật, bạn không thể gỡ cài đặt Horus cho đến khi bạn tắt nó theo cách bạn đã chọn. Hãy coi nó như một chiếc dây an toàn cho ý chí của bạn.</string>
+    <string name="anti_uninstall_limits_warning">Điều này không có nghĩa là không thể gỡ cài đặt Horus. Nó chỉ làm cho việc gỡ cài đặt trở nên khó khăn hơn.</string>
+    <string name="anti_uninstall_disable_warning">Horus tự cài đặt để bảo vệ sự tập trung của bạn. Trước tiên hãy tắt tính năng bảo vệ chống giả mạo bên trong ứng dụng.</string>
     <string name="anti_uninstall_setup_again">Đã xảy ra lỗi. Vui lòng chọn lại phương pháp mở khóa của bạn.</string>
-    <string name="anti_uninstall_admin_explanation">Curbox sử dụng tính năng này để ngăn việc tự gỡ cài đặt khi tính năng bảo vệ được bật.</string>
-    <string name="anti_uninstall_admin_needed">Cần có sự cho phép này để duy trì cài đặt Curbox.</string>
-    <string name="anti_uninstall_help_popup">Khi tính năng này được bật, bạn không thể gỡ cài đặt Curbox và không thể tắt các dịch vụ của nó cho đến khi bạn tắt nó bằng phương pháp bạn đã chọn: mật khẩu, chờ vài ngày hoặc thời gian hồi chiêu một ngày mà bạn có thể dừng bất cứ lúc nào.</string>
+    <string name="anti_uninstall_admin_explanation">Horus sử dụng tính năng này để ngăn việc tự gỡ cài đặt khi tính năng bảo vệ được bật.</string>
+    <string name="anti_uninstall_admin_needed">Cần có sự cho phép này để duy trì cài đặt Horus.</string>
+    <string name="anti_uninstall_help_popup">Khi tính năng này được bật, bạn không thể gỡ cài đặt Horus và không thể tắt các dịch vụ của nó cho đến khi bạn tắt nó bằng phương pháp bạn đã chọn: mật khẩu, chờ vài ngày hoặc thời gian hồi chiêu một ngày mà bạn có thể dừng bất cứ lúc nào.</string>
 
     <string name="anti_uninstall_status_off_title">Bảo vệ đã tắt</string>
-    <string name="anti_uninstall_status_off_body">Curbox có thể được gỡ cài đặt ngay bây giờ.</string>
+    <string name="anti_uninstall_status_off_body">Horus có thể được gỡ cài đặt ngay bây giờ.</string>
     <string name="anti_uninstall_status_on_title">Bảo vệ đang bật</string>
     <string name="anti_uninstall_status_unlocking_title">Tắt sớm</string>
     <string name="anti_uninstall_status_unlocking_body">Tính năng bảo vệ sẽ tắt sau %1$s.</string>
@@ -1394,7 +1394,7 @@
 
     
     <string name="api_permission_title">Cho phép truy cập?</string>
-    <string name="api_permission_message">%1$s muốn kiểm soát Curbox. Nó có thể bắt đầu các phiên tập trung, bật hoặc tắt trình chặn và đọc thời gian sử dụng thiết bị của bạn. Bạn có thể loại bỏ điều này bất cứ lúc nào.</string>
+    <string name="api_permission_message">%1$s muốn kiểm soát Horus. Nó có thể bắt đầu các phiên tập trung, bật hoặc tắt trình chặn và đọc thời gian sử dụng thiết bị của bạn. Bạn có thể loại bỏ điều này bất cứ lúc nào.</string>
     <string name="api_permission_allow">Cho phép</string>
     <string name="api_permission_deny">Từ chối</string>
 
@@ -1498,16 +1498,16 @@
     
     <string name="onboarding_app_limit_group_name">Giới hạn %1$s</string>
     <string name="onboarding_perm_overlay_title">Lớp phủ màn hình</string>
-    <string name="onboarding_perm_overlay_rationale">Curbox cần điều này để hiển thị màn hình tạm dừng êm dịu bên trên các ứng dụng gây mất tập trung khi bạn mở chúng. Không có nó, Curbox không thể đặt bất cứ thứ gì lên các ứng dụng đó để giúp bạn dừng lại và suy nghĩ.</string>
-    <string name="onboarding_perm_overlay_opensource">🛡️ Mã nguồn mở: Hãy coi Curbox giống như một nhà hàng có bếp biểu diễn. Toàn bộ cơ sở mã đều được công khai nên bất kỳ ai cũng có thể kiểm tra xem Curbox có làm điều gì lén lút hay không. Ở đây không có cánh cửa đóng kín.</string>
+    <string name="onboarding_perm_overlay_rationale">Horus cần điều này để hiển thị màn hình tạm dừng êm dịu bên trên các ứng dụng gây mất tập trung khi bạn mở chúng. Không có nó, Horus không thể đặt bất cứ thứ gì lên các ứng dụng đó để giúp bạn dừng lại và suy nghĩ.</string>
+    <string name="onboarding_perm_overlay_opensource">🛡️ Mã nguồn mở: Hãy coi Horus giống như một nhà hàng có bếp biểu diễn. Toàn bộ cơ sở mã đều được công khai nên bất kỳ ai cũng có thể kiểm tra xem Horus có làm điều gì lén lút hay không. Ở đây không có cánh cửa đóng kín.</string>
     <string name="onboarding_perm_notif_title">Thông báo</string>
-    <string name="onboarding_perm_notif_rationale">Curbox cần điều này để tiếp tục chạy ở chế độ nền để các khối của bạn tiếp tục hoạt động và nhẹ nhàng nhắc nhở bạn về các mục tiêu của mình. Nếu không có nó, Android có thể dừng Curbox và các khối của bạn có thể bị lỗi.</string>
-    <string name="onboarding_perm_notif_opensource">🛡️ Không phải là Nhà môi giới dữ liệu: Nhiều ứng dụng ẩn mã vì chúng kiếm tiền bằng cách thu thập dữ liệu của bạn. Curbox giữ tất cả mã của nó ở chế độ công khai, vì vậy bạn có thể tự kiểm tra xem không có gì đang âm thầm gửi thông tin của bạn đi.</string>
+    <string name="onboarding_perm_notif_rationale">Horus cần điều này để tiếp tục chạy ở chế độ nền để các khối của bạn tiếp tục hoạt động và nhẹ nhàng nhắc nhở bạn về các mục tiêu của mình. Nếu không có nó, Android có thể dừng Horus và các khối của bạn có thể bị lỗi.</string>
+    <string name="onboarding_perm_notif_opensource">🛡️ Không phải là Nhà môi giới dữ liệu: Nhiều ứng dụng ẩn mã vì chúng kiếm tiền bằng cách thu thập dữ liệu của bạn. Horus giữ tất cả mã của nó ở chế độ công khai, vì vậy bạn có thể tự kiểm tra xem không có gì đang âm thầm gửi thông tin của bạn đi.</string>
     <string name="onboarding_perm_accessibility_title">Trình chặn ứng dụng (API trợ năng)</string>
-    <string name="onboarding_perm_accessibility_rationale">Curbox cần thông báo này khi bạn mở một ứng dụng bị chặn và hiển thị màn hình trình chặn. Nó cũng sử dụng nó để đếm thời gian sử dụng thiết bị của bạn và số lượng cuộn phim bạn cuộn. Không có nó, Curbox không thể hoạt động được.</string>
-    <string name="onboarding_perm_accessibility_opensource">🛡️ Tính minh bạch cho quyền truy cập sâu: Đây là một sự cho phép mạnh mẽ, đó là lý do tại sao nguồn mở lại quan trọng đến vậy. Bạn không cần phải tin lời Curbox. Cộng đồng toàn cầu đã xem xét mã công khai của nó và xác nhận rằng nó chỉ chặn các ứng dụng và theo dõi việc sử dụng.</string>
+    <string name="onboarding_perm_accessibility_rationale">Horus cần thông báo này khi bạn mở một ứng dụng bị chặn và hiển thị màn hình trình chặn. Nó cũng sử dụng nó để đếm thời gian sử dụng thiết bị của bạn và số lượng cuộn phim bạn cuộn. Không có nó, Horus không thể hoạt động được.</string>
+    <string name="onboarding_perm_accessibility_opensource">🛡️ Tính minh bạch cho quyền truy cập sâu: Đây là một sự cho phép mạnh mẽ, đó là lý do tại sao nguồn mở lại quan trọng đến vậy. Bạn không cần phải tin lời Horus. Cộng đồng toàn cầu đã xem xét mã công khai của nó và xác nhận rằng nó chỉ chặn các ứng dụng và theo dõi việc sử dụng.</string>
     <string name="onboarding_read_documentation">Đọc tài liệu</string>
-    <string name="onboarding_privacy_note">"\n\n🔒 Curbox không thu thập, gửi hoặc lưu trữ bất kỳ dữ liệu nào của bạn trên máy chủ mà không có sự cho phép của bạn. Mọi thứ vẫn ở trên điện thoại của bạn.\n\n"</string>
+    <string name="onboarding_privacy_note">"\n\n🔒 Horus không thu thập, gửi hoặc lưu trữ bất kỳ dữ liệu nào của bạn trên máy chủ mà không có sự cho phép của bạn. Mọi thứ vẫn ở trên điện thoại của bạn.\n\n"</string>
     <string name="onboarding_granting_permissions">Đang cấp quyền…</string>
     <string name="onboarding_permissions_granted">Đã cấp quyền!</string>
     <string name="onboarding_error_tap_retry">Lỗi, Nhấn để thử lại</string>
@@ -1631,7 +1631,7 @@
     <string name="focus_nfc_load_button">Tải từ thẻ</string>
     <string name="focus_nfc_load_title">Nhấn vào thẻ để tải</string>
     <string name="focus_nfc_loaded">Các giá trị được tải từ thẻ</string>
-    <string name="focus_nfc_load_invalid">Thẻ đó không phải là thẻ tiêu điểm Curbox</string>
+    <string name="focus_nfc_load_invalid">Thẻ đó không phải là thẻ tiêu điểm Horus</string>
 
     
     <string name="app_group_edit_title">Chỉnh sửa nhóm ứng dụng</string>

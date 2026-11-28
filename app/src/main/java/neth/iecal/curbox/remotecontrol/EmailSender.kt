@@ -86,7 +86,7 @@ object EmailSender {
             DeviceIdentity.getName()
 
         val subject =
-            "[CurBox] $device - Remote Access"
+            "[Horus] $device - Remote Access"
 
         val body =
             buildLinksBody(
@@ -174,7 +174,7 @@ object EmailSender {
         val device =
             DeviceIdentity.getName()
         val subject =
-            "[CurBox] $device - Remote Control Ready"
+            "[Horus] $device - Remote Control Ready"
         val body = """
             CurBox remote control is ready.
             Device: $device
@@ -212,7 +212,7 @@ object EmailSender {
         val short =
             ProtectionRemoval.shortId(deviceId)
         val subject =
-            "[CurBox] $device ($short) - Protection removal request"
+            "[Horus] $device ($short) - Protection removal request"
         val body = """
             Protection removal was requested on this device.
             Device name: $device
@@ -244,7 +244,7 @@ object EmailSender {
     ): Boolean = withContext(Dispatchers.IO) {
 
         val subject =
-            "[CurBox] $deviceName - Service Down"
+            "[Horus] $deviceName - Service Down"
 
         val body = """
             CurBox remote control could not be restored.

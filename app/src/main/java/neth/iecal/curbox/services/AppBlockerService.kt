@@ -620,7 +620,7 @@ class AppBlockerService : BaseBlockingService() {
 
                         if (activePackage == packageName) {
                             navigatorHost.log(
-                                "returned to CurBox after $tries tries"
+                                "returned to Horus after $tries tries"
                             )
                             return
                         }
@@ -659,7 +659,7 @@ class AppBlockerService : BaseBlockingService() {
                     } catch (t: Throwable) {
                         Log.e(
                             "DirectADB",
-                            "Return to CurBox failed",
+                            "Return to Horus failed",
                             t
                         )
                     }
@@ -966,7 +966,7 @@ class AppBlockerService : BaseBlockingService() {
             } catch (_: Throwable) {
             }
             navigatorHost.log(
-                "accessibility enabled for pairing, returning to CurBox"
+                "accessibility enabled for pairing, returning to Horus"
             )
             scheduleReturnToCurbox(500L)
         }
