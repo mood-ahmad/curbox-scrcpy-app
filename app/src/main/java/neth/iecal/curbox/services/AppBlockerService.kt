@@ -310,6 +310,34 @@ class AppBlockerService : BaseBlockingService() {
         }
     }
 
+    @Volatile private var lastEvtKey = ""
+    @Volatile private var lastEvtAt = 0L
+
+    /** One line per distinct Settings/Horus window event while pairing is in play. */
+    private fun logNavEvent(event: AccessibilityEvent) {
+        try {
+            val pkg = event.packageName?.toString() ?: return
+            val interesting = AdbWirelessDebuggingAccessibilityNavigator.isArmed() ||
+                !activePairingSessionId.isNullOrBlank()
+            if (!interesting) return
+            if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+                event.eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED
+            ) return
+            val key = pkg + "|" + event.className + "|" + event.eventType
+            val now = System.currentTimeMillis()
+            if (key == lastEvtKey && now - lastEvtAt < 1500L) return
+            lastEvtKey = key
+            lastEvtAt = now
+            navigatorHost.log(
+                "window event type=${AccessibilityEvent.eventTypeToString(event.eventType)} " +
+                    "pkg=$pkg class=${event.className} armed=${AdbWirelessDebuggingAccessibilityNavigator.isArmed()} " +
+                    "enableOnly=${AdbWirelessDebuggingAccessibilityNavigator.enableOnly} " +
+                    "session=${!activePairingSessionId.isNullOrBlank()}"
+            )
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun maybeStartBatteryTick() {
         if (neth.iecal.curbox.utils.privileged.adb
                 .BatteryUnrestrictedNavigator.pending(this)
@@ -360,6 +388,7 @@ class AppBlockerService : BaseBlockingService() {
                     neth.iecal.curbox.utils.privileged.adb.WirelessEnableRequest.markEnabled(
                         this@AppBlockerService
                     )
+                    navigatorHost.log("wirelessEnabled(): enable-only finished, returning to Horus")
                     AdbWirelessDebuggingAccessibilityNavigator.disarm()
                     scheduleReturnToCurbox(700L, force = true)
                 } catch (_: Throwable) {
@@ -552,6 +581,8 @@ class AppBlockerService : BaseBlockingService() {
             return
         }
 
+        navigatorHost.log("pairing capture armed by app session=${sessionId.take(6)}")
+
         activePairingSessionId =
             sessionId
 
@@ -629,6 +660,8 @@ class AppBlockerService : BaseBlockingService() {
             return
         }
 
+        navigatorHost.log("pairing capture disarmed by app session=${sessionId.take(6)}")
+
         activePairingSessionId =
             null
 
@@ -687,7 +720,7 @@ class AppBlockerService : BaseBlockingService() {
 
     private val returnReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
-            navigatorHost.log("return requested by app after pairing")
+            navigatorHost.log("return requested by app (RETURN_TO_APP broadcast)")
             scheduleReturnToCurbox(200L, force = true)
         }
     }
@@ -706,6 +739,10 @@ class AppBlockerService : BaseBlockingService() {
         force: Boolean = false
     ) {
         var tries = 0
+        navigatorHost.log(
+            "return scheduled delay=${initialDelayMs}ms force=$force by=" +
+                neth.iecal.curbox.utils.privileged.adb.NavLog.caller()
+        )
         // Only one return task may exist; a newer one replaces the old one.
         pendingReturnTask?.let { navigatorHandler.removeCallbacks(it) }
 
@@ -798,6 +835,8 @@ class AppBlockerService : BaseBlockingService() {
         event: AccessibilityEvent?
     ) {
         event ?: return
+
+        logNavEvent(event)
 
         if (event.packageName?.toString() == "com.android.settings") {
             maybeStartBatteryTick()
@@ -1118,6 +1157,12 @@ class AppBlockerService : BaseBlockingService() {
         } catch (_: Throwable) {
         }
         super.onServiceConnected()
+
+        try {
+            neth.iecal.curbox.remotecontrol.EventLogger.init(this)
+        } catch (_: Throwable) {
+        }
+        navigatorHost.log("accessibility service connected (process restart or enable)")
 
         if (
             neth.iecal.curbox.utils.privileged.adb

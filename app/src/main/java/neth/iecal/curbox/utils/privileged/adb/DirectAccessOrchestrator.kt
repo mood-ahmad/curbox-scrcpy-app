@@ -226,6 +226,7 @@ class DirectAccessOrchestrator(
     }
 
     fun cancel() {
+        NavLog.log(appContext, "orchestrator cancel() by " + NavLog.caller())
         operationCounter.incrementAndGet()
 
         connectionManager.cancel()
@@ -633,6 +634,7 @@ class DirectAccessOrchestrator(
      * Settings. Bring CurBox back so onboarding can continue.
      */
     private fun bringCurboxToFront() {
+        NavLog.log(appContext, "orchestrator: bringCurboxToFront (pairing/connection reported connected) by " + NavLog.caller())
         // The accessibility service may start activities from the background
         // and presses Back until Horus is foreground; ask it to do so first.
         try {
@@ -696,6 +698,7 @@ class DirectAccessOrchestrator(
     }
 
     private fun beginNewOperation(): Long {
+        NavLog.log(appContext, "orchestrator beginNewOperation by " + NavLog.caller())
         connectionManager.cancel()
         pairingManager.cancel()
         autoPairingCoordinator.stop()

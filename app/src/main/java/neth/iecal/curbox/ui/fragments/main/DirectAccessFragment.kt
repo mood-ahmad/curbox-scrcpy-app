@@ -192,6 +192,7 @@ class DirectAccessFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(context, "fragment onDestroyView (cancels orchestrator)")
         waitingForAccessibilityReturn =
             false
 
@@ -218,6 +219,10 @@ class DirectAccessFragment : Fragment() {
     private fun startAutomaticPairing(
         openSettingsAfterReady: Boolean
     ) {
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(
+            context,
+            "fragment startAutomaticPairing openSettings=$openSettingsAfterReady inProgress=$operationInProgress"
+        )
         if (operationInProgress) {
             return
         }
@@ -266,6 +271,10 @@ class DirectAccessFragment : Fragment() {
                 },
 
                 onWirelessRequired = {
+                    neth.iecal.curbox.utils.privileged.adb.NavLog.log(
+                        context,
+                        "fragment: Wireless debugging required, accessibility=${isCurBoxAccessibilityEnabled()}"
+                    )
                     openSettingsWhenAccessibilityReady =
                         false
 

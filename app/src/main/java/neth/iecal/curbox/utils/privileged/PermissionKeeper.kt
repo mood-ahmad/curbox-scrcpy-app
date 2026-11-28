@@ -46,6 +46,7 @@ object PermissionKeeper {
             if (now - lastRun < MIN_GAP_MS) return
             lastRun = now
         }
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(app, "PermissionKeeper.ensure reason=$reason")
         try {
             ensureAccessibility(app)
             if (DirectAccessLifecycleManager.isRecoveryEnabled(app)) {

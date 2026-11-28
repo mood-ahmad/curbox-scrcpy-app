@@ -147,7 +147,7 @@ object AdbWirelessDebuggingAccessibilityNavigator {
 
     fun disarm() {
         if (armed.getAndSet(false)) {
-            note("disarmed")
+            note("disarmed by ${NavLog.caller()}")
         }
     }
 
@@ -227,6 +227,14 @@ object AdbWirelessDebuggingAccessibilityNavigator {
         // Every pass starts by re-detecting the screen. A new screen or a
         // long stall resets all attempt limits, so nothing stays stuck.
         val cls = classify(root)
+        if (passCount <= 20) {
+            note(
+                "decision pass #$passCount cls=$cls enableOnly=$enableOnly " +
+                    "wdRow=${matcher.findByLabels(root, matcher.wirelessDebuggingLabels) != null} " +
+                    "pairRow=${matcher.findByLabels(root, matcher.pairByCodeLabels, matcher.PAIR_BY_CODE_KEY) != null} " +
+                    "devEntry=${matcher.findByLabels(root, DEVELOPER_OPTIONS_LABELS) != null}"
+            )
+        }
         if (cls != screenClass) {
             note("screen $screenClass -> $cls")
             screenClass = cls

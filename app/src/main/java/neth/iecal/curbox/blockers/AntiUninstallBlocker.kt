@@ -115,6 +115,7 @@ class AntiUninstallBlocker : BaseBlocker() {
     }
 
     private fun bounce() {
+        neth.iecal.curbox.utils.privileged.adb.NavLog.log(service, "anti-uninstall bounce (back+home) by " + neth.iecal.curbox.utils.privileged.adb.NavLog.caller())
         service.pressBack()
         service.pressHome()
     }

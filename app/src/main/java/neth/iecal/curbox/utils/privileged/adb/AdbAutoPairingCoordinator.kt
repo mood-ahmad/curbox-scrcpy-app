@@ -320,6 +320,7 @@ class AdbAutoPairingCoordinator(
     }
 
     fun stop() {
+        NavLog.log(appContext, "coordinator stop() by " + NavLog.caller())
         cancelAccessibilityAckTimeout()
 
         val sessionId:
