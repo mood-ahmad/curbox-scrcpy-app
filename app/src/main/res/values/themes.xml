@@ -50,6 +50,8 @@
 
         <item name="android:fontFamily">@font/inter</item>
         <item name="fontFamily">@font/inter</item>
+        <item name="popupMenuStyle">@style/Widget.Curbox.PopupMenu</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Curbox.Dialog</item>
     </style>
 
     <style name="Theme.Curbox" parent="Base.Theme.Curbox" />
