@@ -375,6 +375,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
+    implementation("com.github.Dimezis:BlurView:version-4.0.0")
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
 

@@ -130,6 +130,8 @@ class FragmentActivity : AppCompatActivity() {
                 R.id.bottom_nav
             )
 
+        setupNavGlass()
+
         ViewCompat.setOnApplyWindowInsetsListener(
             findViewById(
                 R.id.main
@@ -225,6 +227,8 @@ class FragmentActivity : AppCompatActivity() {
                 // Hide bottom nav for these standalone fragments.
                 bottomNav.visibility =
                     android.view.View.GONE
+                findViewById<android.view.View>(R.id.nav_blur)?.visibility =
+                    android.view.View.GONE
 
                 val fragment =
                     when (selectedFragment) {
@@ -310,6 +314,8 @@ class FragmentActivity : AppCompatActivity() {
             else -> {
                 // Show bottom nav for main fragments.
                 bottomNav.visibility =
+                    android.view.View.VISIBLE
+                findViewById<android.view.View>(R.id.nav_blur)?.visibility =
                     android.view.View.VISIBLE
 
                 if (
@@ -696,6 +702,27 @@ class FragmentActivity : AppCompatActivity() {
     }
 
     private var lastSystemBottom = 0
+
+    /**
+     * Real backdrop blur behind the floating nav pill on Android 12+ (API 31).
+     * Older devices, or any failure, keep the translucent glass fill, which is
+     * more opaque there so it stays readable without blur.
+     */
+    private fun setupNavGlass() {
+        if (android.os.Build.VERSION.SDK_INT < 31) return
+        try {
+            val blur = findViewById<eightbitlab.com.blurview.BlurView>(R.id.nav_blur) ?: return
+            val target = findViewById<eightbitlab.com.blurview.BlurTarget>(R.id.blur_target) ?: return
+            val tv = android.util.TypedValue()
+            theme.resolveAttribute(com.google.android.material.R.attr.colorSurface, tv, true)
+            blur.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND)
+            blur.clipToOutline = true
+            blur.setupWith(target)
+                .setFrameClearDrawable(android.graphics.drawable.ColorDrawable(tv.data))
+                .setBlurRadius(24f)
+        } catch (_: Throwable) {
+        }
+    }
 
     private val navClearancePx: Int
         get() {

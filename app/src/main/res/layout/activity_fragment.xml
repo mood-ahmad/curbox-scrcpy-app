@@ -8,25 +8,44 @@
     android:background="?attr/colorSurface"
     tools:context=".ui.activity.FragmentActivity">
 
-    <androidx.fragment.app.FragmentContainerView
-        android:id="@+id/fragment_holder"
+    <eightbitlab.com.blurview.BlurTarget
+        android:id="@+id/blur_target"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent">
+
+        <androidx.fragment.app.FragmentContainerView
+            android:id="@+id/fragment_holder"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </eightbitlab.com.blurview.BlurTarget>
+
+    <!-- Glass layer behind the nav pill. Sits exactly under bottom_nav. -->
+    <eightbitlab.com.blurview.BlurView
+        android:id="@+id/nav_blur"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignStart="@+id/bottom_nav"
+        android:layout_alignTop="@+id/bottom_nav"
+        android:layout_alignEnd="@+id/bottom_nav"
+        android:layout_alignBottom="@+id/bottom_nav"
+        android:background="@drawable/bg_floating_nav"
+        android:clipToOutline="true"
+        android:elevation="10dp" />
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottom_nav"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="68dp"
         android:layout_alignParentBottom="true"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="12dp"
-        android:background="@drawable/bg_floating_nav"
-        android:clipToOutline="true"
+        android:background="@android:color/transparent"
         android:paddingStart="8dp"
         android:paddingEnd="8dp"
-        android:elevation="10dp"
-        app:elevation="10dp"
+        android:elevation="11dp"
+        app:elevation="0dp"
         app:itemIconSize="24dp"
         app:itemPaddingTop="8dp"
         app:itemPaddingBottom="8dp"
