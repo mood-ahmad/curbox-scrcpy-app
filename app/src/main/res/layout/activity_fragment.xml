@@ -27,7 +27,7 @@
         android:paddingEnd="8dp"
         android:elevation="10dp"
         app:elevation="10dp"
-        app:itemIconSize="22dp"
+        app:itemIconSize="24dp"
         app:itemPaddingTop="8dp"
         app:itemPaddingBottom="8dp"
         app:paddingBottomSystemWindowInsets="false"
