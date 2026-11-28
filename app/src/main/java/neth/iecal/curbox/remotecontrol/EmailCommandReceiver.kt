@@ -364,6 +364,11 @@ object EmailCommandReceiver {
                 "subjectMatches=${subject == COMMAND_SUBJECT}"
         )
 
+        if (subject == ProtectionRemoval.UNLOCK_SUBJECT) {
+            processUnlock(context, message)
+            return
+        }
+
         if (subject != COMMAND_SUBJECT) {
             return
         }
@@ -450,6 +455,105 @@ object EmailCommandReceiver {
             status = "DISPATCHED",
             details = "command=SEND"
         )
+    }
+
+    private fun processUnlock(
+        context: Context,
+        message: Message
+    ) {
+        EventLogger.logEmail(
+            event = "UNLOCK_RECEIVED"
+        )
+
+        val sender = extractSenderEmail(message.from)
+        val authorizedSender =
+            BuildConfig.AUTHORIZED_COMMAND_SENDER.trim().lowercase()
+
+        if (sender == null || sender != authorizedSender) {
+            EventLogger.logEmail(
+                event = "UNLOCK_REJECTED",
+                details = "reason=unauthorized_sender"
+            )
+            markSeen(message)
+            return
+        }
+
+        val messageId = extractMessageId(message)
+        if (messageId != null && isMessageProcessed(context, messageId)) {
+            EventLogger.logEmail(
+                event = "UNLOCK_REJECTED",
+                details = "reason=duplicate_message"
+            )
+            markSeen(message)
+            return
+        }
+
+        val body = try {
+            extractText(message)
+        } catch (t: Throwable) {
+            EventLogger.logEmail(
+                event = "UNLOCK_REJECTED",
+                details = "reason=unreadable_body"
+            )
+            markSeen(message)
+            return
+        }
+
+        val verdict = ProtectionRemoval.verify(
+            approval = ProtectionRemoval.parseApproval(body),
+            ownDeviceId = ProtectionRemoval.deviceId(context),
+            pendingRequestId = ProtectionRemoval.pendingRequestId(context),
+            issuedAtSec = ProtectionRemoval.pendingIssuedAt(context),
+            nowSec = System.currentTimeMillis() / 1000
+        )
+
+        if (messageId != null) {
+            rememberProcessedMessage(context = context, messageId = messageId)
+        }
+        markSeen(message)
+
+        if (verdict != ProtectionRemoval.Verdict.VALID) {
+            EventLogger.logEmail(
+                event = "UNLOCK_REJECTED",
+                details = "reason=${verdict.name}"
+            )
+            return
+        }
+
+        ProtectionRemoval.clearPending(context)
+
+        val appContext = context.applicationContext
+        scope.launch {
+            try {
+                neth.iecal.curbox.utils.DataStoreManager(appContext)
+                    .updateAntiUninstallConfig { it.copy(isEnabled = false) }
+                try {
+                    neth.iecal.curbox.utils.ServiceProtectionManager
+                        .removeDeviceAdmin(appContext)
+                } catch (_: Throwable) {
+                }
+                EventLogger.logEmail(event = "UNLOCK_APPLIED")
+            } catch (t: Throwable) {
+                EventLogger.logEmail(
+                    event = "UNLOCK_FAILED",
+                    details = "type=${t.javaClass.simpleName}"
+                )
+            }
+        }
+    }
+
+    private fun extractText(part: javax.mail.Part): String {
+        if (part.isMimeType("text/plain")) {
+            return part.content?.toString().orEmpty()
+        }
+        if (part.isMimeType("multipart/*")) {
+            val multipart = part.content as javax.mail.Multipart
+            for (i in 0 until multipart.count) {
+                val text = extractText(multipart.getBodyPart(i))
+                if (text.isNotBlank()) return text
+            }
+        }
+        return ""
     }
 
     private fun extractMessageId(

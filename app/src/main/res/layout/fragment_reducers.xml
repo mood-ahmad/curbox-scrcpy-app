@@ -846,8 +846,7 @@
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/card_service_protection"
-            android:visibility="gone"
+            android:id="@+id/card_removal_request"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="20dp"
@@ -874,7 +873,7 @@
                         android:layout_width="24dp"
                         android:layout_height="24dp"
                         android:layout_gravity="center"
-                        android:src="@drawable/baseline_refresh_24"
+                        android:src="@drawable/baseline_lock_24"
                         app:tint="?attr/colorSecondary" />
                 </com.google.android.material.card.MaterialCardView>
 
@@ -888,7 +887,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/service_protection_title"
+                        android:text="@string/removal_request_title"
                         android:textColor="?attr/colorOnSurface"
                         android:textSize="16sp"
                         android:textStyle="bold" />
@@ -896,7 +895,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/service_protection_card_subtitle"
+                        android:text="@string/removal_request_subtitle"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:textSize="13sp" />
                 </LinearLayout>

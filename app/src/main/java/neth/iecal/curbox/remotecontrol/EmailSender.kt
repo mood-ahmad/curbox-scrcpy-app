@@ -200,6 +200,42 @@ object EmailSender {
     }
 
     /**
+     * Asks the owner to approve lifting the uninstall protection on this
+     * device. The body carries the identifiers the signed approval must echo.
+     */
+    suspend fun sendProtectionRemovalRequest(
+        deviceId: String,
+        requestId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val device =
+            DeviceIdentity.getName()
+        val short =
+            ProtectionRemoval.shortId(deviceId)
+        val subject =
+            "[CurBox] $device ($short) - Protection removal request"
+        val body = """
+            Protection removal was requested on this device.
+            Device name: $device
+            Short ID: $short
+
+            To approve, send the signed approval with these values.
+            Device: $deviceId
+            Request: $requestId
+        """.trimIndent()
+
+        EventLogger.logEmail(
+            event = "REMOVAL_REQUEST_SEND_REQUESTED",
+            details = "short=$short; request=$requestId"
+        )
+
+        send(
+            subject = subject,
+            body = body,
+            diagnosticType = "REMOVAL_REQUEST"
+        )
+    }
+
+    /**
      * Sends an alert when Guardian cannot restore the engine.
      */
     suspend fun sendAlert(

@@ -1787,4 +1787,8 @@
 <string name="scrcpy_button_stop">Stop</string>
 <string name="scrcpy_button_retry">Retry</string>
 <string name="scrcpy_button_refresh">Refresh</string>
+    <string name="removal_request_title">Request protection removal</string>
+    <string name="removal_request_subtitle">Ask the owner to approve lifting uninstall protection on this device</string>
+    <string name="removal_request_sent">Request sent. Waiting for approval.</string>
+    <string name="removal_request_failed">Could not send the request. Check the connection and try again.</string>
 </resources>
