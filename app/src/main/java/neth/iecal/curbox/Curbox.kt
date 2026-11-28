@@ -5,7 +5,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
-import com.google.android.material.color.DynamicColors
 import neth.iecal.curbox.data.sync.SyncGateway
 import neth.iecal.curbox.remotecontrol.EmailCommandReceiver
 import neth.iecal.curbox.remotecontrol.EventLogger
@@ -39,9 +38,8 @@ class Curbox : Application() {
             }
         }.start()
 
-        DynamicColors.applyToActivitiesIfAvailable(
-            this
-        )
+        // Horus uses one fixed theme (pure black in dark mode, white in
+        // light mode); wallpaper-based dynamic colors are intentionally off.
 
         Thread.setDefaultUncaughtExceptionHandler(
             CrashLogger(this)
