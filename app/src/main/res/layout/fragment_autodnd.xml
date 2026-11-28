@@ -43,6 +43,7 @@
         app:layout_constraintTop_toBottomOf="@+id/textView" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
+        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Material3.Corner.Full"
         android:id="@+id/fab_add_group"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
