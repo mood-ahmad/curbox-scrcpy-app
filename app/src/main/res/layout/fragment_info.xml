@@ -182,7 +182,7 @@
                         android:layout_width="16dp"
                         android:layout_height="16dp"
                         android:src="@drawable/baseline_arrow_forward_ios_24"
-                        app:tint="?attr/colorPrimary" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
                 </LinearLayout>
 

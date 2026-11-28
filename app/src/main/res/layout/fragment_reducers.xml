@@ -67,7 +67,7 @@
                         android:layout_height="24dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_app_blocker_aesthetic"
-                        app:tint="?attr/colorTertiary" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                 </com.google.android.material.card.MaterialCardView>
 
                 <LinearLayout
@@ -98,7 +98,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -131,7 +131,7 @@
                         android:layout_height="24dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_block_aesthetic"
-                        app:tint="?attr/colorTertiary" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                 </com.google.android.material.card.MaterialCardView>
 
                 <LinearLayout
@@ -162,7 +162,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -195,7 +195,7 @@
                         android:layout_height="24dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_keywords_aesthetic"
-                        app:tint="?attr/colorTertiary" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                 </com.google.android.material.card.MaterialCardView>
 
                 <LinearLayout
@@ -226,7 +226,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -293,7 +293,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -357,7 +357,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -421,7 +421,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -485,7 +485,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -552,7 +552,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -586,7 +586,7 @@
                         android:layout_height="24dp"
                         android:layout_gravity="center"
                         android:src="@drawable/ic_intent_aesthetic"
-                        app:tint="?attr/colorTertiary" />
+                        app:tint="?attr/colorOnSecondaryContainer" />
                 </com.google.android.material.card.MaterialCardView>
 
                 <LinearLayout
@@ -616,7 +616,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -642,8 +642,8 @@
 
             <ImageView
                 android:id="@+id/advanced_arrow"
-                android:layout_width="18dp"
-                android:layout_height="18dp"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
                 android:contentDescription="@null"
                 android:src="@drawable/baseline_arrow_forward_ios_24"
                 app:tint="?attr/colorOnSurfaceVariant" />
@@ -715,7 +715,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -778,7 +778,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -841,7 +841,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -904,7 +904,7 @@
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/baseline_arrow_forward_ios_24"
-                    app:tint="?attr/colorOutline" />
+                    app:tint="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

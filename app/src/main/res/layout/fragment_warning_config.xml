@@ -495,8 +495,8 @@
 
                     <ImageView
                         android:id="@+id/advanced_settings_arrow"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
                         android:contentDescription="@null"
                         android:src="@drawable/baseline_arrow_forward_ios_24"
                         app:tint="?attr/colorOnSurfaceVariant" />
