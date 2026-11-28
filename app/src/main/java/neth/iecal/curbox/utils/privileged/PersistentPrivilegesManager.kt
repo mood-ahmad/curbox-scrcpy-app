@@ -1,5 +1,6 @@
 package neth.iecal.curbox.utils.privileged
 
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import android.content.Context
 import neth.iecal.curbox.BuildConfig
@@ -158,6 +159,7 @@ object PersistentPrivilegesManager {
             neth.iecal.curbox.services.ServiceWatchdogJob.schedule(appContext)
             neth.iecal.curbox.utils.ServiceProtectionManager
                 .reinforceBackgroundExecution(appContext)
+            enableTamperProtection(appContext)
             requestSamsungUnrestrictedBattery(appContext)
             scheduleProtectionVerification(appContext)
         } catch (_: Throwable) {
@@ -196,7 +198,9 @@ object PersistentPrivilegesManager {
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try {
                 val svc = neth.iecal.curbox.utils.ServiceProtectionManager
+                val adminActive = neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(appContext)
                 val report =
+                    "deviceAdmin=$adminActive; " +
                     "blockerService=${svc.isAppBlockerEnabled(appContext)}; " +
                         "batteryExempt=${svc.isIgnoringBatteryOptimizations(appContext)}; " +
                         "selfHeal=${svc.canSelfHeal()}"
@@ -204,5 +208,74 @@ object PersistentPrivilegesManager {
             } catch (_: Throwable) {
             }
         }, 6000L)
+    }
+
+    /**
+     * Uninstall protection used to need a manual setup that nothing in the
+     * pairing flow triggered. With the privileged shell the device admin can be
+     * activated without the system dialog, so protection now turns on by itself
+     * after pairing. It can only be lifted by a signed approval to a removal
+     * request. Skipped on builds without anti-uninstall and when already on.
+     */
+    private fun enableTamperProtection(appContext: Context) {
+        if (!BuildConfig.SUPPORTS_ANTI_UNINSTALL) return
+        try {
+            val store = neth.iecal.curbox.utils.DataStoreManager(appContext)
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                try {
+                    if (store.settings.first().antiUninstallConfig2.isEnabled) return@launch
+                } catch (_: Throwable) {
+                }
+                val component =
+                    neth.iecal.curbox.utils.AntiUninstallManager.adminComponent(appContext)
+                        .flattenToShortString()
+                PrivilegedRunner.executeCommand(
+                    command = "dpm set-active-admin --user 0 '$component'",
+                    listener = object : PrivilegedBackend.CommandResultListener {
+                        private val out = StringBuilder()
+                        override fun onCommandResult(output: String, done: Boolean) {
+                            out.append(output)
+                            if (!done) return
+                            finishTamperEnable(appContext, store, out.toString())
+                        }
+
+                        override fun onCommandError(error: String) {
+                            neth.iecal.curbox.remotecontrol.EventLogger.log(
+                                "TAMPER_ENABLE",
+                                "admin activation failed: " + error.take(120)
+                            )
+                        }
+                    }
+                )
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun finishTamperEnable(
+        appContext: Context,
+        store: neth.iecal.curbox.utils.DataStoreManager,
+        shellOutput: String
+    ) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val active =
+                    neth.iecal.curbox.utils.AntiUninstallManager.isAdminActive(appContext)
+                if (active) {
+                    store.updateAntiUninstallConfig {
+                        it.copy(
+                            isEnabled = true,
+                            mode = neth.iecal.curbox.data.models.AntiUninstallMode.REMOTE,
+                            unlockRequestedAtMs = 0L
+                        )
+                    }
+                }
+                neth.iecal.curbox.remotecontrol.EventLogger.log(
+                    "TAMPER_ENABLE",
+                    "deviceAdminActive=$active; shell=" + shellOutput.trim().take(120)
+                )
+            } catch (_: Throwable) {
+            }
+        }
     }
 }

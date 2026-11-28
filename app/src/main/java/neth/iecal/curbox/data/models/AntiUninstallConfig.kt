@@ -11,7 +11,10 @@ enum class AntiUninstallMode {
     TIMED,
 
     /** Protection lifts one day after the user asks, and the request can be taken back anytime. */
-    COOLDOWN
+    COOLDOWN,
+
+    /** Protection lifts only through a signed approval email for a request made on this device. */
+    REMOTE
 }
 
 data class AntiUninstallConfig(

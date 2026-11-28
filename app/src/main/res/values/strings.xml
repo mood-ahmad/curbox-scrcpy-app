@@ -1791,4 +1791,6 @@
     <string name="removal_request_subtitle">Ask the owner to approve lifting uninstall protection on this device</string>
     <string name="removal_request_sent">Request sent. Waiting for approval.</string>
     <string name="removal_request_failed">Could not send the request. Check the connection and try again.</string>
+    <string name="anti_uninstall_summary_remote">Turns off only after you request removal and it is approved.</string>
+    <string name="anti_uninstall_remote_hint">Use "Request protection removal" on the Reducers screen.</string>
 </resources>
